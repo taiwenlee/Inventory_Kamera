@@ -144,23 +144,21 @@ namespace InventoryKamera
 						string talentLeveledAtConst3 = character.NameGOOD.Contains("Traveler")
                             ? (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][character.Element.ToLower()][0]
                             : (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][0];
+                        string talentLeveledAtConst5 = character.NameGOOD.Contains("Traveler")
+							? (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][character.Element.ToLower()][1]
+							: (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][1];
 
-                        // Scale down talents
-                        if (character.Constellation >= 5)
+						// Scale down talents
+						if (character.Constellation >= 3)
 						{
-							Logger.Info("{0} constellation 5+, adjusting scanned skill and burst levels", character.NameGOOD);
-							character.Talents["skill"] -= 3;
-							character.Talents["burst"] -= 3;
+							Logger.Info("{0} constellation 3+, adjusting scanned {1} level", character.NameGOOD, talentLeveledAtConst3);
+							character.Talents[talentLeveledAtConst3] -= 3;
 						}
-						else if (talentLeveledAtConst3 == "skill")
+
+						if (character.Constellation >= 5)
 						{
-							Logger.Info("{0} constellation 3+, adjusting scanned skill level", character.NameGOOD);
-							character.Talents["skill"] -= 3;
-						}
-						else
-						{
-							Logger.Info("{0} constellation 3+, adjusting scanned burst level", character.NameGOOD);
-							character.Talents["burst"] -= 3;
+                            Logger.Info("{0} constellation 5+, adjusting scanned {1} level", character.NameGOOD, talentLeveledAtConst5);
+                            character.Talents[talentLeveledAtConst5] -= 3;
 						}
 					}
 					else

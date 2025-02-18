@@ -359,7 +359,9 @@ namespace InventoryKamera
                         int characterID = (int)character["id"];
 
                         string const3Description = "";
+                        string const5Description = "";
                         string skill = "";
+                        string auto = "Normal Attack";
 
                         var value = new JObject();
 
@@ -416,7 +418,6 @@ namespace InventoryKamera
                                 skill = skills.First(entry => entry["skillIcon"].ToString().Contains($"Skill_S_{name}"))["nameTextMapHash"].ToString();
                                 skill = Mappings[skill].ToString();
 
-
                                 value.Add("ConstellationName", new JArray
                                 {
                                     GetConstellationNameFromId(characterID)
@@ -428,15 +429,33 @@ namespace InventoryKamera
                                 const3Description = talents.Where(entry => entry["icon"].ToString().Contains(name)).ElementAt(2)["descTextMapHash"].ToString();
                                 const3Description = Mappings[const3Description].ToString();
 
-                                if (const3Description.Contains(skill))
+                                if (const3Description.Contains(auto))
+                                {
+                                    constellationOrder.Add("auto");
+                                } else if (const3Description.Contains(skill))
                                 {
                                     constellationOrder.Add("skill");
-                                    constellationOrder.Add("burst");
                                 }
                                 else
                                 {
                                     constellationOrder.Add("burst");
+                                }
+
+                                // The skill/burst name is always mentioned in the constellation's description so we'll check for it
+                                const5Description = talents.Where(entry => entry["icon"].ToString().Contains(name)).ElementAt(4)["descTextMapHash"].ToString();
+                                const5Description = Mappings[const5Description].ToString();
+
+                                if (const5Description.Contains(auto))
+                                {
+                                    constellationOrder.Add("auto");
+                                }
+                                else if (const5Description.Contains(skill))
+                                {
                                     constellationOrder.Add("skill");
+                                }
+                                else
+                                {
+                                    constellationOrder.Add("burst");
                                 }
 
                                 value.Add("ConstellationOrder", constellationOrder);
