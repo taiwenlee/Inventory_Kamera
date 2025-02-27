@@ -304,12 +304,24 @@ namespace InventoryKamera.Properties {
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("0")]
-        public decimal SortByObtained {
+        public int SortByObtained {
             get {
-                return ((decimal)(this["SortByObtained"]));
+                return ((int)(this["SortByObtained"]));
             }
             set {
                 this["SortByObtained"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("0")]
+        public int NumOfCharToScan {
+            get {
+                return ((int)(this["NumOfCharToScan"]));
+            }
+            set {
+                this["NumOfCharToScan"] = value;
             }
         }
     }

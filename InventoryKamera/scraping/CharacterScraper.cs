@@ -9,13 +9,21 @@ using System.Text.RegularExpressions;
 
 namespace InventoryKamera
 {
-    public static class CharacterScraper
+    internal class CharacterScraper
 	{
 		private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-		public static void ScanCharacters(ref List<Character> Characters)
+		protected int NumOfCharToScan;
+
+        public CharacterScraper()
+		{
+			NumOfCharToScan = Properties.Settings.Default.NumOfCharToScan;
+		}
+
+		public void ScanCharacters(ref List<Character> Characters)
 		{
 			int viewed = 0;
+			int counter = 0;
 			string first = null;
 			HashSet<string> scanned = new HashSet<string>();
 
@@ -31,6 +39,7 @@ namespace InventoryKamera
 					{
 						Characters.Add(character);
 						UserInterface.IncrementCharacterCount();
+						counter++;
 						Logger.Info("Scanned {0} successfully", character.NameGOOD);
 						if (Characters.Count == 1) first = character.NameGOOD;
 					}
@@ -53,7 +62,7 @@ namespace InventoryKamera
 				Navigation.SelectNextCharacter();
 				UserInterface.ResetCharacterDisplay();
 
-				if (++viewed > 3 && Characters.Count < 1) break;
+				if ((++viewed > 3 && Characters.Count < 1) || (NumOfCharToScan !=0 && counter >= NumOfCharToScan)) break;
 			}
 
 			// Childe passive buff fix

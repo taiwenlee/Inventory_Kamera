@@ -75,7 +75,10 @@
     <Setting Name="Slot1Key" Type="System.Int32" Scope="User">
       <Value Profile="(Default)">1</Value>
     </Setting>
-    <Setting Name="SortByObtained" Type="System.Decimal" Scope="User">
+    <Setting Name="SortByObtained" Type="System.Int32" Scope="User">
+      <Value Profile="(Default)">0</Value>
+    </Setting>
+    <Setting Name="NumOfCharToScan" Type="System.Int32" Scope="User">
       <Value Profile="(Default)">0</Value>
     </Setting>
   </Settings>

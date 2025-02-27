@@ -18,7 +18,7 @@ namespace InventoryKamera
 		{
 			inventoryPage = InventoryPage.Artifacts;
             SortByLevel = Properties.Settings.Default.MinimumArtifactLevel > 0;
-            SortByObtained = (int) Properties.Settings.Default.SortByObtained;
+            SortByObtained = Properties.Settings.Default.SortByObtained;
         }
 
         public void ScanArtifacts(int count = 0)
@@ -137,7 +137,7 @@ namespace InventoryKamera
 						Navigation.Wait(1);
 					}
 					// Scroll back one to keep it from getting too crazy
-					var rollbackPeriod = Navigation.IsNormal ? 12 : 3;
+					var rollbackPeriod = Navigation.IsNormal ? 9 : 3;
                     if (page % rollbackPeriod == 0)
                     {
 						Logger.Debug("Scrolled back one");

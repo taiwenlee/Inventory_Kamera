@@ -27,6 +27,7 @@ namespace InventoryKamera
 
 		private WeaponScraper weaponScraper;
 		private ArtifactScraper artifactScraper;
+		private CharacterScraper characterScraper;
 		private MaterialScraper materialScraper;
 
 		private volatile bool b_threadCancel;
@@ -48,6 +49,7 @@ namespace InventoryKamera
 
 			weaponScraper = new WeaponScraper();
 			artifactScraper = new ArtifactScraper();
+			characterScraper = new CharacterScraper();
 			materialScraper = new MaterialScraper();
 
 			b_threadCancel = false;
@@ -166,7 +168,7 @@ namespace InventoryKamera
 				Navigation.CharacterScreen();
 				try
 				{
-					CharacterScraper.ScanCharacters(ref Characters);
+					characterScraper.ScanCharacters(ref Characters);
 				}
 				catch (ThreadAbortException) { }
 				catch (Exception ex)

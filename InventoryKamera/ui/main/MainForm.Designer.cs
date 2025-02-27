@@ -102,6 +102,8 @@
             this.screenshotsToolTip = new System.Windows.Forms.ToolTip(this.components);
             this.LogScreenshotsCheckBox = new System.Windows.Forms.CheckBox();
             this.SortByObtained = new System.Windows.Forms.Label();
+            this.label5 = new System.Windows.Forms.Label();
+            this.NumOfCharToScanControl = new System.Windows.Forms.NumericUpDown();
             this.SortByObtainedControl = new System.Windows.Forms.NumericUpDown();
             this.wandererNameTextBox = new System.Windows.Forms.TextBox();
             this.travelerNameTextBox = new System.Windows.Forms.TextBox();
@@ -116,6 +118,7 @@
             this.Weapons_CheckBox = new System.Windows.Forms.CheckBox();
             this.OutputPath_TextBox = new System.Windows.Forms.TextBox();
             this.ScannerDelay_TrackBar = new System.Windows.Forms.TrackBar();
+            this.ZeroMeansAllTooltips = new System.Windows.Forms.ToolTip(this.components);
             ((System.ComponentModel.ISupportInitialize)(this.CharacterTalent3_PictureBox)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.CharacterTalent2_PictureBox)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.CharacterTalent1_PictureBox)).BeginInit();
@@ -125,6 +128,7 @@
             this.ScannerOutput_Panel.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.GearPictureBox)).BeginInit();
             this.menuStrip1.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.NumOfCharToScanControl)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.SortByObtainedControl)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numericUpDown1)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.MinimumWeaponLevelControl)).BeginInit();
@@ -670,7 +674,7 @@
             this.inventoryToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.inventoryToolStripTextBox});
             this.inventoryToolStripMenuItem.Name = "inventoryToolStripMenuItem";
-            this.inventoryToolStripMenuItem.Size = new System.Drawing.Size(190, 22);
+            this.inventoryToolStripMenuItem.Size = new System.Drawing.Size(191, 22);
             this.inventoryToolStripMenuItem.Text = "Inventory Key";
             // 
             // inventoryToolStripTextBox
@@ -690,7 +694,7 @@
             this.characterScreenToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.characterToolStripTextBox});
             this.characterScreenToolStripMenuItem.Name = "characterScreenToolStripMenuItem";
-            this.characterScreenToolStripMenuItem.Size = new System.Drawing.Size(190, 22);
+            this.characterScreenToolStripMenuItem.Size = new System.Drawing.Size(191, 22);
             this.characterScreenToolStripMenuItem.Text = "Character Screen Key";
             // 
             // characterToolStripTextBox
@@ -710,7 +714,7 @@
             this.characterSlot1KeyToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.slot1StripTextBox});
             this.characterSlot1KeyToolStripMenuItem.Name = "characterSlot1KeyToolStripMenuItem";
-            this.characterSlot1KeyToolStripMenuItem.Size = new System.Drawing.Size(190, 22);
+            this.characterSlot1KeyToolStripMenuItem.Size = new System.Drawing.Size(191, 22);
             this.characterSlot1KeyToolStripMenuItem.Text = "Character Slot 1 Key";
             // 
             // slot1StripTextBox
@@ -728,21 +732,21 @@
             // DatabaseUpdateMenuItem
             // 
             this.DatabaseUpdateMenuItem.Name = "DatabaseUpdateMenuItem";
-            this.DatabaseUpdateMenuItem.Size = new System.Drawing.Size(190, 22);
+            this.DatabaseUpdateMenuItem.Size = new System.Drawing.Size(191, 22);
             this.DatabaseUpdateMenuItem.Text = "Update Lookup Tables";
             this.DatabaseUpdateMenuItem.Click += new System.EventHandler(this.DatabaseUpdateMenuItem_Click);
             // 
             // toolStripMenuItem1
             // 
             this.toolStripMenuItem1.Name = "toolStripMenuItem1";
-            this.toolStripMenuItem1.Size = new System.Drawing.Size(190, 22);
+            this.toolStripMenuItem1.Size = new System.Drawing.Size(191, 22);
             this.toolStripMenuItem1.Text = "Open Export Folder";
             this.toolStripMenuItem1.Click += new System.EventHandler(this.ExportFolderMenuItem_Click);
             // 
             // updateExecutablesToolStripMenuItem
             // 
             this.updateExecutablesToolStripMenuItem.Name = "updateExecutablesToolStripMenuItem";
-            this.updateExecutablesToolStripMenuItem.Size = new System.Drawing.Size(190, 22);
+            this.updateExecutablesToolStripMenuItem.Size = new System.Drawing.Size(191, 22);
             this.updateExecutablesToolStripMenuItem.Text = "Update Executables";
             this.updateExecutablesToolStripMenuItem.Click += new System.EventHandler(this.updateExecutablesToolStripMenuItem_Click);
             // 
@@ -806,7 +810,7 @@
             // label1
             // 
             this.label1.AutoSize = true;
-            this.label1.Location = new System.Drawing.Point(238, 114);
+            this.label1.Location = new System.Drawing.Point(325, 125);
             this.label1.Name = "label1";
             this.label1.Size = new System.Drawing.Size(87, 13);
             this.label1.TabIndex = 102;
@@ -815,7 +819,7 @@
             // label4
             // 
             this.label4.AutoSize = true;
-            this.label4.Location = new System.Drawing.Point(230, 148);
+            this.label4.Location = new System.Drawing.Point(318, 151);
             this.label4.Name = "label4";
             this.label4.Size = new System.Drawing.Size(95, 13);
             this.label4.TabIndex = 106;
@@ -870,17 +874,37 @@
             // SortByObtained
             // 
             this.SortByObtained.AutoSize = true;
-            this.SortByObtained.Location = new System.Drawing.Point(7, 182);
+            this.SortByObtained.Location = new System.Drawing.Point(7, 168);
             this.SortByObtained.Name = "SortByObtained";
-            this.SortByObtained.Size = new System.Drawing.Size(111, 13);
+            this.SortByObtained.Size = new System.Drawing.Size(145, 13);
             this.SortByObtained.TabIndex = 107;
-            this.SortByObtained.Text = "Scan Recent Artifacts";
+            this.SortByObtained.Text = "Num of Artifact Page to Scan";
             this.SortByObtained.Click += new System.EventHandler(this.label5_Click);
+            // 
+            // label5
+            // 
+            this.label5.AutoSize = true;
+            this.label5.Location = new System.Drawing.Point(153, 110);
+            this.label5.Name = "label5";
+            this.label5.Size = new System.Drawing.Size(149, 13);
+            this.label5.TabIndex = 109;
+            this.label5.Text = "Number of Character To Scan";
+            this.label5.Click += new System.EventHandler(this.label5_Click_1);
+            // 
+            // NumOfCharToScanControl
+            // 
+            this.NumOfCharToScanControl.DataBindings.Add(new System.Windows.Forms.Binding("Value", global::InventoryKamera.Properties.Settings.Default, "NumOfCharToScan", true, System.Windows.Forms.DataSourceUpdateMode.OnPropertyChanged));
+            this.NumOfCharToScanControl.Location = new System.Drawing.Point(154, 129);
+            this.NumOfCharToScanControl.Name = "NumOfCharToScanControl";
+            this.NumOfCharToScanControl.Size = new System.Drawing.Size(39, 20);
+            this.NumOfCharToScanControl.TabIndex = 110;
+            this.ZeroMeansAllTooltips.SetToolTip(this.NumOfCharToScanControl, "Selecting 0 scans all characters");
+            this.NumOfCharToScanControl.Value = global::InventoryKamera.Properties.Settings.Default.NumOfCharToScan;
             // 
             // SortByObtainedControl
             // 
             this.SortByObtainedControl.DataBindings.Add(new System.Windows.Forms.Binding("Value", global::InventoryKamera.Properties.Settings.Default, "SortByObtained", true, System.Windows.Forms.DataSourceUpdateMode.OnPropertyChanged));
-            this.SortByObtainedControl.Location = new System.Drawing.Point(10, 198);
+            this.SortByObtainedControl.Location = new System.Drawing.Point(10, 184);
             this.SortByObtainedControl.Maximum = new decimal(new int[] {
             10,
             0,
@@ -889,13 +913,14 @@
             this.SortByObtainedControl.Name = "SortByObtainedControl";
             this.SortByObtainedControl.Size = new System.Drawing.Size(45, 20);
             this.SortByObtainedControl.TabIndex = 108;
+            this.ZeroMeansAllTooltips.SetToolTip(this.SortByObtainedControl, "Selecting 0 scans all Artifacts");
             this.SortByObtainedControl.Value = global::InventoryKamera.Properties.Settings.Default.SortByObtained;
             this.SortByObtainedControl.ValueChanged += new System.EventHandler(this.SortByObtainedControl_ValueChanged);
             // 
             // wandererNameTextBox
             // 
             this.wandererNameTextBox.DataBindings.Add(new System.Windows.Forms.Binding("Text", global::InventoryKamera.Properties.Settings.Default, "WandererName", true, System.Windows.Forms.DataSourceUpdateMode.OnPropertyChanged));
-            this.wandererNameTextBox.Location = new System.Drawing.Point(328, 145);
+            this.wandererNameTextBox.Location = new System.Drawing.Point(419, 148);
             this.wandererNameTextBox.Name = "wandererNameTextBox";
             this.wandererNameTextBox.Size = new System.Drawing.Size(169, 20);
             this.wandererNameTextBox.TabIndex = 105;
@@ -907,7 +932,7 @@
             // travelerNameTextBox
             // 
             this.travelerNameTextBox.DataBindings.Add(new System.Windows.Forms.Binding("Text", global::InventoryKamera.Properties.Settings.Default, "TravelerName", true, System.Windows.Forms.DataSourceUpdateMode.OnPropertyChanged));
-            this.travelerNameTextBox.Location = new System.Drawing.Point(328, 111);
+            this.travelerNameTextBox.Location = new System.Drawing.Point(419, 122);
             this.travelerNameTextBox.Name = "travelerNameTextBox";
             this.travelerNameTextBox.Size = new System.Drawing.Size(169, 20);
             this.travelerNameTextBox.TabIndex = 101;
@@ -1090,6 +1115,8 @@
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
             this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(234)))), ((int)(((byte)(230)))), ((int)(((byte)(230)))));
             this.ClientSize = new System.Drawing.Size(595, 519);
+            this.Controls.Add(this.NumOfCharToScanControl);
+            this.Controls.Add(this.label5);
             this.Controls.Add(this.SortByObtainedControl);
             this.Controls.Add(this.SortByObtained);
             this.Controls.Add(this.label4);
@@ -1165,6 +1192,7 @@
             ((System.ComponentModel.ISupportInitialize)(this.GearPictureBox)).EndInit();
             this.menuStrip1.ResumeLayout(false);
             this.menuStrip1.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.NumOfCharToScanControl)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.SortByObtainedControl)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numericUpDown1)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.MinimumWeaponLevelControl)).EndInit();
@@ -1264,6 +1292,9 @@
         private System.Windows.Forms.ToolStripTextBox slot1StripTextBox;
         private System.Windows.Forms.Label SortByObtained;
         private System.Windows.Forms.NumericUpDown SortByObtainedControl;
+        private System.Windows.Forms.Label label5;
+        private System.Windows.Forms.NumericUpDown NumOfCharToScanControl;
+        private System.Windows.Forms.ToolTip ZeroMeansAllTooltips;
     }
 }
 
