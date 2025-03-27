@@ -518,7 +518,8 @@ namespace InventoryKamera
         internal static Bitmap GetLockedBitmap(Bitmap card, bool isSanctified = false)
         {
             double baseY = Navigation.IsNormal ? 0.353 : 0.309;
-            double yShift = isSanctified ? 0.0520 : 0.0;
+            double sanctifiedShift = Navigation.IsNormal ? 0.0520 : 0.0471;
+            double yShift = isSanctified ? sanctifiedShift : 0.0;
 
             return GenshinProcesor.CopyBitmap(card,
                 new Rectangle(
