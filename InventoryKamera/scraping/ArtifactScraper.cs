@@ -191,26 +191,34 @@ namespace InventoryKamera
         public async void QueueScan(int id)
 		{
 			var card = GetItemCard();
-            Bitmap name, gearSlot, mainStat, subStats, level, equipped, locked;
+            Bitmap name, gearSlot, mainStat, subStats, level, equipped, locked, sanctify;
+			bool _sanctify;
 
 			name = GetItemNameBitmap(card);
-			locked = GetLockedBitmap(card);
 			equipped = GetEquippedBitmap(card);
 			gearSlot = GetGearSlotBitmap(card);
 			mainStat = GetMainStatBitmap(card);
-			level = GetLevelBitmap(card);
-			subStats = GetSubstatsBitmap(card);
 
+			sanctify = GetSanctifyBitmap(card);
+            // Check for lock color
+            Color sanctifiedColor = Color.FromArgb(255, 220, 192, 255); // Dark area around red lock
+            Color sanctifyStatus = sanctify.GetPixel(10, 10);
+            _sanctify = GenshinProcesor.CompareColors(sanctifiedColor, sanctifyStatus);
 
-			//Navigation.DisplayBitmap(name);
-			//Navigation.DisplayBitmap(locked);
-			//Navigation.DisplayBitmap(equipped);
-			//Navigation.DisplayBitmap(mainStat);
-			//Navigation.DisplayBitmap(subStats);
-			//Navigation.DisplayBitmap(level);
+            // may change because of sanctifying
+            locked = GetLockedBitmap(card, _sanctify);
+            level = GetLevelBitmap(card, _sanctify);
+            subStats = GetSubstatsBitmap(card, _sanctify);
 
-			// Separate to all pieces of artifact and add to pics
-			List<Bitmap> artifactImages = new List<Bitmap>
+            //Navigation.DisplayBitmap(name);
+            //Navigation.DisplayBitmap(locked);
+            //Navigation.DisplayBitmap(equipped);
+            //Navigation.DisplayBitmap(mainStat);
+            //Navigation.DisplayBitmap(subStats);
+            //Navigation.DisplayBitmap(level);
+
+            // Separate to all pieces of artifact and add to pics
+            List<Bitmap> artifactImages = new List<Bitmap>
 			{
 				name, //0
 				gearSlot,
@@ -218,8 +226,9 @@ namespace InventoryKamera
 				level,
 				subStats,
 				equipped, //5
-				locked, 
-				card
+				locked,
+                sanctify,
+                card
 			};
 
             bool belowRarity = GetRarity(name) < Properties.Settings.Default.MinimumArtifactRarity;
@@ -235,11 +244,14 @@ namespace InventoryKamera
             InventoryKamera.workerQueue.Enqueue(new OCRImageCollection(artifactImages, "artifact", id));
         }
 
-        private Bitmap GetSubstatsBitmap(Bitmap card)
+        private Bitmap GetSubstatsBitmap(Bitmap card, bool isSanctified = false)
         {
+			double baseY = Navigation.IsNormal ? 0.4216 : 0.3682;
+			double yShift = isSanctified ? 0.0520 : 0.0;
+
             return GenshinProcesor.CopyBitmap(card,new Rectangle(
 				x:(int)(card.Width * 0.0911),
-				y:(int)(card.Height * (Navigation.IsNormal ? 0.4216 : 0.3682)),
+				y:(int)(card.Height * (baseY + yShift)),
 				width:(int)(card.Width * 0.8097),
 				height:(int)(card.Height * (Navigation.IsNormal ? 0.1841 : 0.1573))));
         }
@@ -253,13 +265,25 @@ namespace InventoryKamera
 				height: (int)(card.Height * (Navigation.IsNormal ? 0.0416 : 0.0416))));
         }
 
-        private Bitmap GetLevelBitmap(Bitmap card)
+        private Bitmap GetLevelBitmap(Bitmap card, bool isSanctified = false)
         {
+            double baseY = Navigation.IsNormal ? 0.3634 : 0.3197;
+            double yShift = isSanctified ? 0.0520 : 0.0;
+
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
                 x: (int)(card.Width * 0.0506),
-                y: (int)(card.Height * (Navigation.IsNormal ? 0.3634 : 0.3197)),
+                y: (int)(card.Height * (baseY + yShift)),
                 width: (int)(card.Width * 0.1417),
                 height: (int)(card.Height * (Navigation.IsNormal ? 0.0416 : 0.0347))));
+        }
+
+        private Bitmap GetSanctifyBitmap(Bitmap card)
+        {
+            return GenshinProcesor.CopyBitmap(card, new Rectangle(
+                x: (int)(card.Width * 0.0),
+                y: (int)(card.Height * (Navigation.IsNormal ? 0.3333 : 0.3333)),
+                width: (int)(card.Width * 0.0606),
+                height: (int)(card.Height * (Navigation.IsNormal ? 0.0526 : 0.0526))));
         }
 
         private Bitmap GetGearSlotBitmap(Bitmap card)
