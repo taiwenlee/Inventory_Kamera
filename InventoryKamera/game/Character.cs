@@ -100,7 +100,7 @@ namespace InventoryKamera
 
         public bool HasValidLevel()
         {
-            return 1 <= Level && Level <= 90;
+            return 1 <= Level && Level <= 100;
         }
 
         public bool HasValidElement()
@@ -158,7 +158,7 @@ namespace InventoryKamera
             {
                 return 5;
             }
-            else if (Level <= 90 || (Level == 90 && !Ascended))
+            else if (Level <= 100 || (Level == 100 && !Ascended))
             {
                 return 6;
             }

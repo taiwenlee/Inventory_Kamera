@@ -1,6 +1,7 @@
 ﻿using Accord.Imaging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.Linq;
@@ -252,10 +253,10 @@ namespace InventoryKamera
             double yShift = isSanctified ? sanctifiedShift : 0.0;
 
             return GenshinProcesor.CopyBitmap(card,new Rectangle(
-				x:(int)(card.Width * 0.0911),
+				x:(int)(card.Width * 0.0605),
 				y:(int)(card.Height * (baseY + yShift)),
-				width:(int)(card.Width * 0.8097),
-				height:(int)(card.Height * (Navigation.IsNormal ? 0.1841 : 0.1573))));
+				width:(int)(card.Width * 0.8297),
+				height:(int)(card.Height * (Navigation.IsNormal ? 0.2301 : 0.1573))));
         }
 
         private Bitmap GetMainStatBitmap(Bitmap card)
@@ -306,7 +307,8 @@ namespace InventoryKamera
 			string setName = null;
 			string equippedCharacter = null;
 			List<SubStat> subStats = new List<SubStat>();
-			int rarity = 0;
+            List<SubStat> unactivatedSubStats = new List<SubStat>();
+            int rarity = 0;
 			int level = 0;
 			bool _lock = false;
 
@@ -332,7 +334,7 @@ namespace InventoryKamera
 				var taskGear  = Task.Run(() => gearSlot = ScanArtifactGearSlot(bm[a_gearSlot]));
 				var taskMain  = taskGear.ContinueWith( (antecedent) => mainStat = ScanArtifactMainStat(bm[a_mainStat], antecedent.Result));
 				var taskLevel = Task.Run(() => level = ScanArtifactLevel(bm[a_level]));
-				var taskSubs  = Task.Run(() => subStats = ScanArtifactSubStats(bm[a_subStats]));
+				var taskSubs  = Task.Run(() => (subStats, unactivatedSubStats) = ScanArtifactSubStats(bm[a_subStats]));
 				var taskEquip = Task.Run(() => equippedCharacter = ScanArtifactEquippedCharacter(bm[a_equippedCharacter]));
 				var taskName = Task.Run(() => setName = ScanArtifactSet(bm[a_name]));
 
@@ -348,7 +350,7 @@ namespace InventoryKamera
 
 				await Task.WhenAll(tasks.ToArray());
 			}
-			return new Artifact(setName, rarity, level, gearSlot, mainStat, subStats, equippedCharacter, id, _lock);
+			return new Artifact(setName, rarity, level, gearSlot, mainStat, subStats, unactivatedSubStats, equippedCharacter, id, _lock);
 		}
 
 		private static int GetRarity(Bitmap bm)
@@ -468,27 +470,34 @@ namespace InventoryKamera
 			return int.TryParse(text, out int level) ? level : -1;
 		}
 
-		private static List<SubStat> ScanArtifactSubStats(Bitmap artifactImage)
+		private static (List<SubStat> active, List<SubStat> unactivated) ScanArtifactSubStats(Bitmap artifactImage)
         {
             Bitmap bm = (Bitmap)artifactImage.Clone();
 			List<string> lines = new List<string>();
 			List<SubStat> substats = new List<SubStat>();
+			List<SubStat> unactivated = new List<SubStat>();
 			string text;
             GenshinProcesor.SetBrightness(-30, ref bm);
             GenshinProcesor.SetContrast(85, ref bm);
+			bool hasUnactivated = false;
 			using (var n = GenshinProcesor.ConvertToGrayscale(bm))
 			{
 				text = GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.Auto).ToLower();
+			}
+
+			if(text.Contains("(unactivated)"))
+			{
+				hasUnactivated = true;
 			}
 
             lines = new List<string>(text.Split('\n'));
             lines.RemoveAll(line => string.IsNullOrWhiteSpace(line));
 
             var index = lines.FindIndex(line => line.Contains(":") || line.Contains("piece") || line.Contains("set") || line.Contains("2-"));
-            if (index >= 0)
-            {
-                lines.RemoveRange(index, lines.Count - index);
-            }
+			if (index >= 0)
+			{
+				lines.RemoveRange(index, lines.Count - index);
+			}
 
             bm.Dispose();
             for (int i = 0; i < lines.Count; i++)
@@ -532,7 +541,16 @@ namespace InventoryKamera
 					substats.Insert(i, substat);
 				}
             }
-            return substats;
+			
+			//if theres an unactivated substat, moves the last one (should be the only unactivated) to the unactivated list
+			if(hasUnactivated)
+			{
+				SubStat lastSubstat = substats[substats.Count - 1];
+				unactivated.Insert(0, lastSubstat);
+				substats.Remove(lastSubstat);
+			}
+
+            return (substats, unactivated);
         }
 
         private static string ScanArtifactEquippedCharacter(Bitmap bm)

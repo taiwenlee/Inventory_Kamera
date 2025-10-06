@@ -27,6 +27,9 @@ namespace InventoryKamera
 		[JsonProperty("substats")]
 		public List<SubStat> SubStats { get; private set; }
 
+		[JsonProperty("unactivatedSubstats")]
+		public List<SubStat> unactivatedSubstats { get; private set; }
+
 		[JsonProperty("location")]
 		public string EquippedCharacter { get; internal set; }	
 
@@ -43,19 +46,21 @@ namespace InventoryKamera
 			MainStat = null;
 			Level = -1;
 			SubStats = new List<SubStat>(4);
+			unactivatedSubstats = new List<SubStat>(1);
 			SetName = null;
 			EquippedCharacter = null;
 			Lock = false;
 			Id = 0;
 		}
 
-		public Artifact(string _setName, int _rarity, int _level, string _gearSlot, string _mainStat, List<SubStat> _subStats, string _equippedCharacter = null, int _id = 0, bool _Lock = false)
+		public Artifact(string _setName, int _rarity, int _level, string _gearSlot, string _mainStat, List<SubStat> _subStats, List<SubStat> _unactivatedSubStats, string _equippedCharacter = null, int _id = 0, bool _Lock = false)
 		{
 			GearSlot = string.IsNullOrWhiteSpace(_gearSlot) ? "" : _gearSlot;
 			Rarity = _rarity;
 			MainStat = string.IsNullOrWhiteSpace(_mainStat) ? "" : _mainStat;
 			Level = _level;
 			SubStats = _subStats.ToList().Where(e => e.value > 0).ToList();
+			unactivatedSubstats = _unactivatedSubStats.ToList().Where(e => e.value > 0).ToList();
 			SetName = string.IsNullOrWhiteSpace(_setName) ? "" : _setName;
 			EquippedCharacter = string.IsNullOrWhiteSpace(_equippedCharacter) ? "" : _equippedCharacter;
 			Lock = _Lock;
