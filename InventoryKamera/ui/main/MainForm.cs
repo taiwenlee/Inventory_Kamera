@@ -344,17 +344,17 @@ namespace InventoryKamera
 
         private void Github_Label_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            Process.Start("https://github.com/Andrewthe13th/Inventory_Kamera/");
+            Process.Start("https://github.com/taiwenlee/Inventory_Kamera/");
         }
 
         private void Releases_Label_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            Process.Start("https://github.com/Andrewthe13th/Inventory_Kamera/releases");
+            Process.Start("https://github.com/taiwenlee/Inventory_Kamera/releases");
         }
 
         private void IssuesPage_Label_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            Process.Start("https://github.com/Andrewthe13th/Inventory_Kamera/issues");
+            Process.Start("https://github.com/taiwenlee/Inventory_Kamera/issues");
         }
 
         private void FileSelectButton_Click(object sender, EventArgs e)
