@@ -543,7 +543,7 @@ namespace InventoryKamera
             }
 			
 			//if theres an unactivated substat, moves the last one (should be the only unactivated) to the unactivated list
-			if(hasUnactivated)
+			if(hasUnactivated && substats.Count > 0)
 			{
 				SubStat lastSubstat = substats[substats.Count - 1];
 				unactivated.Insert(0, lastSubstat);
