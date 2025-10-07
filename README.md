@@ -5,7 +5,7 @@ Fan-made Genshin Impact tool that scans characters, weapons, artifacts, material
 This scanner exports in `.GOOD`, a JSON-based exporting format, which allows you to use it with compatible online Genshin Impact tools. These tools include artifact optimizing tools including [Genshin Optimizer](https://frzyc.github.io/genshin-optimizer/#/), [SEELIE.me](https://seelie.me/) and [Aspirine's Genshin Impact Calculator](https://genshin.aspirine.su/).
 
 ## Download
-[LATEST DOWNLOAD HERE](https://github.com/Andrewthe13th/Inventory_Kamera/releases/latest) <- CLICK ME NOT THE "CODE" BUTTON NEAR THE TOP OF THIS PAGE
+[LATEST DOWNLOAD HERE](https://github.com/taiwenlee/Inventory_Kamera/releases/latest) <- CLICK ME NOT THE "CODE" BUTTON NEAR THE TOP OF THIS PAGE
 
 ## DISCORD
 https://discord.gg/zh56aVWe3U
@@ -203,33 +203,9 @@ artifacts.json
 
 Consider using [a JSON text validator](https://jsonlint.com/) after following this manual method. Support may or may not be provided if you choose this route.
 
-## Reporting an issue
-
-If you run into a problem with our scanner (e.g. a bug, app crash, invalid export format), please [create an issue here](https://github.com/Andrewthe13th/Inventory_Kamera/issues/new/choose) and try to fill it out as much as possible. It, along with the evidence, will greatly speed up the bug-fixing process. 
-
-Alternatively, the [Inventory Kamera Discord](https://discord.gg/zh56aVWe3U) is open for more real-time discussion and support help.
-
-> **Note**
->
-> Before submitting an issue, **please [check for similar issues](https://github.com/Andrewthe13th/Inventory_Kamera/issues?q=is%3Aissue), especially the ones that are still open.**
->
-> Start by leaving a reaction emoji to that issue (more reactions means more dev attention!). Please try to limit comments to new or helpful information (i.e. not "Same issue here" comments). You can choose to _subscribe_ to that issue by clicking 'Subscribe' in the Notifications section to get notifications on thread developments.
-
 ### Creating a new issue
 
 We would **love to have Screenshots (especially video recordings!) and Error Logs as evidence**. These can be very helpful for debugging your problem. Add it to the issue via drag-and-drop or by attaching the file to the template. Inventory Kamera may place screenshots in the `logging` folder (divided into categories) when it thinks it encountered an issue. Attaching a zipped copy of your `logging` folder is the best way to submit logs. You may check the 'Log All Screenshots' box to force this behavior in most areas that may concern the devs.
-
-## Requesting a new feature
-
-If you would like to request a new feature, please visit the [discussion forum](https://github.com/Andrewthe13th/Inventory_Kamera/discussions) before opening a new feature request using [Inventory Kamera feature request form](https://github.com/Andrewthe13th/Inventory_Kamera/discussions/new?category=ideas-or-feature-requests).
-
-Alternatively, the [Inventory Kamera Discord](https://discord.gg/zh56aVWe3U) is has a feature request channel.
-
-## Asking a question
-
-General questions? Start by looking for similar questions in the [Inventory Kamera discussion forum](https://github.com/Andrewthe13th/Inventory_Kamera/discussions) OR the [Inventory Kamera Discord](https://discord.gg/zh56aVWe3U).
-
-If you have a question that doesn't have a thread, create a new [general](https://github.com/Andrewthe13th/Inventory_Kamera/discussions/new?category=general) or [Q&A](https://github.com/Andrewthe13th/Inventory_Kamera/discussions/new?category=q-a) thread.
 
 ## Frequently Asked Questions (FAQ)
 
@@ -245,10 +221,6 @@ However, that does not mean it will stay that way forever! We are at the mercy o
 #### What Languages does Inventory Kamera support?
 
 Inventory Kamera only supports _**English**_ currently. This limitation is due to only having a trained dataset available for the English language. The in-game "Game Langugae" option must be set to Engish. Scanning efficiency is not guaranteed for other languages. More languages may be implemented in the future but there are no current plans.
-
-#### I need help! Where can I go?
-
-Help may be found in the [Inventory Kamera discussion forum](https://github.com/Andrewthe13th/Inventory_Kamera/discussions) or in the [Inventory Kamera Discord](https://discord.gg/zh56aVWe3U).
 
 ## License
 
