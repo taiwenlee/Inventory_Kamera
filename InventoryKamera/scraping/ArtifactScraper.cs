@@ -27,7 +27,11 @@ namespace InventoryKamera
 			// Get Max artifacts from screen
 			int artifactCount = count == 0 ? ScanItemCount() : count;
 			int page = 1;
-			var (rectangles, cols, rows) = GetPageOfItems(page);
+
+            SetSort();
+            ClearFilters();
+
+            var (rectangles, cols, rows) = GetPageOfItems(page);
 			int fullPage = cols * rows;
 			// lowers the artifact count if user is scanning in recently obtained pages
 			artifactCount = (SortByObtained * fullPage <= artifactCount && SortByObtained > 0) ? SortByObtained * fullPage : artifactCount;
@@ -40,8 +44,7 @@ namespace InventoryKamera
 
 			Logger.Info("Found {0} for artifact count.", artifactCount);
 
-            SetSort();
-            ClearFilters();
+
 
 			//if (SortByLevel)
 			//{
@@ -167,6 +170,7 @@ namespace InventoryKamera
 				{
 					Navigation.ClearArtifactFilters();
 				}
+                Navigation.SystemWait(Navigation.Speed.Slow);
             }
         }
 
@@ -185,8 +189,9 @@ namespace InventoryKamera
 				if( SortByObtained > 0 ^ sortObtained)
 				{
 					Navigation.ChangeArtifactSortObtained();
-				}	
-            }   
+				}
+                Navigation.SystemWait(Navigation.Speed.Slow);
+            }
         }
 
         public async void QueueScan(int id)
@@ -493,16 +498,19 @@ namespace InventoryKamera
             lines = new List<string>(text.Split('\n'));
             lines.RemoveAll(line => string.IsNullOrWhiteSpace(line));
 
-            var index = lines.FindIndex(line => line.Contains(":") || line.Contains("piece") || line.Contains("set") || line.Contains("2-"));
-			if (index >= 0)
+            var index = lines.FindIndex(line =>
+				Regex.IsMatch(line, @"(piece|set|2-)") ||
+				Regex.IsMatch(line.Trim(), @"^[A-Za-z\s]+:$")
+			);
+            if (index >= 0)
 			{
 				lines.RemoveRange(index, lines.Count - index);
 			}
 
             bm.Dispose();
-            for (int i = 0; i < lines.Count; i++)
-            {
-                var line = Regex.Replace(lines[i], @"(?:^[^a-zA-Z]*)", string.Empty).Replace(" ", string.Empty);
+			for (int i = 0; i < lines.Count; i++)
+			{
+				var line = Regex.Replace(lines[i], @"(?:^[^a-zA-Z]*)", string.Empty).Replace(" ", string.Empty);
 
 				if (line.Any(char.IsDigit))
 				{
@@ -540,10 +548,15 @@ namespace InventoryKamera
 
 					substats.Insert(i, substat);
 				}
-            }
-			
+			}
+
+			if(substats.Count == 0 )
+			{
+				Logger.Debug("Failed to obtain substats");
+			}
+
 			//if theres an unactivated substat, moves the last one (should be the only unactivated) to the unactivated list
-			if(hasUnactivated && substats.Count > 0)
+			if (hasUnactivated && substats.Count > 0)
 			{
 				SubStat lastSubstat = substats[substats.Count - 1];
 				unactivated.Insert(0, lastSubstat);
