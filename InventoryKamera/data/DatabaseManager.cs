@@ -86,6 +86,15 @@ namespace InventoryKamera
 
 
             LocalVersion = new Version(File.ReadAllText(ListsDir + NewVersion));
+
+
+            if (!(File.Exists(ListsDir + WeaponsJson) &&
+                File.Exists(ListsDir + ArtifactsJson) &&
+                File.Exists(ListsDir + CharactersJson) &&
+                File.Exists(ListsDir + MaterialsJson)))
+            {
+                UpdateGameData(force: true);
+            }
         }
 
         public bool UpdateAvailable()
