@@ -32,34 +32,37 @@ namespace InventoryKamera
 			while (true)
 			{
 				var character = ScanCharacter(first);
-				if (Characters.Count > 0 && character.NameGOOD == Characters.ElementAt(0).NameGOOD) break;
-				if (character.IsValid())
+				if(character.NameGOOD != "manequin")
 				{
-                    if (!scanned.Contains(character.NameGOOD))
-					{
-						Characters.Add(character);
-						UserInterface.IncrementCharacterCount();
-						counter++;
-						Logger.Info("Scanned {0} successfully", character.NameGOOD);
-						if (Characters.Count == 1) first = character.NameGOOD;
-					}
-					else
+                    if (Characters.Count > 0 && character.NameGOOD == Characters.ElementAt(0).NameGOOD) break;
+                    if (character.IsValid())
                     {
-						Logger.Info("Prevented {0} duplicate scan", character.NameGOOD);
+                        if (!scanned.Contains(character.NameGOOD))
+                        {
+                            Characters.Add(character);
+                            UserInterface.IncrementCharacterCount();
+                            counter++;
+                            Logger.Info("Scanned {0} successfully", character.NameGOOD);
+                            if (Characters.Count == 1) first = character.NameGOOD;
+                        }
+                        else
+                        {
+                            Logger.Info("Prevented {0} duplicate scan", character.NameGOOD);
+                        }
                     }
-				}
-                else
-				{
-					string error = "";
-					if (!character.HasValidName()) error += "Invalid character name\n";
-					if (!character.HasValidLevel()) error += "Invalid level\n";
-					if (!character.HasValidElement()) error += "Invalid element\n";
-					if (!character.HasValidConstellation()) error += "Invalid constellation\n";
-					if (!character.HasValidTalents()) error += "Invalid talents\n";
-					Logger.Error("Failed to scan character\n" + error + character);
-				}
+                    else
+                    {
+                        string error = "";
+                        if (!character.HasValidName()) error += "Invalid character name\n";
+                        if (!character.HasValidLevel()) error += "Invalid level\n";
+                        if (!character.HasValidElement()) error += "Invalid element\n";
+                        if (!character.HasValidConstellation()) error += "Invalid constellation\n";
+                        if (!character.HasValidTalents()) error += "Invalid talents\n";
+                        Logger.Error("Failed to scan character\n" + error + character);
+                    }
+                }
 
-				Navigation.SelectNextCharacter();
+                Navigation.SelectNextCharacter();
 				UserInterface.ResetCharacterDisplay();
 
 				if ((++viewed > 3 && Characters.Count < 1) || (NumOfCharToScan !=0 && counter >= NumOfCharToScan)) break;
@@ -101,7 +104,13 @@ namespace InventoryKamera
 			// Scan the Name and element of Character. Attempt 75 times max.
 			ScanNameAndElement(ref name, ref element);
 
-			if (string.IsNullOrWhiteSpace(name))
+			if(name == "Manequin1" || name == "Manequin2")
+			{
+                character.NameGOOD = name;
+				return character;
+            }
+
+            if (string.IsNullOrWhiteSpace(name))
 			{
 				if (string.IsNullOrWhiteSpace(name)) UserInterface.AddError("Could not determine character's name");
 				if (string.IsNullOrWhiteSpace(element)) UserInterface.AddError("Could not determine character's element");

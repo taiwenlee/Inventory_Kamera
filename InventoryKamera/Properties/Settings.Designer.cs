@@ -12,7 +12,7 @@ namespace InventoryKamera.Properties {
     
     
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.12.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.14.0.0")]
     internal sealed partial class Settings : global::System.Configuration.ApplicationSettingsBase {
         
         private static Settings defaultInstance = ((Settings)(global::System.Configuration.ApplicationSettingsBase.Synchronized(new Settings())));
@@ -265,7 +265,7 @@ namespace InventoryKamera.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("wanderer")]
+        [global::System.Configuration.DefaultSettingValueAttribute("Wanderer")]
         public string WandererName {
             get {
                 return ((string)(this["WandererName"]));
@@ -322,6 +322,30 @@ namespace InventoryKamera.Properties {
             }
             set {
                 this["NumOfCharToScan"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("Manequin1")]
+        public string Manequin1Name {
+            get {
+                return ((string)(this["Manequin1Name"]));
+            }
+            set {
+                this["Manequin1Name"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("Manequin2")]
+        public string Manequin2Name {
+            get {
+                return ((string)(this["Manequin2Name"]));
+            }
+            set {
+                this["Manequin2Name"] = value;
             }
         }
     }

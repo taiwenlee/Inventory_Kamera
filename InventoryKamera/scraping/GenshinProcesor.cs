@@ -75,7 +75,9 @@ namespace InventoryKamera
 		internal static readonly List<string> customNames = new List<string>
 		{
 			"Traveler",
-			"Wanderer"
+			"Wanderer",
+			"Manequin1",
+			"Manequin2"
 		};
 
 		internal static ConcurrentBag<TesseractEngine> engines;
@@ -242,7 +244,7 @@ namespace InventoryKamera
 
 		internal static bool IsValidCharacter(string character)
 		{
-			return character.Contains("Traveler") || character == "Wanderer" || Characters.ContainsKey(character.ToLower());
+			return character.Contains("Traveler") || character == "Wanderer" || character == "Manequin1" || character == "Manequin2" || Characters.ContainsKey(character.ToLower());
 		}
 
 		internal static bool IsValidElement(string element)

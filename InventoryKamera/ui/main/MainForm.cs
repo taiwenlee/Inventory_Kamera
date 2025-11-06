@@ -188,6 +188,42 @@ namespace InventoryKamera
             }
         }
 
+        private void ValidateCustomName1(object sender, EventArgs e)
+        {
+            var textbox = sender as TextBox;
+            var name = textbox.Text;
+
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                if (GenshinProcesor.Characters.ContainsKey(name.ConvertToGood().ToLower()))
+                {
+                    textbox.BackColor = Color.Yellow;
+                }
+                else
+                {
+                    textbox.BackColor = Color.White;
+                }
+            }
+        }
+        private void ValidateCustomName2(object sender, EventArgs e)
+        {
+            var textbox = sender as TextBox;
+            var name = textbox.Text;
+
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                if (GenshinProcesor.Characters.ContainsKey(name.ConvertToGood().ToLower()))
+                {
+                    textbox.BackColor = Color.Yellow;
+                }
+                else
+                {
+                    textbox.BackColor = Color.White;
+                }
+            }
+        }
+
+
         private void DisplayCustomNameTooltip(object sender, EventArgs e)
         {
             var textbox = sender as TextBox;
@@ -631,21 +667,6 @@ namespace InventoryKamera
         private void updateExecutablesToolStripMenuItem_Click(object sender, EventArgs e)
         {
             new ExecutablesForm().Show();
-        }
-
-        private void label5_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void SortByObtainedControl_ValueChanged(object sender, EventArgs e)
-        {
-
-        }
-
-        private void label5_Click_1(object sender, EventArgs e)
-        {
-
         }
     }
 }
