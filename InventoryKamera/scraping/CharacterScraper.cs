@@ -467,10 +467,10 @@ namespace InventoryKamera
 			if (Navigation.GetAspectRatio() == new Size(8, 5)) yRef = 800.0;
 
 			Rectangle region =  new Rectangle(
-				x:		(int)((Navigation.IsNormal ? 0.0003 : 0) * Navigation.GetWidth() ),
-				y:		(int)((Navigation.IsNormal ? 0.1278 : 0) * Navigation.GetHeight() ),
-				width:	(int)((Navigation.IsNormal ? 0.2913 : 0) * Navigation.GetWidth() ),
-				height:	(int)((Navigation.IsNormal ? 0.0711 : 0) * Navigation.GetHeight() ));
+				x:		(int)((Navigation.IsNormal ? 0.0003 : 0.0003) * Navigation.GetWidth() ),
+				y:		(int)((Navigation.IsNormal ? 0.1278 : 0.1078) * Navigation.GetHeight() ),
+				width:	(int)((Navigation.IsNormal ? 0.2913 : 0.2913) * Navigation.GetWidth() ),
+				height:	(int)((Navigation.IsNormal ? 0.0711 : 0.0711) * Navigation.GetHeight() ));
 
 			for (int i = 0; i < 3; i++)
 			{
