@@ -63,7 +63,7 @@
       <Value Profile="(Default)" />
     </Setting>
     <Setting Name="WandererName" Type="System.String" Scope="User">
-      <Value Profile="(Default)">wanderer</Value>
+      <Value Profile="(Default)">Wanderer</Value>
     </Setting>
     <Setting Name="Executables" Type="System.Collections.Specialized.StringCollection" Scope="User">
       <Value Profile="(Default)">&lt;?xml version="1.0" encoding="utf-16"?&gt;
@@ -80,6 +80,12 @@
     </Setting>
     <Setting Name="NumOfCharToScan" Type="System.Int32" Scope="User">
       <Value Profile="(Default)">0</Value>
+    </Setting>
+    <Setting Name="Manequin1Name" Type="System.String" Scope="User">
+      <Value Profile="(Default)">Manequin1</Value>
+    </Setting>
+    <Setting Name="Manequin2Name" Type="System.String" Scope="User">
+      <Value Profile="(Default)">Manequin2</Value>
     </Setting>
   </Settings>
 </SettingsFile>
