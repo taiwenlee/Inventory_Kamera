@@ -88,6 +88,24 @@ namespace InventoryKamera.Tests
         }
 
         [Fact]
+        public void AverageColor_IsArithmeticMeanPerChannel()
+        {
+            using (var bmp = new Bitmap(2, 2, PixelFormat.Format24bppRgb))
+            {
+                bmp.SetPixel(0, 0, Color.FromArgb(10, 20, 30));
+                bmp.SetPixel(1, 0, Color.FromArgb(40, 50, 60));
+                bmp.SetPixel(0, 1, Color.FromArgb(70, 80, 90));
+                bmp.SetPixel(1, 1, Color.FromArgb(100, 110, 120));
+
+                var avg = ImageProcessing.AverageColor(bmp);
+
+                Assert.Equal(55.0, avg.R);   // (10+40+70+100)/4
+                Assert.Equal(65.0, avg.G);   // (20+50+80+110)/4
+                Assert.Equal(75.0, avg.B);   // (30+60+90+120)/4
+            }
+        }
+
+        [Fact]
         public void FilterColors_KeepsPixelsInRange_FillsRestWithFillColor()
         {
             var bmp = PaletteRow();

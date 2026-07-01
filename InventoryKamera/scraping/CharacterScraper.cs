@@ -434,8 +434,8 @@ namespace InventoryKamera
 				{
 					// Check a small region next to the text "Activate"
 					// for a mostly white backround
-					ImageStatistics statistics = new ImageStatistics(region);
-					if (statistics.Red.Mean >= 190 && statistics.Green.Mean >= 190 && statistics.Blue.Mean >= 190) 
+					var statistics = ImageProcessing.AverageColor(region);
+					if (statistics.R >= 190 && statistics.G >= 190 && statistics.B >= 190)
 						break;
 					
 				}

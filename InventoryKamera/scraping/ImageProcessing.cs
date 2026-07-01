@@ -176,6 +176,41 @@ namespace InventoryKamera
             finally { bm.UnlockBits(data); }
         }
 
+        /// <summary>
+        /// Mean value of each colour channel over every pixel, matching Accord's
+        /// <c>ImageStatistics(bitmap).Red/Green/Blue.Mean</c>. Colour images only.
+        /// </summary>
+        internal static unsafe (double R, double G, double B) AverageColor(Bitmap bitmap)
+        {
+            int bpp = BytesPerPixel(bitmap.PixelFormat);
+            if (bpp < 3)
+                throw new NotSupportedException($"AverageColor expects a colour image, got {bitmap.PixelFormat}.");
+
+            int w = bitmap.Width, h = bitmap.Height;
+            double sumR = 0, sumG = 0, sumB = 0;
+
+            var data = bitmap.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, bitmap.PixelFormat);
+            try
+            {
+                byte* baseP = (byte*)data.Scan0;
+                for (int y = 0; y < h; y++)
+                {
+                    byte* row = baseP + y * data.Stride;
+                    for (int x = 0; x < w; x++)
+                    {
+                        byte* p = row + x * bpp;
+                        sumB += p[0];
+                        sumG += p[1];
+                        sumR += p[2];
+                    }
+                }
+            }
+            finally { bitmap.UnlockBits(data); }
+
+            long count = (long)w * h;
+            return (sumR / count, sumG / count, sumB / count);
+        }
+
         private static byte[] BuildContrastLut(int factor)
         {
             int lo = factor, hi = 255 - factor;

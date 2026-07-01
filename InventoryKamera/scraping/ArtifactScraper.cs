@@ -360,7 +360,8 @@ namespace InventoryKamera
 
 		private static int GetRarity(Bitmap bm)
 		{
-			var averageColor = new ImageStatistics(bm);
+			var avg = ImageProcessing.AverageColor(bm);
+			var averageColor = Color.FromArgb((int)avg.R, (int)avg.G, (int)avg.B);
 
 			Color fiveStar = Color.FromArgb(255, 188, 105, 50);
 			Color fourStar = Color.FromArgb(255, 161, 86, 224);

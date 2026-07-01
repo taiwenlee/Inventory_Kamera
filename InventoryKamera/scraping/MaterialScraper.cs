@@ -343,7 +343,7 @@ namespace InventoryKamera
                         Bitmap n = GenshinProcesor.ConvertToGrayscale(copy);
                         
 						GenshinProcesor.SetInvert(ref n);
-                        n = new Threshold(50).Apply(n);
+                        GenshinProcesor.SetThreshold(50, ref n);
 
                         string original = GenshinProcesor.AnalyzeText(n).Trim();
 

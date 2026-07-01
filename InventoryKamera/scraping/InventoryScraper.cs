@@ -255,8 +255,8 @@ namespace InventoryKamera
             {
                 // Image pre-processing
                 screenshot = new KirschEdgeDetector().Apply(screenshot); // Algorithm to find edges. Really good but can take ~1s
-                screenshot = new Grayscale(0.2125, 0.7154, 0.0721).Apply(screenshot);
-                screenshot = new Threshold(75).Apply(screenshot); // Convert to black and white only based on pixel intensity			
+                screenshot = ImageProcessing.ConvertToGrayscale(screenshot);
+                ImageProcessing.SetThreshold(75, ref screenshot); // Convert to black and white only based on pixel intensity
 
                 blobCounter.ProcessImage(screenshot);
                 // Note: Processing won't always detect all item rectangles on screen. Since the
@@ -480,7 +480,8 @@ namespace InventoryKamera
         /// <returns>An integer representing quality from 0 - 5 (invalid - 5 star)</returns>
         internal static int GetQuality(Bitmap nameplate)
         {
-            var averageColor = new ImageStatistics(nameplate);
+            var avg = ImageProcessing.AverageColor(nameplate);
+            var averageColor = Color.FromArgb((int)avg.R, (int)avg.G, (int)avg.B);
 
             Color fiveStar = Color.FromArgb(255, 188, 105, 50);
             Color fourStar = Color.FromArgb(255, 161, 86, 224);

@@ -704,9 +704,8 @@ namespace InventoryKamera
 			return diff[0] < 10 && diff[1] < 10 && diff[2] < 10;
 		}
 
-		internal static Color ClosestColor(List<Color> colors, ImageStatistics color)
+		internal static Color ClosestColor(List<Color> colors, Color c2)
 		{
-			var c2 = Color.FromArgb((int)color.Red.Mean, (int)color.Green.Mean, (int)color.Blue.Mean);
 			var diff = colors.Select(x => new { Value = x, Diff = GetColorDifference(x, c2) }).ToList();
 
 			foreach (var c in colors)
