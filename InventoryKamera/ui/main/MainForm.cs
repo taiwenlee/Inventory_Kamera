@@ -102,7 +102,7 @@ namespace InventoryKamera
             Navigation.Reset();
 
             // Need to invoke method from the UI's handle, not the worker thread
-            BeginInvoke((MethodInvoker)delegate { RemoveHotkey(); });
+            BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { RemoveHotkey(); });
             Logger.Info("Hotkey removed");
         }
 
@@ -344,7 +344,7 @@ namespace InventoryKamera
                     {
                         ResetUI();
                         running = false;
-                        ManualExportButton.Invoke((MethodInvoker)delegate
+                        ManualExportButton.Invoke((System.Windows.Forms.MethodInvoker)delegate
                         {
                             ManualExportButton.Enabled = data.HasData;
                         });
@@ -661,7 +661,7 @@ namespace InventoryKamera
 
         private void MainForm_Activate()
         {
-            BeginInvoke((MethodInvoker)delegate { Activate(); });
+            BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { Activate(); });
         }
 
         private void ErrorLog_Label_Click(object sender, EventArgs e)

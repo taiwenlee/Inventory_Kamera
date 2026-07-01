@@ -29,17 +29,20 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
-      - name: Build (Release)
-        run: dotnet build InventoryKamera/InventoryKamera.csproj -c Release
-
       - name: Test
         run: dotnet test tests/InventoryKamera.Tests/InventoryKamera.Tests.csproj -c Release
+
+      - name: Publish (single-file, self-contained)
+        run: >
+          dotnet publish InventoryKamera/InventoryKamera.csproj -c Release
+          -r win-x64 -p:PublishSingleFile=true --self-contained true
+          -o publish/
 
       - name: Package
         shell: pwsh
         run: |
           $out = "InventoryKamera-$env:VERSION.zip"
-          Compress-Archive -Path InventoryKamera/bin/Release/net472/* -DestinationPath $out
+          Compress-Archive -Path publish/* -DestinationPath $out
           echo "ARTIFACT=$out" >> $env:GITHUB_ENV
 
       - name: Publish GitHub Release

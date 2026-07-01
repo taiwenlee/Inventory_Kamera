@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net472</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <IsPackable>false</IsPackable>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
@@ -16,10 +16,6 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <!-- The app no longer depends on Accord.Imaging (see ImageProcessing.cs), but the parity tests
-         (ImagePreprocessingParityTests, KirschBlobParityTests) compare our reimplementation directly
-         against Accord's output, so they keep their own reference to it as a test-only dependency. -->
-    <PackageReference Include="Accord.Imaging" Version="3.8.0" />
   </ItemGroup>
 
   <ItemGroup>

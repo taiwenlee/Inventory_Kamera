@@ -1,7 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Linq;
-using Accord;
 using InventoryKamera;
 using Xunit;
 

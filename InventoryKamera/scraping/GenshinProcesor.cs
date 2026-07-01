@@ -7,6 +7,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -193,7 +194,8 @@ namespace InventoryKamera
 			while (!engines.TryTake(out e)) { Thread.Sleep(10); }
 
 			if (numbersOnly) e.SetVariable("tessedit_char_whitelist", "0123456789");
-			using (var page = e.Process(bitmap, pageMode))
+			using (var pix = BitmapToPix(bitmap))
+			using (var page = e.Process(pix, pageMode))
 			{
 				using (var iter = page.GetIterator())
 				{
@@ -208,6 +210,21 @@ namespace InventoryKamera
 			engines.Add(e);
 
 			return text;
+		}
+
+		/// <summary>
+		/// Convert a <see cref="Bitmap"/> to a Tesseract <see cref="Pix"/> for OCR. The Tesseract
+		/// package's netstandard2.0 target (used on modern .NET) has no direct Bitmap overload of
+		/// <c>TesseractEngine.Process</c> (that only exists in its net47/net48 targets), so the image
+		/// is round-tripped through an in-memory PNG — lossless, so pixel values are unchanged.
+		/// </summary>
+		private static Pix BitmapToPix(Bitmap bitmap)
+		{
+			using (var stream = new MemoryStream())
+			{
+				bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+				return Pix.LoadFromMemory(stream.ToArray());
+			}
 		}
 
 		#endregion OCR

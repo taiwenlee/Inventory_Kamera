@@ -55,7 +55,7 @@ namespace InventoryKamera.ui.main
 
         internal void Activate_Form()
         {
-            BeginInvoke((MethodInvoker)delegate { Activate(); });
+            BeginInvoke((System.Windows.Forms.MethodInvoker)delegate { Activate(); });
         }
 
         private void Log_Button_Click(object sender, EventArgs e)

@@ -1,25 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Phase 0 (foundation): converted from the legacy non-SDK project to SDK-style,
-    still targeting .NET Framework 4.7.2. The jump to net8.0-windows was deferred to
-    Phase 1 because it was blocked on replacing Accord.Imaging (built against the
-    abandoned CoreCompat.System.Drawing, incompatible with the in-box System.Drawing
-    on modern .NET). That replacement is done (see scraping/ImageProcessing.cs) —
-    Accord.Imaging has been removed from this project entirely; the net8 retarget
-    is next.
+    Phase 0 (foundation): converted from the legacy non-SDK project to SDK-style.
+    Phase 1: replaced Accord.Imaging (built against the abandoned CoreCompat.System.Drawing,
+    incompatible with the in-box System.Drawing on modern .NET) with pure System.Drawing —
+    see scraping/ImageProcessing.cs — which unblocked this net8.0-windows retarget.
   -->
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net472</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>InventoryKamera</RootNamespace>
     <AssemblyName>InventoryKamera</AssemblyName>
     <StartupObject>InventoryKamera.Program</StartupObject>
     <ApplicationIcon>Item_Special_Kamera.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <LangVersion>7.3</LangVersion>
+    <LangVersion>latest</LangVersion>
 
     <!-- Keep the existing Properties\AssemblyInfo.cs as the source of assembly metadata. -->
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
@@ -27,19 +25,11 @@
     <Deterministic>false</Deterministic>
 
     <Platforms>AnyCPU;x64;x86</Platforms>
-    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
 
     <!-- WinForms .resx files embed non-string resources (images); the modern build engine
          reads/writes them via System.Resources.Extensions preserialized resources. -->
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
   </PropertyGroup>
-
-  <!-- Framework reference assemblies, so the project builds with just the .NET SDK (no VS/targeting pack). -->
-  <ItemGroup>
-    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
-    <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
-  </ItemGroup>
 
   <ItemGroup>
     <!-- MainForm's type is InventoryKamera.MainForm (namespace does not match its ui/main folder),
@@ -62,43 +52,17 @@
     </None>
   </ItemGroup>
 
-  <!-- .NET Framework assemblies referenced by the original project (kept as-is for parity). -->
-  <ItemGroup>
-    <Reference Include="PresentationCore" />
-    <Reference Include="PresentationFramework" />
-    <Reference Include="System.ComponentModel.Composition" />
-    <Reference Include="System.Configuration" />
-    <Reference Include="System.IO.Compression" />
-    <Reference Include="System.Net.Http" />
-    <Reference Include="System.Numerics" />
-    <Reference Include="System.Runtime.Serialization" />
-    <Reference Include="System.ServiceModel" />
-    <Reference Include="System.Transactions" />
-    <Reference Include="System.Xaml" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Deployment" />
-    <Reference Include="System.Drawing" />
-    <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.Xml" />
-    <Reference Include="WindowsBase" />
-  </ItemGroup>
-
   <ItemGroup>
     <PackageReference Include="HtmlAgilityPack.NetCore" Version="1.5.0.1" />
     <PackageReference Include="InputSimulator" Version="1.0.4" />
     <PackageReference Include="Microsoft-WindowsAPICodePack-Shell" Version="1.1.5" />
-    <PackageReference Include="Microsoft.Win32.Primitives" Version="4.3.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
     <PackageReference Include="NHotkey.WindowsForms" Version="2.1.0" />
     <PackageReference Include="NLog" Version="5.1.1" />
     <PackageReference Include="Octokit" Version="7.1.0" />
-    <PackageReference Include="System.Collections" Version="4.3.0" />
-    <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="7.0.0" />
-    <PackageReference Include="System.Runtime" Version="4.3.1" />
-    <PackageReference Include="System.Security.Cryptography.Algorithms" Version="4.3.1" />
-    <PackageReference Include="System.Security.Cryptography.X509Certificates" Version="4.3.2" />
+    <!-- ApplicationSettingsBase / SettingsProvider (Settings.cs, JsonUserSettingsProvider.cs)
+         moved out of the shared framework and into this package on .NET Core+. -->
+    <PackageReference Include="System.Configuration.ConfigurationManager" Version="8.0.0" />
     <PackageReference Include="Tesseract" Version="5.2.0" />
   </ItemGroup>
 
