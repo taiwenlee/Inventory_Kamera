@@ -282,19 +282,6 @@ namespace InventoryKamera
                         // Get Screen Location and Size
                         Navigation.Initialize();
 
-                        // GDI's capture backend photographs the tone-mapped SDR desktop under HDR,
-                        // shifting every pixel value against the app's hard-coded SDR calibration and
-                        // silently corrupting scans. Warn (don't block) unless the WGC backend -- which
-                        // reads the game's actual rendered frames and isn't affected -- is in use.
-                        bool usingWgc = string.Equals(Properties.Settings.Default.CaptureBackend, "Wgc", StringComparison.OrdinalIgnoreCase);
-                        if (!usingWgc && HdrDetector.IsHdrEnabledOnAnyDisplay())
-                        {
-                            UserInterface.AddError(
-                                "HDR appears to be enabled. The scanner's default capture method reads a tone-mapped " +
-                                "SDR copy of the screen under HDR, which can produce inaccurate scans. Disable HDR in " +
-                                "Windows Display settings, or switch Capture Backend to \"Wgc\" in settings.json.");
-                        }
-
                         List<Size> sizes = new List<Size>
                         {
                             new Size(16,9),
