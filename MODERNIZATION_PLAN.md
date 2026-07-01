@@ -2,7 +2,7 @@
 
 > Status: **In progress** · Scope: full phased modernization (foundation → efficiency → UX)
 > Drafted 2026-06-28 · Last updated 2026-07-01 · Target: incremental, `master` stays releasable throughout
-> Working branch: `modernize/phase0-foundation` (holds Phase 0 + in-progress Phase 1)
+> Working branch: `modernize/phase0-foundation` (holds Phase 0 + in-progress Phase 1; not yet merged)
 
 ---
 
@@ -10,12 +10,14 @@
 
 | Phase | State | Notes |
 |---|---|---|
-| **0 — Foundation** | ✅ **complete** | SDK-style project on net472, xUnit tests, CI. net8 deferred (coupled to Accord). |
-| **1 — Efficiency** | 🔄 **in progress** | Accord per-pixel filters + `ImageStatistics` reimplemented in pure GDI with golden parity; **remaining:** `KirschEdgeDetector` + `BlobCounter` + `IntRange`, then net8 flip, then async/pipeline (§1.2–1.6). |
+| **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
+| **1 — Efficiency** | 🔄 **in progress** | Accord fully removed; **net8.0-windows retarget done**; remaining: async/pipeline rework (§1.2–1.6). |
 | **2 — Architecture** | ⬜ not started | `ImageProcessing` seam (§2.1) already extracted early during Phase 1. |
-| **3 — UX** | ⬜ not started | Includes capture modernization (§6b) that fixes the HDR + overlay support issues. |
+| **3 — UX** | ⬜ not started | Includes capture modernization (§6b) that fixes the HDR + overlay support issues — now unblocked by net8. |
 
-**Test/CI status:** 62 tests green; GitHub Actions build+test on push/PR and a tag-driven release workflow are live (the two "None" rows in the baseline below are now done).
+**Runtime:** the app now targets **`net8.0-windows`** (was net472 through Phase 0; the coupling described below is resolved). Single-file self-contained publish verified working.
+
+**Test/CI status:** 72 tests green (net8.0); GitHub Actions build+test on push/PR and a tag-driven release workflow (now publishing single-file self-contained) are live.
 
 ---
 
@@ -60,15 +62,15 @@
 
 **Goal:** modern toolchain and a safety net. No behavior change.
 
-> **Sequencing decision (updated during Phase 0):** the initial attempt to retarget to
-> `net8.0-windows` in this phase revealed that **Accord.Imaging 3.8 is a hard *compile* blocker**
-> on modern .NET — it was built against the abandoned `CoreCompat.System.Drawing` fork, so its
-> `UnmanagedImage`/filter APIs will not accept the in-box `System.Drawing.Bitmap` the rest of the
-> app uses. The net8 migration and the Accord replacement are therefore **coupled** and cannot be
+> **Sequencing decision (made during Phase 0, resolved during Phase 1):** the initial attempt to
+> retarget to `net8.0-windows` in this phase revealed that **Accord.Imaging 3.8 is a hard *compile*
+> blocker** on modern .NET — it was built against the abandoned `CoreCompat.System.Drawing` fork, so
+> its `UnmanagedImage`/filter APIs will not accept the in-box `System.Drawing.Bitmap` the rest of the
+> app uses. The net8 migration and the Accord replacement were therefore **coupled** and could not be
 > separated. Phase 0 was re-scoped to convert to an SDK-style project **while staying on net472**
-> (zero behavior change, builds today); the TFM flip to net8 moves into Phase 1 alongside the
-> Accord replacement, gated by **golden pixel-parity tests** (see §1.1 — a stronger, game-asset-free
-> gate than the originally-planned OCR-corpus benchmark).
+> (zero behavior change); the TFM flip to net8 moved into Phase 1 alongside the Accord replacement,
+> gated by **golden pixel-parity tests** (see §1.1 — a stronger, game-asset-free gate than the
+> originally-planned OCR-corpus benchmark). **Both are now done** — the app is on net8.0-windows.
 
 ### 0.1 Convert to SDK-style project ✅ done
 - Replaced legacy `InventoryKamera.csproj` with SDK-style (`<Project Sdk="Microsoft.NET.Sdk">`). Dropped explicit `<Compile Include>` lists (globbing), `BootstrapperPackage`, ClickOnce publish props, and the dead framework polyfill packages.
@@ -76,33 +78,38 @@
 - Added `Microsoft.NETFramework.ReferenceAssemblies` so it builds headlessly with just the .NET SDK (no VS/targeting pack), and `System.Resources.Extensions` + `GenerateResourceUsePreserializedResources` for the WinForms image resources.
 - Pinned `MainForm.resx`'s manifest name via `LogicalName` (its namespace `InventoryKamera` doesn't match its `ui/main` folder, which would otherwise break resource loading under the SDK's path-based naming).
 
-### 0.2 Retarget to .NET 8 — deferred to Phase 1 (coupled with Accord removal)
-- `<TargetFramework>net8.0-windows</TargetFramework>`, `<UseWindowsForms>true</UseWindowsForms>`.
-- Enable `<Nullable>enable</Nullable>` (warnings first, not errors) and `<LangVersion>latest</LangVersion>`.
-- Known breaks already surfaced by the trial build (to fix during the flip): `MethodInvoker` now ambiguous with the new `System.Reflection.MethodInvoker`; Tesseract 5.x needs `Bitmap`→`Pix` conversion; `Thread.Abort` unsupported — see 0.4.
+### 0.2 Retarget to .NET 8 — ✅ done (landed in Phase 1, see §1.1)
+- Actually executed as part of the Phase 1 Accord removal (they were coupled — see the sequencing
+  decision above): `<TargetFramework>net8.0-windows</TargetFramework>`, `<UseWindowsForms>true</UseWindowsForms>`.
+  `<Nullable>` left `disable` for now (revisit later; not required for the flip itself).
+- All three known breaks from the trial build fixed: `MethodInvoker` qualified to
+  `System.Windows.Forms.MethodInvoker`; Tesseract `Bitmap`→`Pix` via an in-memory PNG round-trip;
+  `Thread.Abort` replaced with cooperative cancellation — see §0.4.
 
-### 0.3 Verify build + run parity ✅ done (static); manual smoke scan pending
-- `dotnet build` clean in Debug + Release (0 errors); native Tesseract/Leptonica binaries, tessdata, and generated `.exe.config` all deploy.
-- Verified WinForms resource manifest names match the form types (caught + fixed a `MainForm` mis-naming that would have crashed startup) and that preserialized image resources deserialize at runtime.
-- **Pending (needs admin + the game running):** an end-to-end smoke scan — the standing manual release check.
+### 0.3 Verify build + run parity ✅ done (static + net8 runtime checks); manual smoke scan pending
+- `dotnet build` clean in Debug + Release (0 errors) on **net8.0-windows**; native Tesseract/Leptonica binaries, tessdata, and `System.Configuration.ConfigurationManager` deploy correctly (the net472-era `System.Resources.Extensions` DLL is no longer needed — it's part of the net8 shared framework).
+- Re-verified WinForms resource manifest names + preserialized-resource deserialization under the actual net8 runtime (via a throwaway harness, since reflection tools running under other CLRs can't resolve net8 shared-framework assemblies) — still correct.
+- Single-file self-contained publish (`-r win-x64 -p:PublishSingleFile=true --self-contained`) verified producing a working exe with all native deps.
+- **Pending (needs admin + the game running):** an end-to-end smoke scan — the standing manual release check, unchanged.
 
-### 0.4 Address .NET 8 incompatibilities (known) — deferred to Phase 1 net8 flip
-- `Thread.Abort` / `ThreadAbortException` (caught in `MainForm`/`InventoryKamera`) is **not supported** on modern .NET → replace with cooperative cancellation (preview of Phase 1 §1.2; minimal shim here).
-- Audit `Octokit`, `NHotkey.WindowsForms`, `InputSimulator`, `Microsoft-WindowsAPICodePack-Shell`, `HtmlAgilityPack.NetCore` for net8 support; replace `Microsoft-WindowsAPICodePack-Shell` file dialogs with `Microsoft.WindowsAPICodePack-Shell` successor or WinForms `OpenFileDialog`/`FolderBrowserDialog`.
+### 0.4 Address .NET 8 incompatibilities ✅ done
+- `Thread.Abort` / `ThreadAbortException` replaced with a cooperative `InventoryKamera.CancelRequested` flag, checked between scan phases and within each scraper's per-item loop. Not a "minimal shim" — a real fix, since the Stop hotkey is a documented user-facing feature. Arguably safer than the original: cancellation now only takes effect between items, so it can't corrupt a half-scanned item's state.
+- `Octokit`, `NHotkey.WindowsForms`, `InputSimulator`, `Microsoft-WindowsAPICodePack-Shell`, `HtmlAgilityPack.NetCore` all restore and build on net8 (no code changes needed for these). **Known follow-up:** `InputSimulator` restores via the net-framework compat-shim (NU1701 warning) — works so far but is unmaintained; watch for issues.
 
-### 0.5 Single-file self-contained publish — deferred to Phase 1 net8 flip (a net-core feature)
-- `dotnet publish -r win-x64 -p:PublishSingleFile=true --self-contained`.
+### 0.5 Single-file self-contained publish ✅ done
+- `dotnet publish -r win-x64 -p:PublishSingleFile=true --self-contained true` verified working — one `.exe` (~157MB; bundles the full WindowsDesktop runtime pack, WinForms+WPF natives together regardless of which UI stack is used — an expected self-contained trade-off, not chased further here).
+- `release.yml` now publishes this way instead of a framework-dependent build+zip.
 - **UX payoff:** removes the README's "install VC++ redist + restart" and ".NET Framework" prerequisites — users download one `.exe`.
 
 ### 0.6 Test project ✅ done
-- Added `InventoryKamera.Tests` (xUnit, net472). Characterization suites shipped: `RECT` geometry, `GOOD` export envelope, `Weapon` (ascension mapping, validators, serialization keys), `Artifact` (substat filtering, formatting), and the `ImageProcessing` golden parity tests.
+- Added `InventoryKamera.Tests` (xUnit, now net8.0-windows). Characterization suites shipped: `RECT` geometry, `GOOD` export envelope, `Weapon` (ascension mapping, validators, serialization keys), `Artifact` (substat filtering, formatting), and the `ImageProcessing` golden parity tests (per-pixel filters + Kirsch/Blob).
 - **Still to add** (as those areas are refactored): OCR text normalization / fuzzy-match in `GenshinProcesor` and lookup/database parsing (`DatabaseManager`) — both need fixtures + `InternalsVisibleTo` (the latter already added for the image work).
 
 ### 0.7 CI ✅ done
 - `.github/workflows/build.yml`: restore → build → test on push/PR.
-- `.github/workflows/release.yml`: tag-driven build → zip → GitHub Release, replacing the manual `AssemblyVersion`-bump flow. (Single-file publish gets wired in once on net8; version-from-tag via `MinVer`/`Nerdbank.GitVersioning` is a later nicety.)
+- `.github/workflows/release.yml`: tag-driven single-file self-contained publish → zip → GitHub Release, replacing the manual `AssemblyVersion`-bump flow. (Version-from-tag via `MinVer`/`Nerdbank.GitVersioning` is a later nicety.)
 
-**Exit criteria (met, adjusted):** SDK-style project **on net472** (net8 deferred to Phase 1 per the coupling above), builds in CI, static build/resource parity confirmed, tests green. Single-file publish + smoke-scan parity carry into the net8 flip.
+**Exit criteria: fully met.** SDK-style project **on net8.0-windows**, builds in CI, static + net8-runtime build/resource parity confirmed, single-file publish works, tests green (72). Manual end-to-end smoke scan remains the one standing pending item (needs admin + the live game).
 
 ---
 
@@ -110,7 +117,7 @@
 
 **Goal:** kill dead dependencies, modernize the concurrency model, measurable scan throughput.
 
-### 1.1 Replace Accord.Imaging 🔄 in progress
+### 1.1 Replace Accord.Imaging ✅ done
 **Approach chosen:** the Accord filter surface turned out to be small and standard, so instead of
 pulling in a heavy CV library (OpenCvSharp4 native binaries) or a Bitmap-incompatible one (ImageSharp),
 the operations are reimplemented in **pure `System.Drawing` (LockBits)** — zero new dependencies,
@@ -121,13 +128,41 @@ keeps `System.Drawing.Bitmap` end-to-end, and produces **byte-identical output**
 - **Verification gate:** a probe captured Accord's exact pixel semantics, pinned as **golden parity
   tests**. Because OCR only ever sees the pre-processed image, pixel-for-pixel parity guarantees
   scan behaviour is unchanged — no game screenshots needed.
-- **Done (proven equivalent):** grayscale (luma-truncated → 8bpp indexed), invert, threshold
+- **Per-pixel filters (exact match):** grayscale (luma-truncated → 8bpp indexed), invert, threshold
   (inclusive), contrast (levels-linear stretch), colour-filter, and `ImageStatistics` (per-channel
   mean). Direct scraper Accord calls routed through `ImageProcessing`.
-- **Remaining:** `KirschEdgeDetector` (deterministic 8-kernel convolution — replicable exactly) and
-  `BlobCounter` (connected-component labeling — the hard one; produces inventory item bounding
-  boxes) in the inventory-grid path, plus the trivial `Accord.IntRange` value type. Once those land,
-  delete the Accord package and **flip to net8** (§0.2/0.4/0.5 fold in here).
+- **`KirschEdgeDetector`** (8-kernel compass convolution) and **`BlobCounter`** (8-connected
+  component labeling — produces inventory item bounding boxes, the hardest piece) reimplemented in
+  `ImageProcessing.EdgeDetectKirsch`/`FindBlobRectangles`. Kirsch matches Accord exactly on every
+  interior pixel (thousands of samples incl. a pseudo-random image); Accord applies an undocumented
+  normalization to only the outermost 1px border, which is immaterial (edge of the captured window,
+  can't form an icon-sized blob). Blob detection is fully exact (connectivity, size filter, discovery
+  order). `Accord.IntRange` → local `IntRange` struct; `Rectangle.Center()` extension (Accord.Imaging
+  supplied it) → local `RectangleExtensions`.
+- **Result:** `Accord.Imaging` PackageReference removed from the app project entirely — 0 Accord DLLs
+  ship. The parity tests originally compared live against Accord in the test project too; once proven
+  correct, they were converted to assert against golden values captured from that comparison (Accord
+  can't be referenced from net8 at all, so it couldn't stay a live test dependency once §0.2 landed).
+
+### 1.1b Replace Thread.Abort scan cancellation ✅ done
+Not originally itemized, but required to reach net8 (§0.4): `Thread.Abort()`/`ThreadAbortException`
+(used by the Stop hotkey to interrupt an in-progress scan) is unsupported on modern .NET. Replaced
+with `InventoryKamera.CancelRequested`, a cooperative volatile flag checked between scan phases in
+`GatherData()` and within each scraper's per-item loop, at the same breakpoints already used for the
+existing `StopScanning` (rarity/level filter) exit. On cancellation `MainForm` now explicitly skips
+GOOD conversion/export/the optimizer dialog (previously implicit via the exception unwind) — matches
+the documented behaviour that the user must use "Export Scanned Data" for partial results. This is
+arguably *safer* than before: cancellation only takes effect between items, so it can't corrupt a
+half-scanned item's state.
+
+### 1.1c Retarget to net8.0-windows ✅ done
+Unblocked by 1.1's Accord removal. `<TargetFramework>net8.0-windows</TargetFramework>`,
+`<UseWindowsForms>true</UseWindowsForms>`. Fixed the two remaining known breaks: `MethodInvoker`
+ambiguity (qualified to `System.Windows.Forms.MethodInvoker`) and Tesseract's missing `Bitmap`
+overload on netstandard2.0 (round-trip through an in-memory PNG → `Pix.LoadFromMemory`). Dropped the
+legacy `<Reference>` assembly list and net-framework polyfill packages (all built into net8's shared
+framework now); added `System.Configuration.ConfigurationManager` for `ApplicationSettingsBase`. Full
+detail in §0.2–§0.5 above (the net8 sub-items of Phase 0 that were deferred here).
 
 ### 1.2 Replace thread/queue model with Channels + async
 - Producer (screen capture) / N consumers (OCR) over `System.Threading.Channels.Channel<OCRImageCollection>`.
@@ -280,9 +315,9 @@ detection is the cheap stopgap that ships before this.
 ## 7. Cross-cutting / risks
 
 - **Game-update fragility:** scanning depends on Genshin UI layout + lookup tables (`inventorylists`, Dimbreath sync). Modernization must not disturb the auto-updater path (`DatabaseManager`). Add tests around lookup parsing.
-- **OCR parity:** any image-pipeline change (1.1) risks recognition regressions. Gated by **golden pixel-parity tests** on synthetic inputs (see §1.1) — proven identical output to Accord for every reimplemented op. `KirschEdgeDetector`/`BlobCounter` still need this treatment.
-- **Third-party net8 support:** validate every NuGet dep before the retarget (§0.4). Trial build already flagged the concrete breaks (`MethodInvoker`, Tesseract `Bitmap`→`Pix`, `Thread.Abort`).
-- **No automated game testing:** screen-automation can't run in CI. Maintain a manual smoke-scan checklist per release; push as much logic as possible behind unit tests.
+- **OCR parity:** any image-pipeline change (1.1) risks recognition regressions. Gated by **golden pixel-parity tests** on synthetic inputs (see §1.1) — proven identical (or interior-identical, for Kirsch's border) output to Accord for every reimplemented op, including `KirschEdgeDetector`/`BlobCounter`. Still no live-game verification (see below).
+- **Third-party net8 support:** validated as part of the retarget (§0.4) — no code changes needed beyond the three known breaks. **Standing watch item:** `InputSimulator` restores via the net-framework compat-shim (NU1701); unmaintained, works so far.
+- **No automated game testing:** screen-automation can't run in CI. Maintain a manual smoke-scan checklist per release (still outstanding for the net8 flip); push as much logic as possible behind unit tests.
 
 ---
 
@@ -291,20 +326,27 @@ detection is the cheap stopgap that ships before this.
 | Phase | Branch | Depends on | State |
 |---|---|---|---|
 | 0 | `modernize/phase0-foundation` | — | ✅ complete |
-| 1 | `modernize/phase0-foundation` (same branch so far) | 0 | 🔄 in progress (Accord swap) |
+| 1 | `modernize/phase0-foundation` (same branch so far) | 0 | 🔄 in progress — Accord removal + net8 retarget **done**; async/pipeline rework (§1.2–1.6) remaining |
 | 2 | `modernize/phase2-architecture` | 1 | ⬜ not started (`ImageProcessing` seam started early) |
-| 3 | `modernize/phase3-ux` (incl. §6b capture) | 2 (net8) | ⬜ not started |
+| 3 | `modernize/phase3-ux` (incl. §6b capture) | 2 (net8 ✅ available now) | ⬜ not started |
 
 Phase 0 and the in-progress Phase 1 currently share `modernize/phase0-foundation` (not yet merged to
 `master`); they can be split into a dedicated Phase 1 branch/PR before merge if preferred. Each phase
 merges to `master` only when it builds in CI and passes a manual smoke scan. Phase 1 is landing as
-small internal commits (SDK conversion → seam → per-pixel swap → stats swap → …).
+small internal commits (SDK conversion → seam → per-pixel swap → stats swap → Kirsch/Blob swap →
+Thread.Abort replacement → net8 retarget → …).
 
 ---
 
 ## 9. Immediate next step
 
-Finish the **§1.1 Accord removal**: reimplement `KirschEdgeDetector` + `BlobCounter` (with golden
-parity where feasible) and drop `Accord.IntRange`, delete the Accord package, then execute the
-**net8 flip** (folding in §0.4 breaks + §0.5 single-file publish). That unblocks the §6b
-Windows.Graphics.Capture work that fixes the HDR + overlay support issues.
+The **Accord removal and net8 retarget are done** — the app builds and tests green on
+`net8.0-windows`, and this unblocks the §6b Windows.Graphics.Capture work that fixes the HDR +
+overlay support issues. Two candidate next steps, not yet sequenced:
+
+1. **A manual smoke scan** against the live game (the one standing verification gap from §0.3/§0.5)
+   before merging this branch to `master` — the safest checkpoint given how much has landed.
+2. **Continue Phase 1** into §1.2–1.6 (Channels/async pipeline, engine pooling, System.Text.Json,
+   the manequin JSON-string hack) or **jump to §6b** (WGC capture, now unblocked) depending on
+   priority — HDR/overlay fixes are higher user-visible value; the async rework is more
+   architectural cleanup.
