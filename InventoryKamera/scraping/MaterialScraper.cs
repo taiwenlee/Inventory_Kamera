@@ -70,6 +70,12 @@ namespace InventoryKamera
 			// Keep scanning while not repeating any items names
 			while (true)
 			{
+				if (InventoryKamera.CancelRequested)
+				{
+					Logger.Info("Stopping material scan: cancel requested");
+					return;
+				}
+
 				int rows, cols;
 				// Find all items on the screen
 				(rectangles, cols, rows) = GetPageOfItems(page, acceptLess: true);
@@ -84,6 +90,12 @@ namespace InventoryKamera
 
 				foreach (var rectangle in r)
 				{
+					if (InventoryKamera.CancelRequested)
+					{
+						Logger.Info("Stopping material scan: cancel requested");
+						return;
+					}
+
 					// Select Material
 					Navigation.SetCursor(rectangle.Center().X, rectangle.Center().Y);
 					Navigation.Click();

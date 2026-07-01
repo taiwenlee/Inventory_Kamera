@@ -36,6 +36,13 @@ namespace InventoryKamera
 		private volatile bool b_threadCancel;
 		private readonly int NumWorkers;
 
+		/// <summary>
+		/// Set when the user requests the scan be stopped (e.g. the Stop hotkey). Checked between
+		/// scan phases and within each scraper's per-item loop, since .NET no longer supports
+		/// Thread.Abort for interrupting the scan thread outright.
+		/// </summary>
+		internal static volatile bool CancelRequested;
+
 		public bool HasData
         {
 			get { return Characters.Count > 0 || Inventory.Size > 0; }
@@ -97,6 +104,7 @@ namespace InventoryKamera
 
 		public void GatherData()
 		{
+			CancelRequested = false;
 
 			ResetLogging();
 
@@ -228,7 +236,7 @@ namespace InventoryKamera
                 GatherData();
 			}
 
-            if (Properties.Settings.Default.ScanWeapons)
+            if (Properties.Settings.Default.ScanWeapons && !CancelRequested)
 			{
 				Logger.Info("Scanning weapons...");
 				// Get Weapons
@@ -239,7 +247,6 @@ namespace InventoryKamera
                     weaponScraper.ScanWeapons();
 				}
 				catch (FormatException ex) { UserInterface.AddError(ex.Message); }
-				catch (ThreadAbortException) { }
 				catch (Exception ex)
 				{
 					UserInterface.AddError(ex.Message + "\n" + ex.StackTrace);
@@ -248,7 +255,7 @@ namespace InventoryKamera
 				Logger.Info("Done scanning weapons");
 			}
 
-			if (Properties.Settings.Default.ScanArtifacts)
+			if (Properties.Settings.Default.ScanArtifacts && !CancelRequested)
 			{
 				Logger.Info("Scanning artifacts...");
 
@@ -260,7 +267,6 @@ namespace InventoryKamera
 					artifactScraper.ScanArtifacts();
 				}
 				catch (FormatException ex) { UserInterface.AddError(ex.Message); }
-				catch (ThreadAbortException) { }
 				catch (Exception ex)
 				{
 					UserInterface.AddError(ex.Message + "\n" + ex.StackTrace);
@@ -271,7 +277,7 @@ namespace InventoryKamera
 
 			workerQueue.Enqueue(new OCRImageCollection(null, "END", 0));
 
-			if (Properties.Settings.Default.ScanCharacters)
+			if (Properties.Settings.Default.ScanCharacters && !CancelRequested)
 			{
 				Logger.Info("Scanning characters...");
 				// Get characters
@@ -280,7 +286,6 @@ namespace InventoryKamera
 				{
 					characterScraper.ScanCharacters(ref Characters);
 				}
-				catch (ThreadAbortException) { }
 				catch (Exception ex)
 				{
 					UserInterface.AddError(ex.Message + "\n" + ex.StackTrace);
@@ -302,7 +307,7 @@ namespace InventoryKamera
 			}
 
 			// Scan Character Development Items
-			if (Properties.Settings.Default.ScanCharDevItems)
+			if (Properties.Settings.Default.ScanCharDevItems && !CancelRequested)
 			{
 				Logger.Info("Scanning character development materials...");
 				// Get Materials
@@ -315,7 +320,6 @@ namespace InventoryKamera
 					materialScraper.Scan_Materials(ref Inventory);
 				}
 				catch (FormatException ex) { UserInterface.AddError(ex.Message); }
-				catch (ThreadAbortException) { }
 				catch (Exception ex)
 				{
 					UserInterface.AddError(ex.Message + "\n" + ex.StackTrace);
@@ -325,7 +329,7 @@ namespace InventoryKamera
 			}
 
 			// Scan Materials
-			if (Properties.Settings.Default.ScanMaterials)
+			if (Properties.Settings.Default.ScanMaterials && !CancelRequested)
 			{
 				Logger.Info("Scanning materials...");
 				// Get Materials
@@ -338,7 +342,6 @@ namespace InventoryKamera
 					materialScraper.Scan_Materials(ref Inventory);
 				}
 				catch (FormatException ex) { UserInterface.AddError(ex.Message); }
-				catch (ThreadAbortException) { }
 				catch (Exception ex)
 				{
 					UserInterface.AddError(ex.Message + "\n" + ex.StackTrace);

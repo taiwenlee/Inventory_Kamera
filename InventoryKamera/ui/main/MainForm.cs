@@ -88,12 +88,12 @@ namespace InventoryKamera
             // Check if scanner is running
             if (scannerThread.IsAlive)
             {
-                // Stop navigating weapons/artifacts
-                scannerThread.Abort();
+                // Stop navigating weapons/artifacts. .NET no longer supports Thread.Abort, so the
+                // scanner thread is asked to stop cooperatively; it checks this flag between scan
+                // phases and between items within a phase (see InventoryKamera.CancelRequested).
+                InventoryKamera.CancelRequested = true;
 
-                UserInterface.SetProgramStatus("Scan Stopped");
-
-                Navigation.Reset();
+                UserInterface.SetProgramStatus("Stopping scan...");
             }
         }
 
@@ -306,22 +306,27 @@ namespace InventoryKamera
                         // The Data object of json object
                         data.GatherData();
 
-                        // Covert to GOOD
-                        GOOD good = new GOOD(data);
-                        Logger.Info("Data converted to GOOD");
+                        if (InventoryKamera.CancelRequested)
+                        {
+                            // Scan was stopped cooperatively (Stop hotkey). Matches the previous
+                            // Thread.Abort behaviour: skip GOOD conversion/export/optimizer dialog.
+                            // The user can still use "Export Scanned Data" to export what was collected.
+                            data?.StopImageProcessorWorkers();
+                            UserInterface.SetProgramStatus("Scan stopped");
+                        }
+                        else
+                        {
+                            // Covert to GOOD
+                            GOOD good = new GOOD(data);
+                            Logger.Info("Data converted to GOOD");
 
-                        // Make Json File
-                        good.WriteToJSON(OutputPath_TextBox.Text);
-                        Logger.Info("Exported data");
+                            // Make Json File
+                            good.WriteToJSON(OutputPath_TextBox.Text);
+                            Logger.Info("Exported data");
 
-                        UserInterface.SetProgramStatus("Finished");
-                        OpenOptimizerDialog(good);
-                    }
-                    catch (ThreadAbortException)
-                    {
-                        // Workers can get stuck if the thread is aborted or an exception is raised
-                        data?.StopImageProcessorWorkers();
-                        UserInterface.SetProgramStatus("Scan stopped");
+                            UserInterface.SetProgramStatus("Finished");
+                            OpenOptimizerDialog(good);
+                        }
                     }
                     catch (NotImplementedException ex)
                     {

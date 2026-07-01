@@ -42,7 +42,7 @@ namespace InventoryKamera
             SelectSortingMethod();
 
             // Go through weapon list
-            while (cardsQueued < weaponCount)
+            while (cardsQueued < weaponCount && !InventoryKamera.CancelRequested)
             {
                 Logger.Debug("Scanning weapon page {0}", page);
                 Logger.Debug("Located {0} possible item locations on page.", rectangles.Count);
@@ -60,9 +60,10 @@ namespace InventoryKamera
                     // Queue card for scanning
                     QueueScan(cardsQueued);
                     cardsQueued++;
-                    if (cardsQueued >= weaponCount || this.StopScanning)
+                    if (cardsQueued >= weaponCount || this.StopScanning || InventoryKamera.CancelRequested)
                     {
-                        if (StopScanning) Logger.Info("Stopping weapon scan based on filtering");
+                        if (InventoryKamera.CancelRequested) Logger.Info("Stopping weapon scan: cancel requested");
+                        else if (StopScanning) Logger.Info("Stopping weapon scan based on filtering");
                         else Logger.Info("Stopping weapon scan based on scans queued ({0} of {1})", cardsQueued, weaponCount);
                         return;
                     }

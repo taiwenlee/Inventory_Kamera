@@ -89,7 +89,7 @@ namespace InventoryKamera
 			//}
 
 			// Go through artifact list
-			while (cardsQueued < artifactCount)
+			while (cardsQueued < artifactCount && !InventoryKamera.CancelRequested)
 			{
 				Logger.Debug("Scanning artifact page {0}", page);
 				Logger.Debug("Located {0} possible item locations on page.", rectangles.Count);
@@ -107,9 +107,10 @@ namespace InventoryKamera
 					// Queue card for scanning
 					QueueScan(cardsQueued);
 					cardsQueued++;
-					if (cardsQueued >= artifactCount || StopScanning)
+					if (cardsQueued >= artifactCount || StopScanning || InventoryKamera.CancelRequested)
 					{
-						if (StopScanning) Logger.Info("Stopping artifact scan based on filtering");
+						if (InventoryKamera.CancelRequested) Logger.Info("Stopping artifact scan: cancel requested");
+						else if (StopScanning) Logger.Info("Stopping artifact scan based on filtering");
 						else Logger.Info("Stopping artifact scan based on scans queued ({0} of {1})", cardsQueued, artifactCount);
 						return;
 					}

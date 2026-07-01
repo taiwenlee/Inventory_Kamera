@@ -65,6 +65,11 @@ namespace InventoryKamera
 				UserInterface.ResetCharacterDisplay();
 
 				if ((++viewed > 3 && Characters.Count < 1) || (NumOfCharToScan !=0 && counter >= NumOfCharToScan)) break;
+				if (InventoryKamera.CancelRequested)
+				{
+					Logger.Info("Stopping character scan: cancel requested");
+					break;
+				}
 			}
 
 			// Childe passive buff fix
