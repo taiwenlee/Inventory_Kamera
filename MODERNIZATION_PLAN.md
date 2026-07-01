@@ -163,6 +163,7 @@ Split the 957-line static class into injected services:
 
 ### 3.2 Pre-flight validation
 - Before scanning, detect game window resolution, aspect ratio (16:9 / 16:10), language, HDR, and keybinds; warn inline. This automates ~40 lines of manual README setup and prevents the most common bad scans.
+- HDR detection is the reliable, high-value piece (see §6b for why); overlays are only heuristically detectable until the capture rewrite lands.
 
 ### 3.3 Inline OCR review/correction
 - When recognition confidence is low, surface the item inline for one-click correction instead of dumping screenshots into `logging/` for the user to file as a GitHub issue.
@@ -177,6 +178,70 @@ Split the 957-line static class into injected services:
 - Friendly error panel with "copy diagnostics" (zips `logging/` + version) to streamline bug reports.
 
 **Exit criteria:** real-time progress, pre-flight checks, inline correction shipped; DPI + dark mode; positive scan-success-rate feedback.
+
+---
+
+## 6b. Capture modernization — Windows.Graphics.Capture (fixes HDR + overlays)
+
+> **Depends on:** the net8 flip (Phase 1). WinRT/WGC is far easier to consume on modern .NET.
+> **Fixes:** the two most common "bad scan" support issues (HDR, overlays) at the source.
+
+### Root cause (confirmed)
+All capture goes through `Graphics.CopyFromScreen` in `game/Navigation.cs`
+(`CaptureWindow` :87, `CaptureRegion` :104) — a GDI BitBlt of the **desktop** at the game
+window's screen coordinates. It photographs whatever is on screen there, so:
+- **Overlays** (Discord, NVIDIA ShadowPlay/Freestyle, Steam, RTSS/Afterburner, FPS/PC-stat widgets)
+  composited over the window are captured verbatim, corrupting OCR regions.
+- **HDR**: with HDR on, the desktop is composited in 10-bit HDR and GDI reads back an
+  SDR-tone-mapped 8-bit approximation. Every pixel's luminance/colour shifts, which breaks the
+  hard-coded SDR calibration this project relies on — grayscale thresholds (75/70/50), the
+  "activate" brightness check `>= 190`, and artifact-rarity colour matching to fixed RGB constants
+  (e.g. 5★ `(188,105,50)`). See [[net8-blocked-by-accord]] for where those thresholds now live
+  (`ImageProcessing`).
+
+### Target design
+Replace GDI screen-scraping with **Windows.Graphics.Capture (WGC)** capturing the game window's
+own frames. WGC excludes overlays composited on top and gives controlled access to the swapchain
+(correct HDR handling) — it's the API OBS/game-capture tools use.
+
+1. **Seam first (same pattern as `ImageProcessing`/Accord).** Introduce `IScreenCapture` with
+   `Bitmap CaptureWindow()` / `Bitmap CaptureRegion(RECT)`. Implementations:
+   - `GdiScreenCapture` — the current `CopyFromScreen` code (kept as fallback for < Win10 1803 and
+     as an A/B baseline).
+   - `WgcScreenCapture` — the new path. `Navigation` delegates to the injected capture.
+2. **WGC pipeline.** `GraphicsCaptureItem` from the game HWND via `IGraphicsCaptureItemInterop.
+   CreateForWindow` → `Direct3D11CaptureFramePool` on a D3D11 device → `GraphicsCaptureSession`.
+   Maintain a latest-frame cache updated by `FrameArrived`; expose a synchronous "latest frame as
+   `Bitmap`" so the scrapers' on-demand `CaptureRegion` model is unchanged. `CaptureRegion` crops
+   the cached full-window frame. **Keep returning `System.Drawing.Bitmap`** so all scrapers/OCR are
+   untouched: `IDirect3DSurface` → `ID3D11Texture2D` → staging texture (CPU read) → map → `Bitmap`.
+3. **Native interop deps (net8).** Bump TFM to `net8.0-windows10.0.19041.0` to light up WGC WinRT
+   projections (CsWinRT). D3D11 device/texture via **Vortice.Windows** (maintained, net8-friendly).
+4. **HDR path.** Capture SDR as `DirectXPixelFormat.B8G8R8A8UIntNormalized`. Under HDR the content is
+   scRGB `R16G16B16A16Float`; **open question** whether B8G8R8A8 capture yields values matching
+   native SDR or needs an explicit HDR→SDR tone-map to preserve the existing thresholds. Research +
+   A/B before committing. Either way WGC makes it *possible* (GDI does not).
+
+### Verification (no game screenshots → can't golden-test)
+- **A/B harness / diagnostic:** capture the same region via `GdiScreenCapture` and `WgcScreenCapture`
+  and save both. In SDR + no-overlay conditions they should be near-identical (validates WGC
+  correctness/coordinate mapping); under HDR/overlay, WGC should be correct where GDI is wrong.
+- **Capture-backend setting** so testers can switch and fall back.
+- Manual smoke-scan on a real account (the standing release checklist).
+
+### Risks / open items
+- **Coordinate/border mapping:** WGC frames are window-local, not screen-offset; the existing region
+  math offsets by `GetPosition()` for the BitBlt and assumes client-area size (`GetWidth/Height`).
+  WGC window capture may include the non-client frame → needs a calibration/crop step. Biggest
+  correctness risk; mitigate with the A/B harness.
+- **HDR fidelity** (tone-map question above).
+- **OS floor:** WGC needs Win10 1803+; the borderless-capture option (`IsBorderRequired=false`) needs
+  Win11. Keep `GdiScreenCapture` as fallback.
+- Also unblocks retiring the manual `SetProcessDPIAware`/DPI hacks.
+
+### Sequencing
+Post-net8 (after Phase 1). Slots as a **Phase 2.5 / early Phase 3** item; §3.2 pre-flight HDR
+detection is the cheap stopgap that ships before this.
 
 ---
 
