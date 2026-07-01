@@ -194,7 +194,7 @@ namespace InventoryKamera
             }
         }
 
-        public async void QueueScan(int id)
+        public void QueueScan(int id)
 		{
 			var card = GetItemCard();
             Bitmap name, gearSlot, mainStat, subStats, level, equipped, locked, sanctify;
@@ -248,7 +248,7 @@ namespace InventoryKamera
 				return;
             }
             // Send images to Worker Queue
-            InventoryKamera.workerQueue.Enqueue(new OCRImageCollection(artifactImages, "artifact", id));
+            InventoryKamera.workerChannel.Writer.TryWrite(new OCRImageCollection(artifactImages, "artifact", id));
         }
 
         private Bitmap GetSubstatsBitmap(Bitmap card, bool isSanctified = false)

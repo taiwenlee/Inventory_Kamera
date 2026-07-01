@@ -204,7 +204,7 @@ namespace InventoryKamera
             }
 
             // Send images to worker queue
-            InventoryKamera.workerQueue.Enqueue(new OCRImageCollection(weaponImages, "weapon", id));
+            InventoryKamera.workerChannel.Writer.TryWrite(new OCRImageCollection(weaponImages, "weapon", id));
         }
 
         Bitmap GetLevelBitmap(Bitmap card)

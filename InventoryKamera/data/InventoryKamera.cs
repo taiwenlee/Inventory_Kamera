@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace InventoryKamera
@@ -25,15 +26,24 @@ namespace InventoryKamera
 
 		private List<Artifact> equippedArtifacts;
 		private List<Weapon> equippedWeapons;
-		public static Queue<OCRImageCollection> workerQueue;
-		private List<Thread> ImageProcessors;
+
+		/// <summary>
+		/// Hand-off from the weapon/artifact scan loops (producers) to the background OCR workers
+		/// (consumers). Producers call <see cref="Channel{T}.Writer"/>.TryWrite; a normal end of work
+		/// is signaled by completing the writer (see <see cref="AwaitProcessors"/>/GatherData), which
+		/// lets ReadAllAsync drain every already-queued item before finishing. An abrupt stop (see
+		/// <see cref="StopImageProcessorWorkers"/>) instead cancels <see cref="workerAbortCts"/>, which
+		/// drops whatever is still queued.
+		/// </summary>
+		public static Channel<OCRImageCollection> workerChannel;
+		private CancellationTokenSource workerAbortCts;
+		private List<Task> imageProcessorTasks;
 
 		private WeaponScraper weaponScraper;
 		private ArtifactScraper artifactScraper;
 		private CharacterScraper characterScraper;
 		private MaterialScraper materialScraper;
 
-		private volatile bool b_threadCancel;
 		private readonly int NumWorkers;
 
 		/// <summary>
@@ -54,25 +64,22 @@ namespace InventoryKamera
 			Inventory = new Inventory();
 			equippedArtifacts = new List<Artifact>();
 			equippedWeapons = new List<Weapon>();
-			ImageProcessors = new List<Thread>();
-			workerQueue = new Queue<OCRImageCollection>();
+			imageProcessorTasks = new List<Task>();
+			workerChannel = Channel.CreateUnbounded<OCRImageCollection>();
+			workerAbortCts = new CancellationTokenSource();
 
 			weaponScraper = new WeaponScraper();
 			artifactScraper = new ArtifactScraper();
 			characterScraper = new CharacterScraper();
 			materialScraper = new MaterialScraper();
 
-			b_threadCancel = false;
+			// Base worker count on available CPU (leaving headroom for the UI/navigation thread) so
+			// small machines don't oversubscribe; the scanner-speed setting further caps it down for
+			// the slower, lower-load profiles.
+			int baseWorkers = Math.Max(1, Environment.ProcessorCount - 1);
+			int userCap = Properties.Settings.Default.ScannerDelay == 0 ? 3 : 2;
+			NumWorkers = Math.Min(baseWorkers, userCap);
 
-            switch (Properties.Settings.Default.ScannerDelay)
-            {
-				case 0:
-					NumWorkers = 3;
-					break;
-				default:
-					NumWorkers = 2;
-					break;
-            }
 			Logger.Info("Kamera initialized");
 		}
 
@@ -97,9 +104,10 @@ namespace InventoryKamera
 
 		public void StopImageProcessorWorkers()
 		{
-			b_threadCancel = true;
+			workerAbortCts.Cancel();
 			AwaitProcessors();
-			workerQueue = new Queue<OCRImageCollection>();
+			workerChannel = Channel.CreateUnbounded<OCRImageCollection>();
+			workerAbortCts = new CancellationTokenSource();
 		}
 
 		public void GatherData()
@@ -110,14 +118,12 @@ namespace InventoryKamera
 
 			GenshinProcesor.ReloadData();
 
-			// Initize Image Processors
+			// Initialize Image Processors
 			for (int i = 0; i < NumWorkers; i++)
 			{
-				Thread processor = new Thread(ImageProcessorWorker){ IsBackground = true };
-				processor.Start();
-				ImageProcessors.Add(processor);
+				imageProcessorTasks.Add(Task.Run(() => ImageProcessorWorkerAsync(workerAbortCts.Token)));
 			}
-			Logger.Debug("Added {ImageProcessors.Count} workers", ImageProcessors.Count);
+			Logger.Debug("Added {NumWorkers} workers", NumWorkers);
 
 			GenshinProcesor.RestartEngines();
 
@@ -172,7 +178,8 @@ namespace InventoryKamera
 				Logger.Info("Done scanning artifacts");
 			}
 
-			workerQueue.Enqueue(new OCRImageCollection(null, "END", 0));
+			// No more weapon/artifact items will be queued; workers drain whatever's left, then finish.
+			workerChannel.Writer.Complete();
 
 			if (Properties.Settings.Default.ScanCharacters && !CancelRequested)
 			{
@@ -250,26 +257,38 @@ namespace InventoryKamera
 
 		private void AwaitProcessors()
 		{
-			while (ImageProcessors.Count > 0)
-			{
-				ImageProcessors.RemoveAll(process => !process.IsAlive);
-			}
-			b_threadCancel = false;
+			Task.WaitAll(imageProcessorTasks.ToArray());
+			imageProcessorTasks.Clear();
 		}
 
-		public void ImageProcessorWorker()
+		public async Task ImageProcessorWorkerAsync(CancellationToken abortToken)
 		{
-			Logger.Debug("Thread #{0} priority: {1}", Thread.CurrentThread.ManagedThreadId, Thread.CurrentThread.Priority);
-			while (true)
+			Logger.Debug("Worker task starting");
+			try
 			{
-				if (b_threadCancel)
+				await foreach (var imageCollection in workerChannel.Reader.ReadAllAsync(abortToken))
 				{
-					workerQueue.Clear();
-					break;
+					try
+					{
+						await ProcessImageCollectionAsync(imageCollection);
+					}
+					catch (Exception ex)
+					{
+						// A single bad item shouldn't take the whole worker down; log and keep going.
+						Logger.Error(ex, "Image processor worker failed on a queued {Type} item", imageCollection.Type);
+					}
 				}
+			}
+			catch (OperationCanceledException)
+			{
+				// Abrupt stop requested (StopImageProcessorWorkers); drop whatever's still queued.
+				Logger.Debug("Worker task cancelled");
+			}
+			Logger.Debug("Worker task exit");
+		}
 
-				if (workerQueue.TryDequeue(out OCRImageCollection imageCollection))
-				{
+		private async Task ProcessImageCollectionAsync(OCRImageCollection imageCollection)
+		{
 					switch (imageCollection.Type)
 					{
 						case "weapon":
@@ -283,7 +302,7 @@ namespace InventoryKamera
 							UserInterface.SetGearPictureBox(imageCollection.Bitmaps.Last());
 
 							// Scan as weapon
-							Weapon weapon = weaponScraper.CatalogueFromBitmapsAsync(imageCollection.Bitmaps, imageCollection.Id).Result;
+							Weapon weapon = await weaponScraper.CatalogueFromBitmapsAsync(imageCollection.Bitmaps, imageCollection.Id);
 							UserInterface.SetGear(imageCollection.Bitmaps.Last(), weapon);
 
 							string weaponPath = $"./logging/weapons/weapon{weapon.Id}/";
@@ -347,7 +366,7 @@ namespace InventoryKamera
 
 							UserInterface.SetGearPictureBox(imageCollection.Bitmaps.Last());
 							// Scan as artifact
-							Artifact artifact = ArtifactScraper.CatalogueFromBitmapsAsync(imageCollection.Bitmaps, imageCollection.Id).Result;
+							Artifact artifact = await ArtifactScraper.CatalogueFromBitmapsAsync(imageCollection.Bitmaps, imageCollection.Id);
 							UserInterface.SetGear(imageCollection.Bitmaps.Last(), artifact);
 
 							string artifactPath = $"./logging/artifacts/artifact{artifact.Id}/";
@@ -411,22 +430,10 @@ namespace InventoryKamera
 							imageCollection.Bitmaps.ForEach(b => b.Dispose());
 							break;
 
-						case "END":
-							b_threadCancel = true;
-							break;
-
 						default:
 							MainForm.UnexpectedError("Unknown Image type for Image Processor");
 							break;
 					}
-				}
-				else
-				{
-					// Wait for more images to process
-					Thread.Sleep(250);
-				}
-			}
-			Logger.Debug("Thread {threadId} exit", Thread.CurrentThread.ManagedThreadId);
 		}
 
         private static void LogObject(object obj, string path)

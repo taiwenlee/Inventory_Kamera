@@ -21,7 +21,9 @@ namespace InventoryKamera
 	{
 		private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-		private const int numEngines = 8;
+		// Roughly one engine per logical processor (clamped so tiny machines still get a usable
+		// pool and huge ones don't load an excessive number of Tesseract models).
+		private static readonly int numEngines = Math.Max(4, Math.Min(12, Environment.ProcessorCount));
 
 		private static readonly string tesseractDatapath = $".\\tessdata";
 		private static readonly string tesseractLanguage = "genshin_fast_09_04_21";
@@ -79,7 +81,7 @@ namespace InventoryKamera
 			"Manequin2"
 		};
 
-		internal static ConcurrentBag<TesseractEngine> engines;
+		internal static BlockingCollection<TesseractEngine> engines;
 
 		internal static Dictionary<string, string> Weapons, DevItems, Materials, Elements;
 
@@ -193,7 +195,7 @@ namespace InventoryKamera
 
 		private static void InitEngines()
 		{
-			engines = new ConcurrentBag<TesseractEngine>();
+			engines = new BlockingCollection<TesseractEngine>();
 			try
 			{
 				for (int i = 0; i < numEngines; i++)
@@ -210,14 +212,13 @@ namespace InventoryKamera
 
 		internal static void RestartEngines()
 		{
-			
-			if (engines is null) engines = new ConcurrentBag<TesseractEngine>();
+
+			if (engines is null) engines = new BlockingCollection<TesseractEngine>();
 			lock (engines)
 			{
-				while (!engines.IsEmpty)
+				while (engines.TryTake(out TesseractEngine e))
 				{
-					if (engines.TryTake(out TesseractEngine e))
-						e.Dispose();
+					e.Dispose();
 				}
 
 				for (int i = 0; i < numEngines; i++)
@@ -232,8 +233,8 @@ namespace InventoryKamera
 		internal static string AnalyzeText(Bitmap bitmap, PageSegMode pageMode = PageSegMode.SingleLine, bool numbersOnly = false)
 		{
 			string text = "";
-			TesseractEngine e;
-			while (!engines.TryTake(out e)) { Thread.Sleep(10); }
+			// Blocks efficiently until an engine is free, instead of busy-polling with Thread.Sleep.
+			TesseractEngine e = engines.Take();
 
 			if (numbersOnly) e.SetVariable("tessedit_char_whitelist", "0123456789");
 			using (var pix = BitmapToPix(bitmap))
