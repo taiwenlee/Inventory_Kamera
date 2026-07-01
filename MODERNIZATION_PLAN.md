@@ -12,12 +12,12 @@
 |---|---|---|
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
-| **2 — Architecture** | ⬜ not started | `ImageProcessing` seam (§2.1) already extracted early during Phase 1. |
+| **2 — Architecture** | 🔄 **in progress** | `IOcrService` extracted from `GenshinProcesor` with real unit tests (§2.1); `ImageProcessing` seam already extracted during Phase 1. Rest of §2.1 + all of §2.2–2.5 not started. |
 | **3 — UX** | ⬜ not started | §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
 
 **Runtime:** the app now targets **`net8.0-windows`** (was net472 through Phase 0). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
-**Test/CI status:** 79 tests green (net8.0); GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
+**Test/CI status:** 82 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
 
 **Standing gap:** an end-to-end manual smoke scan against the live game has not been run since Phase 0 (needs admin + the game). Everything else is verified by build/test/reflection-level checks.
 
@@ -228,33 +228,55 @@ primitive-level timing benchmark shows large measured improvements.
 
 ---
 
-## 5. Phase 2 — Architecture
+## 5. Phase 2 — Architecture 🔄 in progress (started 2026-07-01)
 
 **Goal:** testable, decoupled core; remove global statics; prepare for UX work.
 
-### 2.1 Decompose `GenshinProcesor`
+> **Sequencing note:** this is 5 large, interdependent sub-items — realistically the biggest phase
+> yet, bigger than Phase 1. Landing as small, independently-verified vertical slices (same discipline
+> as Phase 1), not attempted all at once. `2.1` is being extracted one service at a time; `2.2`–`2.5`
+> not started.
+
+### 2.1 Decompose `GenshinProcesor` 🔄 in progress
 Split the 957-line static class into injected services:
-- `IOcrService` (engine pool + recognize).
+- **`IOcrService`** ✅ **done** — extracted the Tesseract engine pool (`engines`, `InitEngines`,
+  `RestartEngines`, `AnalyzeText`, `BitmapToPix`) into `OcrService`, a real class with an explicit,
+  I/O-free constructor (engine loading happens in `Restart()`, not eagerly). Unblocked something
+  that was flagged as impossible back in Phase 0: touching *any* static member of `GenshinProcesor`
+  used to eagerly load the whole Tesseract engine pool from disk as a static-constructor side
+  effect, so OCR couldn't be unit-tested at all. `OcrServiceTests` now does real Tesseract
+  recognition round-trips (render known digits → `AnalyzeText` → assert exact match) — verified
+  passing with exact recognition, not just "close enough."
+  - **Scoped deliberately smaller than the ideal end state:** `GenshinProcesor.AnalyzeText`/
+    `RestartEngines` remain as thin static forwarding wrappers to one internally-held `OcrService`
+    instance, so all ~23 existing call sites across the 5 scraper files keep working unchanged.
+    Full removal of the static access pattern — every scraper taking `IOcrService` via constructor
+    instead of calling `GenshinProcesor.AnalyzeText(...)` — is real follow-up work, not done here.
+    It's a bigger lift than it looks: several of `ArtifactScraper`'s scanning methods
+    (`CatalogueFromBitmapsAsync`, `GetRarity`, `IsEnhancementMaterial`, etc.) are themselves
+    `static`, called both internally and externally as `ArtifactScraper.SomeMethod(...)` from
+    `InventoryKamera.cs` — converting those to instance methods too is in scope for finishing 2.1,
+    not a side effect of it.
 - `IImagePreprocessor` — 🔄 **started early in Phase 1**: the `ImageProcessing` class is already
   extracted (image ops no longer live in `GenshinProcesor`). Currently a `static` class; formalize as
   an injectable service here.
-- `ILookupService` (characters/weapons/artifacts/materials normalization + fuzzy match).
-- `ITextNormalizer` (stat/element/name correction).
+- `ILookupService` (characters/weapons/artifacts/materials normalization + fuzzy match) — not started.
+- `ITextNormalizer` (stat/element/name correction) — not started.
 
-### 2.2 Introduce DI + Hosting
-- `Microsoft.Extensions.DependencyInjection` + `Microsoft.Extensions.Hosting`. Compose services at startup; scrapers receive dependencies via ctor instead of reaching into statics.
+### 2.2 Introduce DI + Hosting — not started
+- `Microsoft.Extensions.DependencyInjection` + `Microsoft.Extensions.Hosting`. Compose services at startup; scrapers receive dependencies via ctor instead of reaching into statics. `IOcrService`'s extraction (2.1) is designed to make this a mechanical follow-up (constructor-inject it into the 5 scrapers + `InventoryKamera`) once ready — no DI container wired up yet, `GenshinProcesor` just holds one instance directly.
 
-### 2.3 Modern configuration
+### 2.3 Modern configuration — not started
 - Replace `Properties.Settings`/`Settings.settings` + `JsonUserSettingsProvider` with `Microsoft.Extensions.Configuration` + a typed `IOptions<ScanSettings>` bound to a user `appsettings.json` in `%AppData%`.
 
-### 2.4 Typed data models
+### 2.4 Typed data models — not started
 - Replace `Dictionary<string,JObject>` for characters/artifacts with typed records; complete the System.Text.Json migration started in 1.4.
 
-### 2.5 Decouple UI from logic (MVVM-lite)
+### 2.5 Decouple UI from logic (MVVM-lite) — not started
 - Introduce a `ScanViewModel` exposing observable progress/state. Scrapers report progress via an `IProgress<ScanProgress>` / events — **not** by writing into static `UserInterface` WinForms controls.
 - `MainForm` becomes a thin view bound to the view model. This is the bridge to Phase 3.
 
-**Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained.
+**Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained. **Not yet met** — `IOcrService` is unit-tested (✅) but its static access pattern isn't fully removed yet, and the other three services + DI + config + MVVM haven't started.
 
 ---
 

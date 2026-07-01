@@ -22,4 +22,15 @@
     <ProjectReference Include="..\..\InventoryKamera\InventoryKamera.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- OcrServiceTests exercises real Tesseract recognition, so it needs the trained data files
+         next to the test binaries too, same as the app itself. -->
+    <None Include="..\..\InventoryKamera\tessdata\genshin_best_eng.traineddata" Link="tessdata\genshin_best_eng.traineddata">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\InventoryKamera\tessdata\genshin_fast_09_04_21.traineddata" Link="tessdata\genshin_fast_09_04_21.traineddata">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

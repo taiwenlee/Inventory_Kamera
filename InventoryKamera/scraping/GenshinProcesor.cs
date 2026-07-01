@@ -1,7 +1,6 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -12,7 +11,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using System.Threading;
 using Tesseract;
 
 namespace InventoryKamera
@@ -21,12 +19,10 @@ namespace InventoryKamera
 	{
 		private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-		// Roughly one engine per logical processor (clamped so tiny machines still get a usable
-		// pool and huge ones don't load an excessive number of Tesseract models).
-		private static readonly int numEngines = Math.Max(4, Math.Min(12, Environment.ProcessorCount));
-
-		private static readonly string tesseractDatapath = $".\\tessdata";
-		private static readonly string tesseractLanguage = "genshin_fast_09_04_21";
+		// OCR is now IOcrService/OcrService (Phase 2 §2.1) -- this static field is a thin bridge
+		// so the many existing GenshinProcesor.AnalyzeText(...) call sites keep working unchanged.
+		// Rewiring those call sites to take IOcrService via constructor injection is follow-up work.
+		private static readonly IOcrService ocrService = new OcrService();
 
 		internal static Dictionary<string, string> Stats = new Dictionary<string, string>
 		{
@@ -81,16 +77,12 @@ namespace InventoryKamera
 			"Manequin2"
 		};
 
-		internal static BlockingCollection<TesseractEngine> engines;
-
 		internal static Dictionary<string, string> Weapons, DevItems, Materials, Elements;
 
 		internal static Dictionary<string, JObject> Characters, Artifacts;
 
 		static GenshinProcesor()
         {
-            InitEngines();
-
 			ReloadData();
 
 			Elements = new Dictionary<string, string>();
@@ -193,82 +185,15 @@ namespace InventoryKamera
 
 		#region OCR
 
-		private static void InitEngines()
-		{
-			engines = new BlockingCollection<TesseractEngine>();
-			try
-			{
-				for (int i = 0; i < numEngines; i++)
-				{
-					engines.Add(new TesseractEngine(tesseractDatapath, tesseractLanguage, EngineMode.LstmOnly));
-				}
-			}
-			catch (Exception ex)
-			{
-				Logger.Error(ex, "Failed to initialize Tesseract engines.");
-				throw;
-			}
-		}
+		// Thin forwarding wrappers to the extracted IOcrService (see the `ocrService` field above),
+		// kept so the many existing call sites (GenshinProcesor.AnalyzeText(...) across every
+		// scraper) don't all need to change in the same pass that introduced the service.
 
-		internal static void RestartEngines()
-		{
-
-			if (engines is null) engines = new BlockingCollection<TesseractEngine>();
-			lock (engines)
-			{
-				while (engines.TryTake(out TesseractEngine e))
-				{
-					e.Dispose();
-				}
-
-				for (int i = 0; i < numEngines; i++)
-				{
-					engines.Add(new TesseractEngine(tesseractDatapath, tesseractLanguage, EngineMode.LstmOnly));
-				}
-			}
-			Logger.Debug("{numEngines} Engines restarted", numEngines);
-		}
+		internal static void RestartEngines() => ocrService.Restart();
 
 		/// <summary> Use Tesseract OCR to find words on picture to string </summary>
-		internal static string AnalyzeText(Bitmap bitmap, PageSegMode pageMode = PageSegMode.SingleLine, bool numbersOnly = false)
-		{
-			string text = "";
-			// Blocks efficiently until an engine is free, instead of busy-polling with Thread.Sleep.
-			TesseractEngine e = engines.Take();
-
-			if (numbersOnly) e.SetVariable("tessedit_char_whitelist", "0123456789");
-			using (var pix = BitmapToPix(bitmap))
-			using (var page = e.Process(pix, pageMode))
-			{
-				using (var iter = page.GetIterator())
-				{
-					iter.Begin();
-					do
-					{
-						text += iter.GetText(PageIteratorLevel.TextLine);
-					}
-					while (iter.Next(PageIteratorLevel.TextLine));
-				}
-			}
-			engines.Add(e);
-
-			return text;
-		}
-
-		/// <summary>
-		/// Convert a <see cref="Bitmap"/> to a Tesseract <see cref="Pix"/> for OCR. The Tesseract
-		/// package's netstandard2.0 target (used on modern .NET) has no direct Bitmap overload of
-		/// <c>TesseractEngine.Process</c> (that only exists in its net47/net48 targets), so the image
-		/// is round-tripped through an in-memory PNG — lossless, so pixel values are unchanged.
-		/// </summary>
-		private static Pix BitmapToPix(Bitmap bitmap)
-		{
-			using (var stream = new MemoryStream())
-			{
-				bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
-				return Pix.LoadFromMemory(stream.ToArray());
-			}
-		}
+		internal static string AnalyzeText(Bitmap bitmap, PageSegMode pageMode = PageSegMode.SingleLine, bool numbersOnly = false) =>
+			ocrService.AnalyzeText(bitmap, pageMode, numbersOnly);
 
 		#endregion OCR
 
