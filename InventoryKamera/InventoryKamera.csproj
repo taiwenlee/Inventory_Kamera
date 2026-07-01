@@ -1,120 +1,71 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Phase 0 (foundation): converted from the legacy non-SDK project to SDK-style,
+    but still targeting .NET Framework 4.7.2 so behaviour is unchanged.
+    The jump to net8.0-windows is deferred to Phase 1 because it is blocked on
+    replacing Accord.Imaging (built against the abandoned CoreCompat.System.Drawing,
+    incompatible with the in-box System.Drawing on modern .NET).
+  -->
+
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{7B7F907E-11F4-4000-B711-8E532A36F8A9}</ProjectGuid>
     <OutputType>WinExe</OutputType>
+    <TargetFramework>net472</TargetFramework>
     <RootNamespace>InventoryKamera</RootNamespace>
     <AssemblyName>InventoryKamera</AssemblyName>
-    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
-    <FileAlignment>512</FileAlignment>
-    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <Deterministic>false</Deterministic>
-    <NuGetPackageImportStamp>
-    </NuGetPackageImportStamp>
-    <IsWebBootstrapper>false</IsWebBootstrapper>
-    <TargetFrameworkProfile>
-    </TargetFrameworkProfile>
-    <PublishUrl>publish\</PublishUrl>
-    <Install>true</Install>
-    <InstallFrom>Disk</InstallFrom>
-    <UpdateEnabled>false</UpdateEnabled>
-    <UpdateMode>Foreground</UpdateMode>
-    <UpdateInterval>7</UpdateInterval>
-    <UpdateIntervalUnits>Days</UpdateIntervalUnits>
-    <UpdatePeriodically>false</UpdatePeriodically>
-    <UpdateRequired>false</UpdateRequired>
-    <MapFileExtensions>true</MapFileExtensions>
-    <OpenBrowserOnPublish>false</OpenBrowserOnPublish>
-    <ApplicationRevision>0</ApplicationRevision>
-    <ApplicationVersion>1.2.2.0</ApplicationVersion>
-    <UseApplicationTrust>true</UseApplicationTrust>
-    <CreateDesktopShortcut>true</CreateDesktopShortcut>
-    <BootstrapperEnabled>true</BootstrapperEnabled>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Prefer32Bit>false</Prefer32Bit>
-    <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
-    <RunCodeAnalysis>false</RunCodeAnalysis>
-    <GenerateSerializationAssemblies>Auto</GenerateSerializationAssemblies>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
-    <DebugType>none</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <Prefer32Bit>false</Prefer32Bit>
-    <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
-    <RunCodeAnalysis>false</RunCodeAnalysis>
-    <DocumentationFile>
-    </DocumentationFile>
-    <DebugSymbols>false</DebugSymbols>
-  </PropertyGroup>
-  <PropertyGroup Label="Normalise stack trace file locations" Condition="$(BuildingInsideVisualStudio) != 'true'">
-    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))=X:\</PathMap>
-  </PropertyGroup>
-  <PropertyGroup />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
-    <PlatformTarget>x86</PlatformTarget>
-    <OutputPath>bin\x86\Debug\</OutputPath>
-    <DefineConstants>TRACE;DEBUG</DefineConstants>
-    <Prefer32Bit>false</Prefer32Bit>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
-    <PlatformTarget>x86</PlatformTarget>
-    <OutputPath>bin\x86\Release\</OutputPath>
-    <Prefer32Bit>false</Prefer32Bit>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
-    <DebugSymbols>true</DebugSymbols>
-    <OutputPath>bin\x64\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <DebugType>full</DebugType>
-    <PlatformTarget>x64</PlatformTarget>
-    <LangVersion>7.3</LangVersion>
-    <ErrorReport>prompt</ErrorReport>
-    <Prefer32Bit>true</Prefer32Bit>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
-    <OutputPath>bin\x64\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <Optimize>true</Optimize>
-    <DebugType>pdbonly</DebugType>
-    <PlatformTarget>x64</PlatformTarget>
-    <LangVersion>7.3</LangVersion>
-    <ErrorReport>prompt</ErrorReport>
-    <Prefer32Bit>true</Prefer32Bit>
-  </PropertyGroup>
-  <PropertyGroup>
-    <ApplicationIcon>Item_Special_Kamera.ico</ApplicationIcon>
-  </PropertyGroup>
-  <PropertyGroup>
     <StartupObject>InventoryKamera.Program</StartupObject>
-  </PropertyGroup>
-  <PropertyGroup>
+    <ApplicationIcon>Item_Special_Kamera.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>7.3</LangVersion>
+
+    <!-- Keep the existing Properties\AssemblyInfo.cs as the source of assembly metadata. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- AssemblyInfo.cs uses the 1.4.3.* auto-revision wildcard, which needs a non-deterministic build. -->
+    <Deterministic>false</Deterministic>
+
+    <Platforms>AnyCPU;x64;x86</Platforms>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+
+    <!-- WinForms .resx files embed non-string resources (images); the modern build engine
+         reads/writes them via System.Resources.Extensions preserialized resources. -->
+    <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
   </PropertyGroup>
+
+  <!-- Framework reference assemblies, so the project builds with just the .NET SDK (no VS/targeting pack). -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MainForm's type is InventoryKamera.MainForm (namespace does not match its ui/main folder),
+         so the SDK's path-based resource-naming convention would mis-name its resource as
+         InventoryKamera.ui.main.MainForm.resources and break resource loading at runtime.
+         Pin the manifest name to match the type, as the legacy project produced it. -->
+    <EmbeddedResource Update="ui\main\MainForm.resx">
+      <LogicalName>InventoryKamera.MainForm.resources</LogicalName>
+      <DependentUpon>MainForm.cs</DependentUpon>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Tesseract trained data must sit next to the executable at runtime. -->
+    <None Update="tessdata\genshin_best_eng.traineddata">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="tessdata\genshin_fast_09_04_21.traineddata">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- .NET Framework assemblies referenced by the original project (kept as-is for parity). -->
   <ItemGroup>
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
-    <Reference Include="System" />
     <Reference Include="System.ComponentModel.Composition" />
     <Reference Include="System.Configuration" />
-    <Reference Include="System.Core" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Numerics" />
@@ -124,7 +75,6 @@
     <Reference Include="System.Xaml" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Data" />
     <Reference Include="System.Deployment" />
     <Reference Include="System.Drawing" />
@@ -132,148 +82,23 @@
     <Reference Include="System.Xml" />
     <Reference Include="WindowsBase" />
   </ItemGroup>
+
   <ItemGroup>
-    <Compile Include="game\Artifact.cs" />
-    <Compile Include="Properties\JsonUserSettingsProvider.cs" />
-    <Compile Include="scraping\ArtifactScraper.cs" />
-    <Compile Include="game\Character.cs" />
-    <Compile Include="data\DatabaseManager.cs" />
-    <Compile Include="scraping\InventoryScraper.cs" />
-    <Compile Include="Settings.cs" />
-    <Compile Include="scraping\MaterialScraper.cs" />
-    <Compile Include="scraping\CharacterScraper.cs" />
-    <Compile Include="data\GOOD.cs" />
-    <Compile Include="ui\ExecutablesForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="ui\ExecutablesForm.Designer.cs">
-      <DependentUpon>ExecutablesForm.cs</DependentUpon>
-    </Compile>
-    <Compile Include="ui\main\MainUI.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="ui\main\MainUI.Designer.cs">
-      <DependentUpon>MainUI.cs</DependentUpon>
-    </Compile>
-    <Compile Include="ui\main\MainForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="ui\main\MainForm.Designer.cs">
-      <DependentUpon>MainForm.cs</DependentUpon>
-    </Compile>
-    <Compile Include="data\InventoryKamera.cs" />
-    <Compile Include="data\OCRImageCollection.cs" />
-    <Compile Include="data\Inventory.cs" />
-    <Compile Include="game\Navigation.cs" />
-    <Compile Include="Program.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="data\Rect.cs" />
-    <Compile Include="scraping\GenshinProcesor.cs" />
-    <Compile Include="ui\UserInterface.cs" />
-    <Compile Include="game\Weapon.cs" />
-    <Compile Include="scraping\WeaponScraper.cs" />
-    <EmbeddedResource Include="ui\ExecutablesForm.resx">
-      <DependentUpon>ExecutablesForm.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="ui\main\MainForm.resx">
-      <DependentUpon>MainForm.cs</DependentUpon>
-      <SubType>Designer</SubType>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Properties\Resources.resx">
-      <Generator>ResXFileCodeGenerator</Generator>
-      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
-      <SubType>Designer</SubType>
-    </EmbeddedResource>
-    <Compile Include="Properties\Resources.Designer.cs">
-      <AutoGen>True</AutoGen>
-      <DependentUpon>Resources.resx</DependentUpon>
-      <DesignTime>True</DesignTime>
-    </Compile>
-    <EmbeddedResource Include="ui\main\MainUI.resx">
-      <DependentUpon>MainUI.cs</DependentUpon>
-    </EmbeddedResource>
-    <None Include="app.manifest" />
-    <None Include="Properties\DataSources\InventoryKamera.Properties.Settings.datasource" />
-    <None Include="Properties\Settings.settings">
-      <Generator>SettingsSingleFileGenerator</Generator>
-      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
-    </None>
-    <Compile Include="Properties\Settings.Designer.cs">
-      <AutoGen>True</AutoGen>
-      <DependentUpon>Settings.settings</DependentUpon>
-      <DesignTimeSharedInput>True</DesignTimeSharedInput>
-    </Compile>
-    <None Include="tessdata\genshin_best_eng.traineddata">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="tessdata\genshin_fast_09_04_21.traineddata">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <PackageReference Include="Accord.Imaging" Version="3.8.0" />
+    <PackageReference Include="HtmlAgilityPack.NetCore" Version="1.5.0.1" />
+    <PackageReference Include="InputSimulator" Version="1.0.4" />
+    <PackageReference Include="Microsoft-WindowsAPICodePack-Shell" Version="1.1.5" />
+    <PackageReference Include="Microsoft.Win32.Primitives" Version="4.3.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
+    <PackageReference Include="NHotkey.WindowsForms" Version="2.1.0" />
+    <PackageReference Include="NLog" Version="5.1.1" />
+    <PackageReference Include="Octokit" Version="7.1.0" />
+    <PackageReference Include="System.Collections" Version="4.3.0" />
+    <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="7.0.0" />
+    <PackageReference Include="System.Runtime" Version="4.3.1" />
+    <PackageReference Include="System.Security.Cryptography.Algorithms" Version="4.3.1" />
+    <PackageReference Include="System.Security.Cryptography.X509Certificates" Version="4.3.2" />
+    <PackageReference Include="Tesseract" Version="5.2.0" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="App.config" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="Item_Special_Kamera.ico" />
-  </ItemGroup>
-  <ItemGroup>
-    <BootstrapperPackage Include=".NETFramework,Version=v4.7.2">
-      <Visible>False</Visible>
-      <ProductName>Microsoft .NET Framework 4.7.2 %28x86 and x64%29</ProductName>
-      <Install>true</Install>
-    </BootstrapperPackage>
-    <BootstrapperPackage Include="Microsoft.Net.Framework.3.5.SP1">
-      <Visible>False</Visible>
-      <ProductName>.NET Framework 3.5 SP1</ProductName>
-      <Install>false</Install>
-    </BootstrapperPackage>
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Accord.Imaging">
-      <Version>3.8.0</Version>
-    </PackageReference>
-    <PackageReference Include="HtmlAgilityPack.NetCore">
-      <Version>1.5.0.1</Version>
-    </PackageReference>
-    <PackageReference Include="InputSimulator">
-      <Version>1.0.4</Version>
-    </PackageReference>
-    <PackageReference Include="Microsoft-WindowsAPICodePack-Shell">
-      <Version>1.1.5</Version>
-    </PackageReference>
-    <PackageReference Include="Microsoft.Win32.Primitives">
-      <Version>4.3.0</Version>
-    </PackageReference>
-    <PackageReference Include="Newtonsoft.Json">
-      <Version>13.0.2</Version>
-    </PackageReference>
-    <PackageReference Include="NHotkey.WindowsForms">
-      <Version>2.1.0</Version>
-    </PackageReference>
-    <PackageReference Include="NLog">
-      <Version>5.1.1</Version>
-    </PackageReference>
-    <PackageReference Include="Octokit">
-      <Version>7.1.0</Version>
-    </PackageReference>
-    <PackageReference Include="System.Collections">
-      <Version>4.3.0</Version>
-    </PackageReference>
-    <PackageReference Include="System.Diagnostics.DiagnosticSource">
-      <Version>7.0.0</Version>
-    </PackageReference>
-    <PackageReference Include="System.Runtime">
-      <Version>4.3.1</Version>
-    </PackageReference>
-    <PackageReference Include="System.Security.Cryptography.Algorithms">
-      <Version>4.3.1</Version>
-    </PackageReference>
-    <PackageReference Include="System.Security.Cryptography.X509Certificates">
-      <Version>4.3.2</Version>
-    </PackageReference>
-    <PackageReference Include="Tesseract">
-      <Version>5.2.0</Version>
-    </PackageReference>
-  </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+
 </Project>

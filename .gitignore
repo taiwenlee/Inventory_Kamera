@@ -366,3 +366,10 @@ MigrationBackup/
 FodyWeavers.xsd
 
 /InventoryKameraWPF/
+
+# Inventory Kamera: keep the unit test project directory.
+# The generic "*Tests/" rule above matches case-insensitively on Windows, so it hides both the
+# top-level "tests/" folder and the "InventoryKamera.Tests/" project. Re-include both directories;
+# their contained bin/ and obj/ stay ignored via the earlier build-output rules.
+!tests/
+!tests/InventoryKamera.Tests/

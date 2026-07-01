@@ -1,0 +1,56 @@
+name: Release
+
+# Tag-driven release: push a tag like v1.4.4 to build and publish a zipped build.
+# Replaces the previous manual "bump AssemblyVersion + hand-build" flow.
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version label for the artifact (e.g. v1.4.4)'
+        required: true
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    env:
+      VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build (Release)
+        run: dotnet build InventoryKamera/InventoryKamera.csproj -c Release
+
+      - name: Test
+        run: dotnet test tests/InventoryKamera.Tests/InventoryKamera.Tests.csproj -c Release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $out = "InventoryKamera-$env:VERSION.zip"
+          Compress-Archive -Path InventoryKamera/bin/Release/net472/* -DestinationPath $out
+          echo "ARTIFACT=$out" >> $env:GITHUB_ENV
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARTIFACT }}
+          generate_release_notes: true
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: InventoryKamera-${{ env.VERSION }}
+          path: ${{ env.ARTIFACT }}
