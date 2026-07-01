@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -110,6 +111,47 @@ namespace InventoryKamera
 			DevItems = listManager.LoadDevItems();
 			Materials = listManager.LoadMaterials();
 
+			EnsureManequinEntriesExist(listManager.ListsDir);
+		}
+
+		private static readonly string[] manequinKeys = { "manequin1", "manequin2" };
+
+		/// <summary>
+		/// GOOD doesn't support manequins, so characters.json omits them from the app's hosted data.
+		/// Add placeholder entries (excluded from scanning by name, same as before) if they're
+		/// missing, via the JSON object model rather than string-surgery on the file, and persist
+		/// them so future loads don't need to patch again.
+		/// </summary>
+		private static void EnsureManequinEntriesExist(string listsDir)
+		{
+			bool added = false;
+			foreach (var key in manequinKeys)
+			{
+				if (!Characters.ContainsKey(key))
+				{
+					Characters[key] = BuildManequinEntry(key);
+					added = true;
+				}
+			}
+
+			if (!added) return;
+
+			File.WriteAllText(Path.Combine(listsDir, "characters.json"),
+				JsonConvert.SerializeObject(new SortedDictionary<string, JObject>(Characters), Newtonsoft.Json.Formatting.Indented));
+			Logger.Info("Added missing manequin entries to characters.json");
+		}
+
+		internal static JObject BuildManequinEntry(string key)
+		{
+			string good = char.ToUpper(key[0]) + key.Substring(1); // "manequin1" -> "Manequin1"
+			return new JObject
+			{
+				["GOOD"] = good,
+				["ConstellationName"] = new JArray("Support entry to omit manequins during scanning; GOOD does not support manequins."),
+				["ConstellationOrder"] = new JArray("burst", "skill"),
+				["Element"] = new JArray("electro", "pyro", "dendro", "geo", "hydro", "anemo"),
+				["WeaponType"] = 0
+			};
 		}
 
 		internal static void UpdateCharacterName(string target, string name)
