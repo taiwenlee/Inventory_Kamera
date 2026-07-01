@@ -348,5 +348,20 @@ namespace InventoryKamera.Properties {
                 this["Manequin2Name"] = value;
             }
         }
+
+        // Screen capture backend: "Gdi" (default, safest -- desktop BitBlt, affected by HDR/overlays)
+        // or "Wgc" (Windows.Graphics.Capture -- excludes overlays, HDR-correct; opt-in until it has
+        // been validated against a live game session). See [[hdr-overlay-root-cause]].
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("Gdi")]
+        public string CaptureBackend {
+            get {
+                return ((string)(this["CaptureBackend"]));
+            }
+            set {
+                this["CaptureBackend"] = value;
+            }
+        }
     }
 }

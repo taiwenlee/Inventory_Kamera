@@ -21,6 +21,23 @@ namespace InventoryKamera
 		private static Size AspectRatio;
 		public static bool IsNormal { get; private set; }
 
+		private static IntPtr WindowHandle;
+		private static IScreenCapture screenCapture;
+
+		private static IScreenCapture GetScreenCapture()
+		{
+			bool wantsWgc = string.Equals(Properties.Settings.Default.CaptureBackend, "Wgc", StringComparison.OrdinalIgnoreCase);
+			bool haveWgc = screenCapture is WgcScreenCapture;
+
+			if (screenCapture == null || wantsWgc != haveWgc)
+			{
+				(screenCapture as IDisposable)?.Dispose();
+				screenCapture = wantsWgc ? (IScreenCapture)new WgcScreenCapture() : new GdiScreenCapture();
+				Logger.Info("Screen capture backend: {0}", wantsWgc ? "Windows.Graphics.Capture" : "GDI");
+			}
+			return screenCapture;
+		}
+
         private static double delay = 1;
 
 		public static VirtualKeyCode escapeKey = VirtualKeyCode.ESCAPE;
@@ -42,6 +59,8 @@ namespace InventoryKamera
 				Logger.Debug("Checking for {0}.exe", processName);
 				if (InitializeProcess(processName, out IntPtr handle))
 				{
+					WindowHandle = handle;
+
 					// Get area and position
 					ClientToScreen(handle, ref WindowPosition);
 					GetClientRect(handle, ref WindowSize);
@@ -75,17 +94,18 @@ namespace InventoryKamera
 			WindowPosition = new RECT();
 			AspectRatio = new Size();
 			sim = new InputSimulator();
+
+			(screenCapture as IDisposable)?.Dispose();
+			screenCapture = null;
 		}
 
 		#region Window Capturing
 
 		public static Bitmap CaptureWindow(PixelFormat format = PixelFormat.Format24bppRgb)
 		{
-			Bitmap bmp = new Bitmap(GetWidth(), GetHeight(), format);
+			Bitmap bmp = GetScreenCapture().CaptureWindow(WindowHandle, GetPosition(), GetSize(), format);
 			using (Graphics gfxBmp = Graphics.FromImage(bmp))
 			{
-				gfxBmp.CopyFromScreen(GetPosition().Left, GetPosition().Top, 0, 0, bmp.Size);
-
 				var uidRegion = new RECT(
 					Left: (int)( 1070 / 1280.0 * bmp.Width ),
 					Top: (int)( 695 / 720.0 * bmp.Height ),
@@ -98,12 +118,7 @@ namespace InventoryKamera
 
 		public static Bitmap CaptureRegion(RECT region, PixelFormat format = PixelFormat.Format24bppRgb)
 		{
-			Bitmap bmp = new Bitmap(region.Width, region.Height, format);
-			using (Graphics gfxBmp = Graphics.FromImage(bmp))
-			{
-				gfxBmp.CopyFromScreen(GetPosition().Left + region.Left, GetPosition().Top + region.Top, 0, 0, bmp.Size);
-			}
-			return bmp;
+			return GetScreenCapture().CaptureRegion(WindowHandle, GetPosition(), region, format);
 		}
 
 		public static Bitmap CaptureRegion(int x, int y, int width, int height, PixelFormat format = PixelFormat.Format24bppRgb)

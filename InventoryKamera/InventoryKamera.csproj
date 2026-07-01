@@ -5,11 +5,14 @@
     Phase 1: replaced Accord.Imaging (built against the abandoned CoreCompat.System.Drawing,
     incompatible with the in-box System.Drawing on modern .NET) with pure System.Drawing —
     see scraping/ImageProcessing.cs — which unblocked this net8.0-windows retarget.
+    Phase 1 (capture): the net8.0-windows10.0.19041.0 TFM suffix (over plain net8.0-windows) is
+    required to light up the Windows.Graphics.Capture / Windows.Graphics.DirectX WinRT projections
+    used by game/WgcScreenCapture.cs (see [[wgc-interop-patterns]]).
   -->
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>InventoryKamera</RootNamespace>
     <AssemblyName>InventoryKamera</AssemblyName>
@@ -64,6 +67,11 @@
          moved out of the shared framework and into this package on .NET Core+. -->
     <PackageReference Include="System.Configuration.ConfigurationManager" Version="8.0.0" />
     <PackageReference Include="Tesseract" Version="5.2.0" />
+    <!-- Windows.Graphics.Capture screen capture (game/WgcScreenCapture.cs): D3D11 device/texture
+         interop. The WinRT projections themselves (Windows.Graphics.Capture etc.) come from the
+         net8.0-windows10.0.19041.0 TFM above, not a package. -->
+    <PackageReference Include="Vortice.Direct3D11" Version="3.5.0" />
+    <PackageReference Include="Vortice.DXGI" Version="3.5.0" />
   </ItemGroup>
 
 </Project>

@@ -87,5 +87,8 @@
     <Setting Name="Manequin2Name" Type="System.String" Scope="User">
       <Value Profile="(Default)">Manequin2</Value>
     </Setting>
+    <Setting Name="CaptureBackend" Type="System.String" Scope="User">
+      <Value Profile="(Default)">Gdi</Value>
+    </Setting>
   </Settings>
 </SettingsFile>
