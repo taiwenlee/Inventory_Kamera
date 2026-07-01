@@ -12,12 +12,12 @@
 |---|---|---|
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
-| **2 — Architecture** | 🔄 **in progress** | `IOcrService` extracted from `GenshinProcesor` with real unit tests (§2.1); `LookupService` validity checks extracted next (§2.1); `ImageProcessing` seam already extracted during Phase 1. Rest of §2.1 + all of §2.2–2.5 not started. |
+| **2 — Architecture** | 🔄 **in progress** | `IOcrService` extracted from `GenshinProcesor` with real unit tests (§2.1); `LookupService` validity checks extracted (§2.1); `IImagePreprocessor`/`ImageProcessor` seam added over the existing `ImageProcessing` static class (§2.1). `ITextNormalizer` + all of §2.2–2.5 not started. |
 | **3 — UX** | ⬜ not started | §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
 
 **Runtime:** the app now targets **`net8.0-windows`** (was net472 through Phase 0). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
-**Test/CI status:** 90 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — and `LookupService` validity-check tests using fake dictionaries. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
+**Test/CI status:** 93 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService` validity-check tests using fake dictionaries, and `ImageProcessor` delegation tests. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
 
 **Standing gap:** an end-to-end manual smoke scan against the live game has not been run since Phase 0 (needs admin + the game). Everything else is verified by build/test/reflection-level checks.
 
@@ -257,9 +257,16 @@ Split the 957-line static class into injected services:
     `static`, called both internally and externally as `ArtifactScraper.SomeMethod(...)` from
     `InventoryKamera.cs` — converting those to instance methods too is in scope for finishing 2.1,
     not a side effect of it.
-- `IImagePreprocessor` — 🔄 **started early in Phase 1**: the `ImageProcessing` class is already
-  extracted (image ops no longer live in `GenshinProcesor`). Currently a `static` class; formalize as
-  an injectable service here.
+- **`IImagePreprocessor`** ✅ **done** (this scope) — added `IImagePreprocessor`/`ImageProcessor`,
+  an instance-method seam over the existing static `ImageProcessing` (extracted in Phase 1). The
+  static class stays as the actual implementation — it's already pinned pixel-for-pixel to Accord's
+  output by `ImagePreprocessingParityTests`/`KirschBlobParityTests`, no reason to move that logic —
+  `ImageProcessor` just delegates each method, giving §2.2's DI wiring something to construct and
+  inject. `ImageProcessorTests` confirms the delegation matches the static calls directly.
+  - **Scoped deliberately smaller than the ideal end state:** the 11 existing call sites
+    (`GenshinProcesor`, `ArtifactScraper`, `CharacterScraper`, `InventoryScraper`) still call
+    `ImageProcessing.*` directly; rewiring them to take `IImagePreprocessor` via constructor is
+    follow-up work for §2.2, same deferral pattern as `IOcrService`'s call sites.
 - **`ILookupService`** 🔄 **started** — extracted the 8 `IsValidX` validity checks (set name,
   material, stat, slot, character, element, enhancement material, weapon) into `LookupService`, a
   pure static class. Deliberately **not** a stateful injected service like `OcrService`: each method
