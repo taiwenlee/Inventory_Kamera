@@ -1,6 +1,4 @@
-﻿using Accord.Imaging;
-using Accord.Imaging.Filters;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -321,9 +319,9 @@ namespace InventoryKamera
 				Right: rectangle.Right,
 				Bottom: rectangle.Bottom + 10);
 
-            var rRange = new Accord.IntRange(0, 150);
-            var bRange = new Accord.IntRange(0, 150);
-            var gRange = new Accord.IntRange(0, 150);
+            var rRange = new IntRange(0, 150);
+            var bRange = new IntRange(0, 150);
+            var gRange = new IntRange(0, 150);
 
             using (Bitmap bm = Navigation.CaptureRegion(region))
 			{

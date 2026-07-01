@@ -1,5 +1,5 @@
-using Accord;
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 
@@ -209,6 +209,162 @@ namespace InventoryKamera
 
             long count = (long)w * h;
             return (sumR / count, sumG / count, sumB / count);
+        }
+
+        // The 8 Kirsch compass kernels, in raster tap order:
+        // tap 0..8 = offsets (-1,-1)(0,-1)(1,-1)(-1,0)(0,0)(1,0)(-1,1)(0,1)(1,1).
+        private static readonly int[][] KirschKernels =
+        {
+            new[] {  5,  5,  5, -3,  0, -3, -3, -3, -3 }, // N
+            new[] {  5,  5, -3,  5,  0, -3, -3, -3, -3 }, // NW
+            new[] {  5, -3, -3,  5,  0, -3,  5, -3, -3 }, // W
+            new[] { -3, -3, -3,  5,  0, -3,  5,  5, -3 }, // SW
+            new[] { -3, -3, -3, -3,  0, -3,  5,  5,  5 }, // S
+            new[] { -3, -3, -3, -3,  0,  5, -3,  5,  5 }, // SE
+            new[] { -3, -3,  5, -3,  0,  5, -3, -3,  5 }, // E
+            new[] { -3,  5,  5, -3,  0,  5, -3, -3, -3 }, // NE
+        };
+
+        /// <summary>
+        /// Kirsch compass edge detector, matching Accord's <c>KirschEdgeDetector</c>: for each pixel
+        /// and colour channel, the maximum of the 8 compass-kernel convolutions, clamped to [0,255].
+        /// Out-of-bounds neighbours are treated as 0. 24/32bpp colour in, 24bpp out (per channel).
+        /// </summary>
+        internal static unsafe Bitmap EdgeDetectKirsch(Bitmap bitmap)
+        {
+            int bpp = BytesPerPixel(bitmap.PixelFormat);
+            if (bpp < 3)
+                throw new NotSupportedException($"Edge detection expects a colour image, got {bitmap.PixelFormat}.");
+
+            int w = bitmap.Width, h = bitmap.Height;
+            var result = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+
+            var src = bitmap.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, bitmap.PixelFormat);
+            var dst = result.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            try
+            {
+                byte* sBase = (byte*)src.Scan0, dBase = (byte*)dst.Scan0;
+                for (int y = 0; y < h; y++)
+                {
+                    byte* drow = dBase + y * dst.Stride;
+                    for (int x = 0; x < w; x++)
+                    {
+                        for (int c = 0; c < 3; c++)
+                        {
+                            // Gather the 3x3 neighbourhood for this channel (OOB = 0).
+                            int t0 = Sample(sBase, src.Stride, bpp, w, h, x - 1, y - 1, c);
+                            int t1 = Sample(sBase, src.Stride, bpp, w, h, x,     y - 1, c);
+                            int t2 = Sample(sBase, src.Stride, bpp, w, h, x + 1, y - 1, c);
+                            int t3 = Sample(sBase, src.Stride, bpp, w, h, x - 1, y,     c);
+                            int t4 = Sample(sBase, src.Stride, bpp, w, h, x,     y,     c);
+                            int t5 = Sample(sBase, src.Stride, bpp, w, h, x + 1, y,     c);
+                            int t6 = Sample(sBase, src.Stride, bpp, w, h, x - 1, y + 1, c);
+                            int t7 = Sample(sBase, src.Stride, bpp, w, h, x,     y + 1, c);
+                            int t8 = Sample(sBase, src.Stride, bpp, w, h, x + 1, y + 1, c);
+
+                            int max = 0;
+                            foreach (var k in KirschKernels)
+                            {
+                                int r = k[0] * t0 + k[1] * t1 + k[2] * t2
+                                      + k[3] * t3 + k[4] * t4 + k[5] * t5
+                                      + k[6] * t6 + k[7] * t7 + k[8] * t8;
+                                if (r > max) max = r;
+                            }
+                            drow[x * 3 + c] = (byte)(max > 255 ? 255 : max);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                bitmap.UnlockBits(src);
+                result.UnlockBits(dst);
+            }
+            return result;
+        }
+
+        private static unsafe int Sample(byte* baseP, int stride, int bpp, int w, int h, int x, int y, int channel)
+        {
+            if (x < 0 || y < 0 || x >= w || y >= h) return 0;
+            return baseP[y * stride + x * bpp + channel];
+        }
+
+        /// <summary>
+        /// Find the bounding rectangles of 8-connected foreground (non-zero) blobs in an 8bpp image,
+        /// keeping only those whose width and height fall within the given inclusive ranges. Matches
+        /// Accord's <c>BlobCounter { FilterBlobs = true, Min/MaxWidth, Min/MaxHeight }</c> +
+        /// <c>GetObjectsRectangles()</c>, returned in raster-scan discovery order.
+        /// </summary>
+        internal static unsafe List<Rectangle> FindBlobRectangles(Bitmap binary, int minWidth, int maxWidth, int minHeight, int maxHeight)
+        {
+            if (binary.PixelFormat != PixelFormat.Format8bppIndexed)
+                throw new NotSupportedException($"Blob detection expects 8bpp, got {binary.PixelFormat}.");
+
+            int w = binary.Width, h = binary.Height;
+            var foreground = new bool[w * h];
+
+            var data = binary.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, binary.PixelFormat);
+            try
+            {
+                byte* baseP = (byte*)data.Scan0;
+                for (int y = 0; y < h; y++)
+                {
+                    byte* row = baseP + y * data.Stride;
+                    for (int x = 0; x < w; x++)
+                        if (row[x] > 0) foreground[y * w + x] = true;
+                }
+            }
+            finally { binary.UnlockBits(data); }
+
+            var rectangles = new List<Rectangle>();
+            var visited = new bool[w * h];
+            var stack = new Stack<int>();
+
+            // Raster-scan discovery order matches Accord's labelling order.
+            for (int y = 0; y < h; y++)
+            {
+                for (int x = 0; x < w; x++)
+                {
+                    int start = y * w + x;
+                    if (!foreground[start] || visited[start]) continue;
+
+                    int minX = x, maxX = x, minY = y, maxY = y;
+                    visited[start] = true;
+                    stack.Push(start);
+
+                    while (stack.Count > 0)
+                    {
+                        int idx = stack.Pop();
+                        int px = idx % w, py = idx / w;
+                        if (px < minX) minX = px;
+                        if (px > maxX) maxX = px;
+                        if (py < minY) minY = py;
+                        if (py > maxY) maxY = py;
+
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            int ny = py + dy;
+                            if (ny < 0 || ny >= h) continue;
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                int nx = px + dx;
+                                if (nx < 0 || nx >= w) continue;
+                                int nIdx = ny * w + nx;
+                                if (foreground[nIdx] && !visited[nIdx])
+                                {
+                                    visited[nIdx] = true;
+                                    stack.Push(nIdx);
+                                }
+                            }
+                        }
+                    }
+
+                    int bw = maxX - minX + 1, bh = maxY - minY + 1;
+                    if (bw >= minWidth && bw <= maxWidth && bh >= minHeight && bh <= maxHeight)
+                        rectangles.Add(new Rectangle(minX, minY, bw, bh));
+                }
+            }
+            return rectangles;
         }
 
         private static byte[] BuildContrastLut(int factor)

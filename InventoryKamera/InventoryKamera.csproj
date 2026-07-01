@@ -2,10 +2,12 @@
 
   <!--
     Phase 0 (foundation): converted from the legacy non-SDK project to SDK-style,
-    but still targeting .NET Framework 4.7.2 so behaviour is unchanged.
-    The jump to net8.0-windows is deferred to Phase 1 because it is blocked on
-    replacing Accord.Imaging (built against the abandoned CoreCompat.System.Drawing,
-    incompatible with the in-box System.Drawing on modern .NET).
+    still targeting .NET Framework 4.7.2. The jump to net8.0-windows was deferred to
+    Phase 1 because it was blocked on replacing Accord.Imaging (built against the
+    abandoned CoreCompat.System.Drawing, incompatible with the in-box System.Drawing
+    on modern .NET). That replacement is done (see scraping/ImageProcessing.cs) —
+    Accord.Imaging has been removed from this project entirely; the net8 retarget
+    is next.
   -->
 
   <PropertyGroup>
@@ -84,7 +86,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Accord.Imaging" Version="3.8.0" />
     <PackageReference Include="HtmlAgilityPack.NetCore" Version="1.5.0.1" />
     <PackageReference Include="InputSimulator" Version="1.0.4" />
     <PackageReference Include="Microsoft-WindowsAPICodePack-Shell" Version="1.1.5" />

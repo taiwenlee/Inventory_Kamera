@@ -1,6 +1,4 @@
-﻿using Accord.Imaging;
-using Accord.Imaging.Filters;
-using NLog;
+﻿using NLog;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -244,27 +242,22 @@ namespace InventoryKamera
             int iconMaxHeight = icon.Height + ((int)(icon.Height * 0.15));
             int iconMinWidth = icon.Width - ((int)(icon.Width * 0.15));
             int iconMaxWidth = icon.Width + ((int)(icon.Width * 0.15));
-            using (BlobCounter blobCounter = new BlobCounter
-            {
-                FilterBlobs = true,
-                MinHeight = (int)(iconMinHeight * (1 - weight)),
-                MaxHeight = (int)(iconMaxHeight * (1 + weight)),
-                MinWidth = (int)(iconMinWidth * (1 - weight)),
-                MaxWidth = (int)(iconMaxWidth * (1 + weight)),
-            })
+            int blobMinHeight = (int)(iconMinHeight * (1 - weight));
+            int blobMaxHeight = (int)(iconMaxHeight * (1 + weight));
+            int blobMinWidth = (int)(iconMinWidth * (1 - weight));
+            int blobMaxWidth = (int)(iconMaxWidth * (1 + weight));
             {
                 // Image pre-processing
-                screenshot = new KirschEdgeDetector().Apply(screenshot); // Algorithm to find edges. Really good but can take ~1s
+                screenshot = ImageProcessing.EdgeDetectKirsch(screenshot); // Algorithm to find edges. Really good but can take ~1s
                 screenshot = ImageProcessing.ConvertToGrayscale(screenshot);
                 ImageProcessing.SetThreshold(75, ref screenshot); // Convert to black and white only based on pixel intensity
 
-                blobCounter.ProcessImage(screenshot);
                 // Note: Processing won't always detect all item rectangles on screen. Since the
                 // background isn't a solid color it's a bit trickier to filter out.
 
                 // Don't save overlapping blobs
                 List<Rectangle> rectangles = new List<Rectangle>();
-                List<Rectangle> blobRects = blobCounter.GetObjectsRectangles().ToList();
+                List<Rectangle> blobRects = ImageProcessing.FindBlobRectangles(screenshot, blobMinWidth, blobMaxWidth, blobMinHeight, blobMaxHeight);
 
                 int minWidth = blobRects[0].Width;
                 int minHeight = blobRects[0].Height;

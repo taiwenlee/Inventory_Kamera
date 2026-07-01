@@ -1,7 +1,4 @@
-﻿using Accord;
-using Accord.Imaging;
-using Accord.Imaging.Filters;
-using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
