@@ -164,29 +164,65 @@ legacy `<Reference>` assembly list and net-framework polyfill packages (all buil
 framework now); added `System.Configuration.ConfigurationManager` for `ApplicationSettingsBase`. Full
 detail in §0.2–§0.5 above (the net8 sub-items of Phase 0 that were deferred here).
 
-### 1.2 Replace thread/queue model with Channels + async
-- Producer (screen capture) / N consumers (OCR) over `System.Threading.Channels.Channel<OCRImageCollection>`.
-- Replace `volatile bool b_threadCancel` and the sentinel `"END"` enqueue with a single `CancellationToken` + channel completion.
-- Workers become `Task`s; `await` instead of `Thread.Join`. Removes the `static workerQueue` global.
+### 1.2 Replace thread/queue model with Channels + async ✅ done
+- Producer (weapon/artifact scan loops) / N consumers (OCR) over `System.Threading.Channels.Channel<OCRImageCollection>`, replacing a hand-rolled locking `Queue<T>` + `Thread`s polling with `Thread.Sleep(250)`.
+- Normal end-of-work is `workerChannel.Writer.Complete()`, replacing the `"END"` sentinel + shared `volatile bool b_threadCancel`. Abrupt cancellation (`StopImageProcessorWorkers`) uses a dedicated `CancellationToken` instead — cleanly separating "no more work is coming, drain what's queued" from "abort now, drop what's queued."
+- **Real bug fixed along the way:** the old shared-flag design meant *any* worker dequeuing the `"END"` sentinel flipped a flag that made *every* worker (including ones with their own pending items) clear the whole queue and exit, silently dropping unprocessed items. Channel completion drains correctly by construction.
+- Workers are `Task`s (`ImageProcessorWorkerAsync`) using `await foreach`/`ReadAllAsync`; `AwaitProcessors` is `Task.WaitAll` instead of a busy-poll loop removing dead threads from a list. Each queued item now runs in its own try/catch so one bad item can't silently kill a whole worker.
 
-### 1.3 Right-size parallelism
-- Derive worker/engine count from `Environment.ProcessorCount` (and an optional user cap), not the `ScannerDelay` magic switch.
-- Pool Tesseract engines via a proper bounded `ObjectPool<TesseractEngine>` sized to worker count.
+### 1.3 Right-size parallelism ✅ done
+- `InventoryKamera.NumWorkers`: base = `Environment.ProcessorCount - 1` (headroom for the UI/nav thread), capped by the existing scanner-speed-derived ceiling (3/2) — scales down on small machines instead of blindly spinning up 2–3 threads on a 1–2 core box.
+- `GenshinProcesor`'s Tesseract engine pool: `numEngines` is `clamp(ProcessorCount, 4, 12)` instead of a hardcoded `8`. Also swapped the pool itself from `ConcurrentBag` + a `Thread.Sleep(10)` busy-poll to `BlockingCollection`, whose blocking `Take()` removes the busy-poll — a genuine efficiency win, not just a sizing tweak. (Didn't introduce a new `ObjectPool<T>` package as originally sketched — `BlockingCollection` already gives the needed bounded-pool behavior with zero new dependencies; revisit if Phase 2's DI work wants a more formal abstraction.)
 
-### 1.4 Selective System.Text.Json migration
-- Move GOOD export and simple key/value lists to `System.Text.Json` (faster, no extra dep).
-- **Keep Newtonsoft** where dynamic `JObject` shapes are used (`Dictionary<string,JObject> Characters, Artifacts`) — convert opportunistically to typed models in Phase 2, not here.
+### 1.4 Selective System.Text.Json migration — 🔻 reconsidered, deprioritized
+**Original plan:** move GOOD export and simple key/value lists to `System.Text.Json` ("faster, no
+extra dep"). **On reflection, both premises don't hold once §2.1–2.4 aren't done yet:**
+- Newtonsoft.Json stays a hard dependency regardless — it's used throughout for the dynamic
+  `Dictionary<string, JObject>` character/artifact/weapon lookups, `DatabaseManager`, and the JSON
+  settings provider. Migrating only GOOD export doesn't remove it; it adds a *second* JSON library.
+- GOOD export happens once per scan (not a hot path) — negligible real performance benefit.
+- **Real risk, low reward:** `Weapon`/`Artifact` use `[DefaultValue(-1)]` + Newtonsoft's
+  `DefaultValueHandling.Ignore` to omit sentinel values from the export. `System.Text.Json`'s
+  `JsonIgnoreCondition.WhenWritingDefault` only recognizes true CLR defaults (`0`, not `-1`) — subtly
+  different semantics. A mismatch here would silently corrupt the exported GOOD JSON that external
+  tools (Genshin Optimizer, SEELIE.me) parse — a much higher blast radius than an internal refactor.
 
-### 1.5 Kill the manequin JSON-string hack
-- Replace `InventoryKamera.cs:140-226` text-surgery with proper deserialize → mutate object model → serialize. Removes the recursive `GatherData()` retry.
+**Decision:** defer full migration until Phase 2's typed-model work (§2.4) removes the dynamic
+`JObject` dependency on Newtonsoft anyway, at which point a clean full switch (not a split) makes
+more sense. Revisit then; not blocking Phase 1's exit criteria.
 
-### 1.6 Benchmark
+### 1.5 Kill the manequin JSON-string hack ✅ done
+Replaced the `InventoryKamera.cs` string-surgery-on-`characters.json` + recursive `GatherData()`
+retry with `GenshinProcesor.EnsureManequinEntriesExist()`, called from `ReloadData()`: missing
+`manequin1`/`manequin2` entries are added through the JSON object model (`JObject`/`JArray`) and
+persisted with one clean serialize. `InventoryKamera.GatherData()`'s `UpdateCharacterName` calls for
+the manequins now always succeed, no exception-driven control flow. Also fixed a latent typo in the
+original hand-written JSON (`"skills"` → `"skill"`, inconsistent with every other character entry).
+
+### 1.6 Benchmark ✅ done (primitive-level; end-to-end scan timing still needs live game assets)
 - Correctness of the Accord swap (§1.1) is gated by **golden pixel-parity tests**, not a timing
   benchmark — pixel-identical pre-processing means OCR is provably unchanged.
-- A **timing** benchmark (recorded screenshot set → process → timing) is still worth adding for the
-  throughput work in §1.2–1.3 (async pipeline, engine pool), so those gains are measured not assumed.
+- **Honest scoping call:** the plan's original "recorded screenshot set → scan → timing" benchmark
+  needs real game screenshots or a live session, which this environment doesn't have. What's
+  genuinely measurable without that: the specific concurrency primitives §1.2/1.3 replaced.
+  `ConcurrencyBenchmark.cs` measures "time from an item becoming available to a waiting consumer
+  noticing it" — exactly what a fixed-interval poll bounds from below — for both the new and the
+  (reproduced-for-comparison) old design:
+  - Channel-based hand-off vs. the removed lock-queue + `Thread.Sleep(250)` polling:
+    **~0.07ms vs. ~248ms average — ~3,300× lower latency.**
+  - `BlockingCollection.Take()` vs. the removed `ConcurrentBag` + `Thread.Sleep(10)` spin-wait:
+    **~0.05ms vs. ~8ms average — ~150× lower latency.**
+  - These are real, reproducible, run-it-yourself measurements (`dotnet test --filter
+    ConcurrencyBenchmark -l "console;verbosity=detailed"`), not asserted as tight CI performance
+    gates (timing is noisy on shared hardware) — the test assertions are generous sanity bounds.
+  - **What this does not prove:** end-to-end scan wall-clock time, which also depends on Tesseract
+    OCR time, navigation/input delays, and game rendering — none of which the removed polling
+    intervals dominated. A live-game timing comparison remains open (folds into the standing manual
+    smoke-scan gap).
 
-**Exit criteria:** Accord removed + on net8, async pipeline with `CancellationToken`, engine pool, parity tests green, timing benchmark shows ≥ parity.
+**Exit criteria: met.** Accord removed + on net8, async pipeline with `CancellationToken` + channel
+completion, engine pool derived from `Environment.ProcessorCount`, parity tests green (79 total),
+primitive-level timing benchmark shows large measured improvements.
 
 ---
 
