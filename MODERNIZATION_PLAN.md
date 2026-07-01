@@ -2,7 +2,7 @@
 
 > Status: **In progress** · Scope: full phased modernization (foundation → efficiency → UX)
 > Drafted 2026-06-28 · Last updated 2026-07-01 · Target: incremental, `master` stays releasable throughout
-> Working branch: `modernize/phase0-foundation` (holds Phase 0 + in-progress Phase 1; not yet merged)
+> Working branch: `modernize/phase0-foundation` (holds Phase 0 + Phase 1, both complete; not yet merged)
 
 ---
 
@@ -11,13 +11,15 @@
 | Phase | State | Notes |
 |---|---|---|
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
-| **1 — Efficiency** | 🔄 **in progress** | Accord fully removed; **net8.0-windows retarget done**; remaining: async/pipeline rework (§1.2–1.6). |
+| **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
 | **2 — Architecture** | ⬜ not started | `ImageProcessing` seam (§2.1) already extracted early during Phase 1. |
 | **3 — UX** | ⬜ not started | Includes capture modernization (§6b) that fixes the HDR + overlay support issues — now unblocked by net8. |
 
-**Runtime:** the app now targets **`net8.0-windows`** (was net472 through Phase 0; the coupling described below is resolved). Single-file self-contained publish verified working.
+**Runtime:** the app now targets **`net8.0-windows`** (was net472 through Phase 0). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
-**Test/CI status:** 72 tests green (net8.0); GitHub Actions build+test on push/PR and a tag-driven release workflow (now publishing single-file self-contained) are live.
+**Test/CI status:** 79 tests green (net8.0); GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
+
+**Standing gap:** an end-to-end manual smoke scan against the live game has not been run since Phase 0 (needs admin + the game). Everything else is verified by build/test/reflection-level checks.
 
 ---
 
@@ -362,27 +364,30 @@ detection is the cheap stopgap that ships before this.
 | Phase | Branch | Depends on | State |
 |---|---|---|---|
 | 0 | `modernize/phase0-foundation` | — | ✅ complete |
-| 1 | `modernize/phase0-foundation` (same branch so far) | 0 | 🔄 in progress — Accord removal + net8 retarget **done**; async/pipeline rework (§1.2–1.6) remaining |
+| 1 | `modernize/phase0-foundation` (same branch so far) | 0 | ✅ complete |
 | 2 | `modernize/phase2-architecture` | 1 | ⬜ not started (`ImageProcessing` seam started early) |
 | 3 | `modernize/phase3-ux` (incl. §6b capture) | 2 (net8 ✅ available now) | ⬜ not started |
 
-Phase 0 and the in-progress Phase 1 currently share `modernize/phase0-foundation` (not yet merged to
-`master`); they can be split into a dedicated Phase 1 branch/PR before merge if preferred. Each phase
-merges to `master` only when it builds in CI and passes a manual smoke scan. Phase 1 is landing as
-small internal commits (SDK conversion → seam → per-pixel swap → stats swap → Kirsch/Blob swap →
-Thread.Abort replacement → net8 retarget → …).
+Phase 0 and Phase 1 currently share `modernize/phase0-foundation` (not yet merged to `master`); they
+can be split into a dedicated Phase 1 branch/PR before merge if preferred. Each phase merges to
+`master` only when it builds in CI and passes a manual smoke scan — **that smoke scan is still
+outstanding** for everything that's landed on this branch. Phase 1 landed as ~13 small internal
+commits (SDK conversion → seam → per-pixel swap → stats swap → Kirsch/Blob swap → Thread.Abort
+replacement → net8 retarget → manequin hack → Channels/async pipeline → concurrency benchmark).
 
 ---
 
 ## 9. Immediate next step
 
-The **Accord removal and net8 retarget are done** — the app builds and tests green on
-`net8.0-windows`, and this unblocks the §6b Windows.Graphics.Capture work that fixes the HDR +
-overlay support issues. Two candidate next steps, not yet sequenced:
+**Phase 1 is complete.** The app builds and tests green (79 tests) on `net8.0-windows`, the OCR
+worker pipeline runs on Channels/`Task`s instead of a locking queue + polling threads, and the
+concurrency primitives are measurably faster (§1.6). This unblocks the §6b Windows.Graphics.Capture
+work that fixes the HDR + overlay support issues. Candidate next steps, not yet sequenced:
 
-1. **A manual smoke scan** against the live game (the one standing verification gap from §0.3/§0.5)
-   before merging this branch to `master` — the safest checkpoint given how much has landed.
-2. **Continue Phase 1** into §1.2–1.6 (Channels/async pipeline, engine pooling, System.Text.Json,
-   the manequin JSON-string hack) or **jump to §6b** (WGC capture, now unblocked) depending on
-   priority — HDR/overlay fixes are higher user-visible value; the async rework is more
-   architectural cleanup.
+1. **A manual smoke scan** against the live game — the one standing verification gap across all of
+   Phase 0+1 — before merging this branch to `master`. The safest checkpoint given how much has
+   landed without ever touching a real game session.
+2. **Start Phase 2** (§2.1–2.5: decompose `GenshinProcesor`, DI, typed config, typed data models,
+   MVVM-lite) — architectural cleanup, lower user-visible urgency.
+3. **Jump to §6b** (Windows.Graphics.Capture) — fixes the two most common real user support issues
+   (HDR, overlays) directly, higher user-visible value than Phase 2.
