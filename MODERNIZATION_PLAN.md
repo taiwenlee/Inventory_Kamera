@@ -12,12 +12,12 @@
 |---|---|---|
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
-| **2 — Architecture** | 🔄 **in progress** | `IOcrService` extracted from `GenshinProcesor` with real unit tests (§2.1); `LookupService` validity checks extracted (§2.1); `IImagePreprocessor`/`ImageProcessor` seam added over the existing `ImageProcessing` static class (§2.1). `ITextNormalizer` + all of §2.2–2.5 not started. |
+| **2 — Architecture** | 🔄 **in progress** | §2.1 fully carved up: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. Call sites for all four still go through `GenshinProcesor`'s thin forwarding wrappers — not yet rewired to constructor injection. §2.2–2.5 not started. |
 | **3 — UX** | ⬜ not started | §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
 
 **Runtime:** the app now targets **`net8.0-windows`** (was net472 through Phase 0). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
-**Test/CI status:** 93 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService` validity-check tests using fake dictionaries, and `ImageProcessor` delegation tests. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
+**Test/CI status:** 103 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService`/`TextNormalizer` tests using fake dictionaries, and `ImageProcessor` delegation tests. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
 
 **Standing gap:** an end-to-end manual smoke scan against the live game has not been run since Phase 0 (needs admin + the game). Everything else is verified by build/test/reflection-level checks.
 
@@ -284,7 +284,23 @@ Split the 957-line static class into injected services:
     referenced directly by `Character.cs`, `ArtifactScraper.cs`, `CharacterScraper.cs`, and
     `MainForm.cs` — not yet routed through the service. The larger fuzzy-matching/normalization
     logic (the ~255-line "Element Searching" region) is separate, unexamined work.
-- `ITextNormalizer` (stat/element/name correction) — not started.
+- **`ITextNormalizer`** ✅ **done** (this scope) — extracted the fuzzy-matching/normalization logic
+  from the old "Element Searching" region (`FindClosestGearSlot`, `FindClosestStat`,
+  `FindElementByName`, `FindClosestWeapon`, `FindClosestSetName`,
+  `FindClosestArtifactSetFromArtifactName`, `FindClosestCharacterName`,
+  `FindClosestDevelopmentName`, `FindClosestMaterialName`, plus their private Levenshtein/similarity
+  helpers) into `TextNormalizer`, same stateless-parameter shape as `LookupService` and for the same
+  reason — `ReloadData()` reassigns the lookup dictionaries every scan. Dropped `CalcDistance_1`, a
+  dead private method with zero call sites (confirmed via search before extraction), rather than
+  porting unused code forward. `TextNormalizerTests` (10 new tests) exercises exact matches, fuzzy
+  typo tolerance, and the empty-string-on-no-match fallback behavior — the last of which surprised
+  initial test-writing (`FindClosestInDict` reassigns its `source` parameter to the fuzzy-match
+  result, so a total miss returns `""`, not the original input; existing callers already tolerate
+  this).
+  - **Scoped deliberately smaller than the ideal end state:** `GenshinProcesor`'s `FindClosestX`
+    methods remain as one-line forwarding wrappers, same as `IsValidX`/`LookupService`. Call sites in
+    `ArtifactScraper.cs`, `WeaponScraper.cs`, `MaterialScraper.cs`, `CharacterScraper.cs` are
+    unchanged.
 
 ### 2.2 Introduce DI + Hosting — not started
 - `Microsoft.Extensions.DependencyInjection` + `Microsoft.Extensions.Hosting`. Compose services at startup; scrapers receive dependencies via ctor instead of reaching into statics. `IOcrService`'s extraction (2.1) is designed to make this a mechanical follow-up (constructor-inject it into the 5 scrapers + `InventoryKamera`) once ready — no DI container wired up yet, `GenshinProcesor` just holds one instance directly.
@@ -299,7 +315,7 @@ Split the 957-line static class into injected services:
 - Introduce a `ScanViewModel` exposing observable progress/state. Scrapers report progress via an `IProgress<ScanProgress>` / events — **not** by writing into static `UserInterface` WinForms controls.
 - `MainForm` becomes a thin view bound to the view model. This is the bridge to Phase 3.
 
-**Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained. **Not yet met** — `IOcrService` is unit-tested (✅) but its static access pattern isn't fully removed yet, and the other three services + DI + config + MVVM haven't started.
+**Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained. **Not yet met** — all four §2.1 services (`IOcrService`, `LookupService`, `IImagePreprocessor`, `TextNormalizer`) are unit-tested (✅) but their static-forwarding access pattern isn't removed yet (`GenshinProcesor` still holds the mutable static lookup dictionaries and forwards to them), and DI + config + MVVM haven't started.
 
 ---
 

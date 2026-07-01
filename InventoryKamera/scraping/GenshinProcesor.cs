@@ -223,258 +223,31 @@ namespace InventoryKamera
 
 		#region Element Searching
 
-		internal static string FindClosestGearSlot(string input)
-		{
-			foreach (var slot in gearSlots)
-			{
-				if (input.Contains(slot))
-				{
-					return slot;
-				}
-			}
-			return input;
-		}
+		// Thin forwarding wrappers to the extracted TextNormalizer (Phase 2 §2.1), passing this
+		// class's current static lookup dictionaries each call -- same reasoning as the
+		// "Check valid parameters" region above: always fresh, no staleness risk from ReloadData().
 
-		internal static string FindClosestStat(string stat, int minConfidence = 90)
-		{
-			return FindClosestInDict(source: stat, targets: Stats, minConfidence: minConfidence);
-		}
+		internal static string FindClosestGearSlot(string input) => TextNormalizer.FindClosestGearSlot(input, gearSlots);
 
-		internal static string FindElementByName(string name, int minConfidence = 90)
-		{
-			return FindClosestInDict(source: name, targets: Elements, minConfidence: minConfidence);
-		}
+		internal static string FindClosestStat(string stat, int minConfidence = 90) => TextNormalizer.FindClosestStat(stat, Stats, minConfidence);
 
-		internal static string FindClosestWeapon(string name, int maxEdits = 90)
-		{
-			return FindClosestInDict(source: name, targets: Weapons, minConfidence: maxEdits);
-		}
+		internal static string FindElementByName(string name, int minConfidence = 90) => TextNormalizer.FindElementByName(name, Elements, minConfidence);
 
-		internal static string FindClosestSetName(string name, int minConfidence = 90)
-		{
-			return FindClosestInDict(source: name, targets: Artifacts, minConfidence: minConfidence);
-		}
-		
-		internal static string FindClosestArtifactSetFromArtifactName(string name, int minConfidence = 90)
-		{
-			if (string.IsNullOrWhiteSpace(name)) return "";
-			string closestMatch = null;
-			double highestConfidence = 0;
+		internal static string FindClosestWeapon(string name, int maxEdits = 90) => TextNormalizer.FindClosestWeapon(name, Weapons, maxEdits);
 
+		internal static string FindClosestSetName(string name, int minConfidence = 90) => TextNormalizer.FindClosestSetName(name, Artifacts, minConfidence);
 
-            foreach (var artifactSet in Artifacts)
-            {
-                string currentSet = artifactSet.Value["GOOD"].ToString();
+		internal static string FindClosestArtifactSetFromArtifactName(string name, int minConfidence = 90) =>
+			TextNormalizer.FindClosestArtifactSetFromArtifactName(name, Artifacts, minConfidence);
 
-                foreach (var slot in artifactSet.Value["artifacts"].Values())
-                {
-                    string artifactName = slot["normalizedName"].ToString();
-                    if (artifactName == name) return currentSet;
+		internal static string FindClosestCharacterName(string name, int minConfidence = 90) =>
+			TextNormalizer.FindClosestCharacterName(name, Characters, minConfidence);
 
-					double artifactSimilarity = StringSimilarity(name, artifactName);
+		internal static string FindClosestDevelopmentName(string name, int minConfidence = 90) =>
+			TextNormalizer.FindClosestDevelopmentName(name, DevItems, Materials, minConfidence);
 
-					if ( artifactSimilarity > minConfidence && artifactSimilarity > highestConfidence)
-					{
-						highestConfidence = artifactSimilarity;
-						closestMatch = currentSet;
-					}
-				}
-			}
-
-            return closestMatch;
-		}
-
-		internal static string FindClosestCharacterName(string name, int minConfidence = 90)
-		{
-			var temp = new Dictionary<string, JObject>();
-			foreach (var character in Characters)
-			{
-				if (character.Value.TryGetValue("CustomName", out var CustomName)) temp.Add(((string)CustomName), character.Value);
-				else temp.Add(character.Key, character.Value);
-			}
-			var n = FindClosestInDict(source: name, targets: temp, minConfidence: minConfidence);
-
-            return n;
-		}
-
-		internal static string FindClosestDevelopmentName(string name, int minConfidence = 90)
-		{
-			string value = FindClosestInDict(source: name, targets: DevItems, minConfidence: minConfidence);
-			return !string.IsNullOrWhiteSpace(value) ? value : FindClosestInDict(source: name, targets: Materials, minConfidence: minConfidence);
-		}
-
-		internal static string FindClosestMaterialName(string name, int minConfidence = 90)
-		{
-			string value = FindClosestInDict(source: name, targets: Materials, minConfidence: minConfidence);
-			return !string.IsNullOrWhiteSpace(value) ? value : FindClosestInDict(source: name, targets: Materials, minConfidence: minConfidence);
-		}
-
-		private static string FindClosestInDict(string source, Dictionary<string, string> targets, int minConfidence)
-		{
-			if (string.IsNullOrWhiteSpace(source)) return "";
-			if (targets.TryGetValue(source, out string value)) return value;
-
-			HashSet<string> keys = new HashSet<string>(targets.Keys);
-
-			if (keys.Where(key => key.Contains(source)).Count() == 1) return targets[keys.First(key => key.Contains(source))];
-
-			source = FindClosestInList(source, keys, minConfidence);
-
-			return targets.TryGetValue(source, out value) ? value : source;
-		}
-
-		private static string FindClosestInDict(string source, Dictionary<string, JObject> targets, int minConfidence)
-		{
-			if (string.IsNullOrWhiteSpace(source)) return "";
-			if (targets.TryGetValue(source, out JObject value)) return (string)value["GOOD"];
-
-			HashSet<string> keys = new HashSet<string>(targets.Keys);
-
-			if (keys.Where(key => key.Contains(source)).Count() == 1) return (string)targets[keys.First(key => key.Contains(source))]["GOOD"];
-
-			source = FindClosestInList(source, keys, minConfidence);
-
-			return targets.TryGetValue(source, out value) ? (string)value["GOOD"] : source;
-		}
-
-		private static string FindClosestInList(string source, HashSet<string> targets, double minConfidence)
-		{
-			if (targets.Contains(source)) return source;
-			if (string.IsNullOrWhiteSpace(source)) return null;
-
-			string mostSimilarString = "";
-			double mostSimilarValue = 0;
-
-			foreach (var target in targets)
-			{
-                double similarityValue = StringSimilarity(source, target);
-
-				if (similarityValue > minConfidence && similarityValue > mostSimilarValue)
-				{
-					mostSimilarValue = similarityValue;
-					mostSimilarString = target;
-				}
-			}
-
-			if (!string.IsNullOrWhiteSpace(mostSimilarString) && !targets.Contains("critrate"))	// Only print this statement when not looking to match for a closest stat
-				Logger.Debug("Most similar string found for {0} as {1} ({2}%)", source, mostSimilarString, mostSimilarValue);
-
-			return mostSimilarString;
-		}
-
-		// Adapted from https://stackoverflow.com/a/9454016/13205651
-		private static int CalcDistance_1(string text, string setName, int maxEdits)
-		{
-			int length1 = text.Length;
-			int length2 = setName.Length;
-
-			// Return trivial case - difference in string lengths exceeds threshhold
-			if (Math.Abs(length1 - length2) > maxEdits) { return int.MaxValue; }
-
-			// Ensure arrays [i] / length1 use shorter length
-			if (length1 > length2)
-			{
-				Swap(ref setName, ref text);
-				Swap(ref length1, ref length2);
-			}
-
-			int maxi = length1;
-			int maxj = length2;
-
-			int[] dCurrent = new int[maxi + 1];
-			int[] dMinus1 = new int[maxi + 1];
-			int[] dMinus2 = new int[maxi + 1];
-			int[] dSwap;
-
-			for (int i = 0; i <= maxi; i++) { dCurrent[i] = i; }
-
-			int jm1 = 0, im1 = 0, im2 = -1;
-
-			for (int j = 1; j <= maxj; j++)
-			{
-				// Rotate
-				dSwap = dMinus2;
-				dMinus2 = dMinus1;
-				dMinus1 = dCurrent;
-				dCurrent = dSwap;
-
-				// Initialize
-				int minDistance = int.MaxValue;
-				dCurrent[0] = j;
-				im1 = 0;
-				im2 = -1;
-
-				for (int i = 1; i <= maxi; i++)
-				{
-					int cost = text[im1] == setName[jm1] ? 0 : 1;
-
-					int del = dCurrent[im1] + 1;
-					int ins = dMinus1[i] + 1;
-					int sub = dMinus1[im1] + cost;
-
-					//Fastest execution for min value of 3 integers
-					int min = (del > ins) ? (ins > sub ? sub : ins) : (del > sub ? sub : del);
-
-					if (i > 1 && j > 1 && text[im2] == setName[jm1] && text[im1] == setName[j - 2])
-						min = Math.Min(min, dMinus2[im2] + cost);
-
-					dCurrent[i] = min;
-					if (min < minDistance) { minDistance = min; }
-					im1++;
-					im2++;
-				}
-				jm1++;
-				if (minDistance > maxEdits) { return int.MaxValue; }
-			}
-
-			int result = dCurrent[maxi];
-			return ( result > maxEdits ) ? int.MaxValue : result;
-
-			void Swap<T>(ref T arg1, ref T arg2)
-			{
-                (arg2, arg1) = (arg1, arg2);
-            }
-        }
-
-		private static int LevenshteinDistance(string s1, string s2)
-		{
-            int m = s1.Length;
-            int n = s2.Length;
-            int[,] dp = new int[m + 1, n + 1];
-
-            for (int i = 0; i <= m; i++)
-            {
-                for (int j = 0; j <= n; j++)
-                {
-                    if (i == 0)
-                    {
-                        dp[i, j] = j;
-                    }
-                    else if (j == 0)
-                    {
-                        dp[i, j] = i;
-                    }
-                    else if (s1[i - 1] == s2[j - 1])
-                    {
-                        dp[i, j] = dp[i - 1, j - 1];
-                    }
-                    else
-                    {
-                        dp[i, j] = 1 + Math.Min(Math.Min(dp[i - 1, j], dp[i, j - 1]), dp[i - 1, j - 1]);
-                    }
-                }
-            }
-
-            return dp[m, n];
-        }
-
-        private static double StringSimilarity(string s1, string s2)
-        {
-            int distance = LevenshteinDistance(s1, s2);
-            int maxLength = Math.Max(s1.Length, s2.Length);
-            double similarity = 1.0 - (distance / (double)maxLength);
-            return similarity * 100.0;
-        }
+		internal static string FindClosestMaterialName(string name, int minConfidence = 90) =>
+			TextNormalizer.FindClosestMaterialName(name, Materials, minConfidence);
 
         #endregion Element Searching
 
