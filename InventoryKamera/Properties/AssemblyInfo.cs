@@ -1,6 +1,10 @@
 ﻿using System.Reflection;
 using System.Resources;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+
+// Allow the test project to exercise internal image-preprocessing logic during the Accord removal.
+[assembly: InternalsVisibleTo("InventoryKamera.Tests")]
 
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information

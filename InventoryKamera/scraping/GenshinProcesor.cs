@@ -725,12 +725,12 @@ namespace InventoryKamera
 
         internal static Bitmap ConvertToGrayscale(Bitmap bitmap)
 		{
-			return new Grayscale(0.2125, 0.7154, 0.0721).Apply(bitmap);
+			return ImageProcessing.ConvertToGrayscale(bitmap);
 		}
 
 		internal static void SetContrast(double contrast, ref Bitmap bitmap)
 		{
-			new ContrastCorrection((int)contrast).ApplyInPlace(bitmap);
+			ImageProcessing.SetContrast(contrast, ref bitmap);
 		}
 
 		internal static void SetGamma(double red, double green, double blue, ref Bitmap bitmap)
@@ -766,7 +766,7 @@ namespace InventoryKamera
 
 		internal static void SetInvert(ref Bitmap bitmap)
 		{
-			new Invert().ApplyInPlace(bitmap);
+			ImageProcessing.SetInvert(ref bitmap);
 		}
 
 		internal static void SetColor(string colorFilterType, ref Bitmap bitmap)
@@ -850,19 +850,12 @@ namespace InventoryKamera
 
 		internal static void SetThreshold(int threshold, ref Bitmap bitmap)
 		{
-			new Threshold(threshold).ApplyInPlace(bitmap);
+			ImageProcessing.SetThreshold(threshold, ref bitmap);
 		}
 
 		internal static void FilterColors(ref Bitmap bm, IntRange red, IntRange green, IntRange blue)
 		{
-			ColorFiltering colorFilter = new ColorFiltering
-			{
-				Red = red,
-				Green = green,
-				Blue = blue,
-				FillColor = new RGB(255,255,255)
-			};
-			colorFilter.ApplyInPlace(bm);
+			ImageProcessing.FilterColors(ref bm, red, green, blue);
 		}
 
 		internal static bool CompareBitmapsFast(Bitmap bmp1, Bitmap bmp2)
@@ -899,15 +892,6 @@ namespace InventoryKamera
 			bmp2.UnlockBits(bitmapData2);
 
 			return result;
-		}
-
-		internal static Bitmap PreProcessImage(Bitmap image)
-		{
-			using (var edges = new KirschEdgeDetector().Apply(image)) // Algorithm to find edges. Really good but can take ~1s
-			using (var grayscale = ConvertToGrayscale(edges))
-			{
-				return new Threshold(70).Apply(grayscale);
-			}
 		}
 
 		internal static Bitmap CopyBitmap(Bitmap source, Rectangle region)
