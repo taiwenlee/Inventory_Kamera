@@ -199,50 +199,25 @@ namespace InventoryKamera
 
 		#region Check valid parameters
 
-		internal static bool IsValidSetName(string setName)
-		{
-			if (Artifacts.TryGetValue(setName, out var _) || Artifacts.TryGetValue(setName.ToLower(), out var _)) return true;
-			foreach (var artifactSet in Artifacts.Values)
-				foreach (var field in artifactSet)
-					if (field.ToString() == setName) return true;
-                
-			return false;
-		}
+		// Thin forwarding wrappers to the extracted LookupService (Phase 2 §2.1), passing this
+		// class's current static lookup dictionaries each call -- kept so existing call sites don't
+		// need to change, and always fresh since ReloadData() reassigns these dictionaries per scan.
 
-		internal static bool IsValidMaterial(string name)
-		{
-			return Materials.ContainsValue(name) || Materials.ContainsKey(name.ToLower());
-		}
+		internal static bool IsValidSetName(string setName) => LookupService.IsValidSetName(setName, Artifacts);
 
-		internal static bool IsValidStat(string stat)
-		{
-			return Stats.ContainsValue(stat);
-		}
+		internal static bool IsValidMaterial(string name) => LookupService.IsValidMaterial(name, Materials);
 
-		internal static bool IsValidSlot(string gearSlot)
-		{
-			return gearSlots.Contains(gearSlot);
-		}
+		internal static bool IsValidStat(string stat) => LookupService.IsValidStat(stat, Stats);
 
-		internal static bool IsValidCharacter(string character)
-		{
-			return character.Contains("Traveler") || character == "Wanderer" || character == "Manequin1" || character == "Manequin2" || Characters.ContainsKey(character.ToLower());
-		}
+		internal static bool IsValidSlot(string gearSlot) => LookupService.IsValidSlot(gearSlot, gearSlots);
 
-		internal static bool IsValidElement(string element)
-		{
-			return Elements.ContainsValue(element) || Elements.ContainsKey(element.ToLower());
-		}
+		internal static bool IsValidCharacter(string character) => LookupService.IsValidCharacter(character, Characters);
 
-		internal static bool IsEnhancementMaterial(string material)
-		{
-			return enhancementMaterials.Contains(material.ToLower()) || Materials.ContainsValue(material) || Materials.ContainsKey(material.ToLower());
-		}
+		internal static bool IsValidElement(string element) => LookupService.IsValidElement(element, Elements);
 
-		internal static bool IsValidWeapon(string weapon)
-		{
-			return Weapons.ContainsValue(weapon) || Weapons.ContainsKey(weapon.ToLower());
-		}
+		internal static bool IsEnhancementMaterial(string material) => LookupService.IsEnhancementMaterial(material, enhancementMaterials, Materials);
+
+		internal static bool IsValidWeapon(string weapon) => LookupService.IsValidWeapon(weapon, Weapons);
 
 		#endregion Check valid parameters
 

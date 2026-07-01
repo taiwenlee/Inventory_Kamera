@@ -12,12 +12,12 @@
 |---|---|---|
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
-| **2 — Architecture** | 🔄 **in progress** | `IOcrService` extracted from `GenshinProcesor` with real unit tests (§2.1); `ImageProcessing` seam already extracted during Phase 1. Rest of §2.1 + all of §2.2–2.5 not started. |
+| **2 — Architecture** | 🔄 **in progress** | `IOcrService` extracted from `GenshinProcesor` with real unit tests (§2.1); `LookupService` validity checks extracted next (§2.1); `ImageProcessing` seam already extracted during Phase 1. Rest of §2.1 + all of §2.2–2.5 not started. |
 | **3 — UX** | ⬜ not started | §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
 
 **Runtime:** the app now targets **`net8.0-windows`** (was net472 through Phase 0). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
-**Test/CI status:** 82 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
+**Test/CI status:** 90 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — and `LookupService` validity-check tests using fake dictionaries. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
 
 **Standing gap:** an end-to-end manual smoke scan against the live game has not been run since Phase 0 (needs admin + the game). Everything else is verified by build/test/reflection-level checks.
 
@@ -260,7 +260,23 @@ Split the 957-line static class into injected services:
 - `IImagePreprocessor` — 🔄 **started early in Phase 1**: the `ImageProcessing` class is already
   extracted (image ops no longer live in `GenshinProcesor`). Currently a `static` class; formalize as
   an injectable service here.
-- `ILookupService` (characters/weapons/artifacts/materials normalization + fuzzy match) — not started.
+- **`ILookupService`** 🔄 **started** — extracted the 8 `IsValidX` validity checks (set name,
+  material, stat, slot, character, element, enhancement material, weapon) into `LookupService`, a
+  pure static class. Deliberately **not** a stateful injected service like `OcrService`: each method
+  takes its lookup data (`Dictionary`/`ICollection`) as an explicit parameter instead of capturing it
+  at construction. Reason — `GenshinProcesor.ReloadData()` *reassigns* (not mutates) its lookup
+  dictionaries (`Characters`, `Artifacts`, `Weapons`, `Materials`, etc.) every scan; a service that
+  captured them via constructor injection would silently go stale after the first reload. Passing
+  data as parameters sidesteps that risk entirely and, as a side effect, made these checks unit
+  testable for the first time with small fake dictionaries (`LookupServiceTests`, 7 new tests).
+  - **Scoped deliberately smaller than the ideal end state:** only the validity-check surface is
+    moved. `GenshinProcesor`'s `IsValidX` methods remain as one-line forwarding wrappers that pass
+    the current static fields into `LookupService`, so existing call sites are unchanged. The raw
+    lookup dictionaries themselves (`Characters`, `Artifacts`, `Weapons`, `Materials`, `Elements`,
+    `Stats`, `enhancementMaterials`, `gearSlots`) still live on `GenshinProcesor` and are still
+    referenced directly by `Character.cs`, `ArtifactScraper.cs`, `CharacterScraper.cs`, and
+    `MainForm.cs` — not yet routed through the service. The larger fuzzy-matching/normalization
+    logic (the ~255-line "Element Searching" region) is separate, unexamined work.
 - `ITextNormalizer` (stat/element/name correction) — not started.
 
 ### 2.2 Introduce DI + Hosting — not started
