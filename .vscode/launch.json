@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run Inventory Kamera",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/InventoryKamera/bin/Debug/net8.0-windows/InventoryKamera.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/InventoryKamera/bin/Debug/net8.0-windows",
+            "console": "internalConsole",
+            "stopAtEntry": false
+        }
+    ]
+}
