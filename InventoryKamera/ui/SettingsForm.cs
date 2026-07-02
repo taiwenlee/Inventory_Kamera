@@ -13,7 +13,7 @@ namespace InventoryKamera.ui
 
             UiTheme.RoundCorners(FileSelectButton, 4);
             UiTheme.RoundCorners(CloseButton, 6);
-            UiTheme.ApplyWindowChromeTint(this);
+            UiTheme.ApplyTheme(this);
         }
 
         private void ValidateCustomName(object sender, EventArgs e)

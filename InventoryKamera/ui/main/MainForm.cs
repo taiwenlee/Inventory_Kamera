@@ -69,7 +69,8 @@ namespace InventoryKamera
             UiTheme.RoundCorners(StartScan_Button, 8);
             UiTheme.RoundCorners(ManualExportButton, 6);
             UiTheme.RoundCorners(button1, 6);
-            UiTheme.ApplyWindowChromeTint(this);
+            DarkModeMenuItem.Checked = Properties.Settings.Default.DarkMode;
+            UiTheme.ApplyTheme(this);
         }
 
         // Renders scanViewModel's counter state into the labels MainForm owns directly -- the
@@ -756,6 +757,17 @@ namespace InventoryKamera
         private void AdvancedSettingsMenuItem_Click(object sender, EventArgs e)
         {
             new ui.SettingsForm().ShowDialog(this);
+        }
+
+        private void DarkModeMenuItem_Click(object sender, EventArgs e)
+        {
+            Properties.Settings.Default.DarkMode = DarkModeMenuItem.Checked;
+            Properties.Settings.Default.Save();
+            UiTheme.ApplyTheme(this);
+            // ProgramStatus_Label's color is semantic (green/red), not part of the base palette --
+            // re-render it against the new background instead of leaving whatever ApplyTheme left it
+            // at (which is the themed default text color, wrong for an in-progress/error status).
+            OnProgramStatusChanged();
         }
 
         // Throwaway feasibility spike for Phase 3 §6c -- see game/ControllerSpike.cs.

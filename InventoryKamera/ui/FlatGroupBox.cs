@@ -19,7 +19,7 @@ namespace InventoryKamera.ui
             int top = (int)(textSize.Height / 2);
             var borderRect = new Rectangle(0, top, Width - 1, Height - top - 1);
 
-            using (var borderPen = new Pen(UiTheme.BorderColor))
+            using (var borderPen = new Pen(UiTheme.CurrentBorderColor))
             {
                 g.DrawLine(borderPen, borderRect.Left, borderRect.Top, borderRect.Left + 6, borderRect.Top);
                 g.DrawLine(borderPen, borderRect.Left + 10 + (int)textSize.Width, borderRect.Top, borderRect.Right, borderRect.Top);

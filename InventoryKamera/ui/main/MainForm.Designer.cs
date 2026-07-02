@@ -84,6 +84,7 @@ namespace InventoryKamera
             toolStripMenuItem1 = new System.Windows.Forms.ToolStripMenuItem();
             updateExecutablesToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             AdvancedSettingsMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            DarkModeMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             TestControllerInputMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             label2 = new System.Windows.Forms.Label();
             label3 = new System.Windows.Forms.Label();
@@ -586,7 +587,7 @@ namespace InventoryKamera
             // 
             // keysToolStripMenuItem
             // 
-            keysToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { inventoryToolStripMenuItem, characterScreenToolStripMenuItem, characterSlot1KeyToolStripMenuItem, DatabaseUpdateMenuItem, toolStripMenuItem1, updateExecutablesToolStripMenuItem, AdvancedSettingsMenuItem, TestControllerInputMenuItem });
+            keysToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { inventoryToolStripMenuItem, characterScreenToolStripMenuItem, characterSlot1KeyToolStripMenuItem, DatabaseUpdateMenuItem, toolStripMenuItem1, updateExecutablesToolStripMenuItem, AdvancedSettingsMenuItem, DarkModeMenuItem, TestControllerInputMenuItem });
             keysToolStripMenuItem.Name = "keysToolStripMenuItem";
             keysToolStripMenuItem.Size = new System.Drawing.Size(92, 29);
             keysToolStripMenuItem.Text = "Options";
@@ -672,7 +673,15 @@ namespace InventoryKamera
             AdvancedSettingsMenuItem.Size = new System.Drawing.Size(332, 34);
             AdvancedSettingsMenuItem.Text = "Advanced Settings...";
             AdvancedSettingsMenuItem.Click += AdvancedSettingsMenuItem_Click;
-            // 
+            //
+            // DarkModeMenuItem
+            //
+            DarkModeMenuItem.CheckOnClick = true;
+            DarkModeMenuItem.Name = "DarkModeMenuItem";
+            DarkModeMenuItem.Size = new System.Drawing.Size(332, 34);
+            DarkModeMenuItem.Text = "Dark Mode";
+            DarkModeMenuItem.Click += DarkModeMenuItem_Click;
+            //
             // TestControllerInputMenuItem
             // 
             TestControllerInputMenuItem.Name = "TestControllerInputMenuItem";
@@ -1167,6 +1176,7 @@ namespace InventoryKamera
         private System.Windows.Forms.CheckBox ScanAllArtifactPages_CheckBox;
         private System.Windows.Forms.CheckBox ScanAllCharacters_CheckBox;
         private System.Windows.Forms.ToolStripMenuItem AdvancedSettingsMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem DarkModeMenuItem;
         private System.Windows.Forms.ToolStripMenuItem TestControllerInputMenuItem;
     }
 }

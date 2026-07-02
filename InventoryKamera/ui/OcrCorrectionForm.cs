@@ -28,7 +28,8 @@ namespace InventoryKamera.ui
             MinimizeBox = false;
             ShowIcon = false;
             ShowInTaskbar = false;
-            BackColor = UiTheme.Background;
+            BackColor = UiTheme.CurrentBackground;
+            ForeColor = UiTheme.CurrentTextColor;
             Font = new Font("Segoe UI", 9F);
             ClientSize = new Size(360, 260);
             Padding = new Padding(16);
@@ -39,6 +40,7 @@ namespace InventoryKamera.ui
                 AutoSize = false,
                 Location = new Point(16, 12),
                 Size = new Size(328, 32),
+                ForeColor = UiTheme.CurrentTextColor,
             };
 
             var pictureBox = new PictureBox
@@ -56,6 +58,7 @@ namespace InventoryKamera.ui
                 AutoSize = false,
                 Location = new Point(16, 156),
                 Size = new Size(328, 20),
+                ForeColor = UiTheme.CurrentTextColor,
             };
 
             correctedTextBox = new TextBox
@@ -64,6 +67,8 @@ namespace InventoryKamera.ui
                 Location = new Point(16, 178),
                 Size = new Size(328, 24),
                 Font = new Font("Segoe UI", 10F),
+                BackColor = UiTheme.CurrentSurfaceColor,
+                ForeColor = UiTheme.CurrentTextColor,
             };
 
             var okButton = new Button
@@ -85,6 +90,10 @@ namespace InventoryKamera.ui
                 DialogResult = DialogResult.Cancel,
                 Location = new Point(245, 216),
                 Size = new Size(99, 30),
+                BackColor = UiTheme.CurrentSurfaceColor,
+                ForeColor = UiTheme.CurrentTextColor,
+                FlatStyle = FlatStyle.Flat,
+                FlatAppearance = { BorderColor = UiTheme.CurrentBorderColor },
             };
 
             Controls.Add(fieldLabelControl);
