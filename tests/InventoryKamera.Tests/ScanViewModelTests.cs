@@ -161,5 +161,55 @@ namespace InventoryKamera.Tests
             // Does not throw -- clone is independently owned and still valid after the replace.
             Assert.Equal(Color.FromArgb(255, 255, 0, 0), clone.GetPixel(0, 0));
         }
+
+        [Fact]
+        public void SetMaterial_SetsTextAndImagesAndRaisesMaterialChanged()
+        {
+            var viewModel = new ScanViewModel();
+            int raisedCount = 0;
+            viewModel.MaterialChanged += () => raisedCount++;
+            using var nameplate = MakeSolidColor(4, 4, Color.Red);
+            using var quantity = MakeSolidColor(4, 4, Color.Blue);
+
+            viewModel.SetMaterial(nameplate, quantity, "Mora", 5000);
+
+            Assert.Equal("Name: Mora\nCount: 5000", viewModel.MaterialText);
+            Assert.NotSame(nameplate, viewModel.CloneMaterialNameplateImage());
+            Assert.NotSame(quantity, viewModel.CloneMaterialQuantityImage());
+            Assert.Equal(1, raisedCount);
+        }
+
+        [Fact]
+        public void SetMaterial_DisposesThePreviousImagesOnReplace()
+        {
+            var viewModel = new ScanViewModel();
+            using var firstNameplate = MakeSolidColor(4, 4, Color.Red);
+            using var firstQuantity = MakeSolidColor(4, 4, Color.Red);
+            using var secondNameplate = MakeSolidColor(4, 4, Color.Blue);
+            using var secondQuantity = MakeSolidColor(4, 4, Color.Blue);
+
+            viewModel.SetMaterial(firstNameplate, firstQuantity, "Mora", 1);
+            var previousNameplate = viewModel.CloneMaterialNameplateImage();
+            viewModel.SetMaterial(secondNameplate, secondQuantity, "Hero's Wit", 2);
+
+            // The clone taken before the replace is unaffected -- only the internally-owned image is
+            // disposed, matching the same clone-before-dispose safety CloneGearImage relies on.
+            Assert.Equal(Color.FromArgb(255, 255, 0, 0), previousNameplate.GetPixel(0, 0));
+        }
+
+        [Fact]
+        public void SetMora_SetsTextAndImageAndRaisesMoraChanged()
+        {
+            var viewModel = new ScanViewModel();
+            int raisedCount = 0;
+            viewModel.MoraChanged += () => raisedCount++;
+            using var bitmap = MakeSolidColor(4, 4, Color.Yellow);
+
+            viewModel.SetMora(bitmap, 12345);
+
+            Assert.Equal("Mora: 12345", viewModel.MoraText);
+            Assert.NotSame(bitmap, viewModel.CloneMoraImage());
+            Assert.Equal(1, raisedCount);
+        }
     }
 }

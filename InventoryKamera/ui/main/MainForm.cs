@@ -64,6 +64,8 @@ namespace InventoryKamera
             scanViewModel.ErrorAdded += OnErrorAdded;
             scanViewModel.ErrorsReset += OnErrorsReset;
             scanViewModel.GearChanged += OnGearChanged;
+            scanViewModel.MaterialChanged += OnMaterialChanged;
+            scanViewModel.MoraChanged += OnMoraChanged;
         }
 
         // Renders scanViewModel's counter state into the labels MainForm owns directly -- the
@@ -122,6 +124,41 @@ namespace InventoryKamera
                 ArtifactOutput_TextBox.Text = scanViewModel.GearText;
             };
             GearPictureBox.Invoke(render);
+        }
+
+        private void OnMaterialChanged()
+        {
+            // Same clone-not-reference reasoning as OnGearChanged -- material images are also written
+            // from scan logic, so this control needs its own independently-owned copy.
+            var nameplate = scanViewModel.CloneMaterialNameplateImage();
+            var quantity = scanViewModel.CloneMaterialQuantityImage();
+            System.Windows.Forms.MethodInvoker render = delegate
+            {
+                var previousName = CharacterName_PictureBox.Image;
+                CharacterName_PictureBox.Image = nameplate;
+                previousName?.Dispose();
+
+                var previousLevel = CharacterLevel_PictureBox.Image;
+                CharacterLevel_PictureBox.Image = quantity;
+                previousLevel?.Dispose();
+
+                CharacterOutput_TextBox.Text = scanViewModel.MaterialText;
+            };
+            CharacterName_PictureBox.Invoke(render);
+        }
+
+        private void OnMoraChanged()
+        {
+            var image = scanViewModel.CloneMoraImage();
+            System.Windows.Forms.MethodInvoker render = delegate
+            {
+                var previous = Navigation_Image.Image;
+                Navigation_Image.Image = image;
+                previous?.Dispose();
+
+                CharacterOutput_TextBox.Text = scanViewModel.MoraText;
+            };
+            Navigation_Image.Invoke(render);
         }
 
         private double ScannerDelayValue(int value)

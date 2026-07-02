@@ -6,15 +6,16 @@ namespace InventoryKamera
 {
     /// <summary>
     /// MVVM redesign for §2.5, carved out one control group at a time: owns genuine observable state
-    /// for the counters (weapon/artifact/character scanned/max), status/errors, and gear
-    /// (weapon/artifact picture + text) groups instead of delegating straight to
-    /// <see cref="UserInterface"/>. <see cref="MainForm"/> owns one long-lived instance, subscribes to
-    /// <see cref="CountersChanged"/>/<see cref="ProgramStatusChanged"/>/<see cref="ErrorAdded"/>/
-    /// <see cref="ErrorsReset"/>/<see cref="GearChanged"/> once at startup, and renders those controls
-    /// itself -- instead of a shared static facade owning them. Character display and mora/material
-    /// display still bridge to <see cref="UserInterface"/> unchanged; carving those out too is
-    /// deliberately left as separate, individually live-tested slices (see the plan doc's §2.5
-    /// sequencing note) rather than one large rewrite.
+    /// for the counters (weapon/artifact/character scanned/max), status/errors, gear
+    /// (weapon/artifact picture + text), and material/mora display groups instead of delegating
+    /// straight to <see cref="UserInterface"/>. <see cref="MainForm"/> owns one long-lived instance,
+    /// subscribes to <see cref="CountersChanged"/>/<see cref="ProgramStatusChanged"/>/
+    /// <see cref="ErrorAdded"/>/<see cref="ErrorsReset"/>/<see cref="GearChanged"/>/
+    /// <see cref="MaterialChanged"/>/<see cref="MoraChanged"/> once at startup, and renders those
+    /// controls itself -- instead of a shared static facade owning them. Character display still
+    /// bridges to <see cref="UserInterface"/> unchanged (deliberately deferred pending the user's
+    /// planned character-scanning revamp); carving that out too is left as a separate, individually
+    /// live-tested slice (see the plan doc's §2.5 sequencing note) rather than one large rewrite.
     /// </summary>
     internal sealed class ScanViewModel : IScanProgressReporter
     {
@@ -29,9 +30,16 @@ namespace InventoryKamera
         private string programStatus = "";
         private bool programStatusOk = true;
 
-        private readonly object gearLock = new object();
+        private readonly object imageLock = new object();
         private Bitmap gearImage;
         private string gearText = "";
+
+        private Bitmap materialNameplateImage;
+        private Bitmap materialQuantityImage;
+        private string materialText = "";
+
+        private Bitmap moraImage;
+        private string moraText = "";
 
         /// <summary>
         /// Raised after any counter-related state changes. Scan logic calls this from background
@@ -78,7 +86,7 @@ namespace InventoryKamera
         /// with red X's). Use <see cref="CloneGearImage"/> for rendering instead; this property exists
         /// for tests that only inspect state on one thread.
         /// </summary>
-        public Bitmap GearImage { get { lock (gearLock) return gearImage; } }
+        public Bitmap GearImage { get { lock (imageLock) return gearImage; } }
         public string GearText => gearText;
 
         /// <summary>
@@ -89,9 +97,48 @@ namespace InventoryKamera
         /// </summary>
         public Bitmap CloneGearImage()
         {
-            lock (gearLock)
+            lock (imageLock)
             {
                 return gearImage == null ? null : CloneBitmap(gearImage);
+            }
+        }
+
+        /// <summary>
+        /// Raised after a material is set (<see cref="SetMaterial"/>). Full-replace, not incremental --
+        /// <c>MaterialScraper</c> calls <see cref="ResetCharacterDisplay"/> immediately before every
+        /// <see cref="SetMaterial"/>, so the original UI only ever showed the most recently scanned
+        /// material, never an accumulating log.
+        /// </summary>
+        public event Action MaterialChanged;
+
+        public string MaterialText => materialText;
+
+        public Bitmap CloneMaterialNameplateImage()
+        {
+            lock (imageLock)
+            {
+                return materialNameplateImage == null ? null : CloneBitmap(materialNameplateImage);
+            }
+        }
+
+        public Bitmap CloneMaterialQuantityImage()
+        {
+            lock (imageLock)
+            {
+                return materialQuantityImage == null ? null : CloneBitmap(materialQuantityImage);
+            }
+        }
+
+        /// <summary>Raised after <see cref="SetMora"/> runs. Same full-replace reasoning as <see cref="MaterialChanged"/>.</summary>
+        public event Action MoraChanged;
+
+        public string MoraText => moraText;
+
+        public Bitmap CloneMoraImage()
+        {
+            lock (imageLock)
+            {
+                return moraImage == null ? null : CloneBitmap(moraImage);
             }
         }
 
@@ -138,9 +185,25 @@ namespace InventoryKamera
         public void ResetAll()
         {
             ResetGearDisplay();
+            ResetMaterialAndMoraDisplay();
             UserInterface.ResetCharacterDisplay();
             ResetCounters();
             ResetErrors();
+        }
+
+        private void ResetMaterialAndMoraDisplay()
+        {
+            lock (imageLock)
+            {
+                materialNameplateImage?.Dispose();
+                materialNameplateImage = null;
+                materialQuantityImage?.Dispose();
+                materialQuantityImage = null;
+                moraImage?.Dispose();
+                moraImage = null;
+            }
+            materialText = "";
+            moraText = "";
         }
 
         public void SetProgramStatus(string status, bool ok = true)
@@ -189,7 +252,7 @@ namespace InventoryKamera
 
         public void ResetGearDisplay()
         {
-            lock (gearLock)
+            lock (imageLock)
             {
                 gearImage?.Dispose();
                 gearImage = null;
@@ -201,7 +264,7 @@ namespace InventoryKamera
         private void SetGearImage(Bitmap bm)
         {
             var clone = CloneBitmap(bm);
-            lock (gearLock)
+            lock (imageLock)
             {
                 gearImage?.Dispose();
                 gearImage = clone;
@@ -215,12 +278,37 @@ namespace InventoryKamera
             return clone;
         }
 
+        public void SetMaterial(Bitmap nameplate, Bitmap quantity, string name, int count)
+        {
+            var nameplateClone = CloneBitmap(nameplate);
+            var quantityClone = CloneBitmap(quantity);
+            lock (imageLock)
+            {
+                materialNameplateImage?.Dispose();
+                materialNameplateImage = nameplateClone;
+                materialQuantityImage?.Dispose();
+                materialQuantityImage = quantityClone;
+            }
+            materialText = $"Name: {name}\nCount: {count}";
+            MaterialChanged?.Invoke();
+        }
+
+        public void SetMora(Bitmap mora, int count)
+        {
+            var clone = CloneBitmap(mora);
+            lock (imageLock)
+            {
+                moraImage?.Dispose();
+                moraImage = clone;
+            }
+            moraText = $"Mora: {count}";
+            MoraChanged?.Invoke();
+        }
+
         public void SetMainCharacterName(string text) => UserInterface.SetMainCharacterName(text);
         public void SetCharacter_NameAndElement(Bitmap bm, string name, string element) => UserInterface.SetCharacter_NameAndElement(bm, name, element);
         public void SetCharacter_Level(Bitmap bm, int level, int maxLevel) => UserInterface.SetCharacter_Level(bm, level, maxLevel);
         public void SetCharacter_Constellation(int level) => UserInterface.SetCharacter_Constellation(level);
-        public void SetMaterial(Bitmap nameplate, Bitmap quantity, string name, int count) => UserInterface.SetMaterial(nameplate, quantity, name, count);
-        public void SetMora(Bitmap mora, int count) => UserInterface.SetMora(mora, count);
         public void SetCharacter_Talent(Bitmap bm, string text, int i) => UserInterface.SetCharacter_Talent(bm, text, i);
         public void SetNavigation_Image(Bitmap bm) => UserInterface.SetNavigation_Image(bm);
         public void ResetCharacterDisplay() => UserInterface.ResetCharacterDisplay();

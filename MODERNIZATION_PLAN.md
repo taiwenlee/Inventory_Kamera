@@ -17,7 +17,7 @@
 
 **Runtime:** the app now targets **`net8.0-windows7.0`** (was net472 through Phase 0; bumped from bare `net8.0-windows` after live testing surfaced 670+ spurious CA1416 warnings — see below). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
-**Test/CI status:** 116 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService`/`TextNormalizer` tests using fake dictionaries, `ImageProcessor` delegation tests, `ScanSettings` live-forwarding tests, and `ScanViewModel` counter/gear-state tests (including a concurrency regression test). GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
+**Test/CI status:** 119 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService`/`TextNormalizer` tests using fake dictionaries, `ImageProcessor` delegation tests, `ScanSettings` live-forwarding tests, and `ScanViewModel` counter/gear/material/mora-state tests (including a concurrency regression test). GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
 
 **Standing gap:** live smoke-testing during Phase 2 (2026-07-01) surfaced two real bugs missed by build/test verification alone — a pre-existing `NullReferenceException` in `GetPageOfItems` when page-item detection exhausts its retries with `LogScreenshots` enabled, and a cancel-latency regression (same method's retry loop had no `CancelRequested` check, so Stop couldn't interrupt it — previously masked by the crash). Both fixed and verified live. A full scan was also run live after the `IScanProgressReporter` seam (§2.5's first slice) landed, confirming progress display, error reporting, and cancel all still behave identically now that scan logic goes through the injected interface instead of the static `UserInterface` directly. This is a reminder that build+test-green doesn't substitute for live verification on a scan-heavy, UI-automation-driven app like this one; keep testing live where practical as Phase 2 continues.
 
@@ -396,7 +396,7 @@ Split the 957-line static class into injected services:
     resolve both the tolerant-deserialization and the mutable-field questions before this is a clean
     win over `Dictionary<string, JObject>`.
 
-### 2.5 Decouple UI from logic (MVVM-lite) 🔄 four slices done
+### 2.5 Decouple UI from logic (MVVM-lite) 🔄 five slices done
 - **`IScanProgressReporter` seam** ✅ **done** — added the interface, initially implemented by a
   `UserInterfaceReporter` that delegated every method straight to the existing static `UserInterface`
   (same instance-method-seam shape as `IImagePreprocessor`/`ImageProcessor` and `IScanSettings`/
@@ -474,10 +474,36 @@ Split the 957-line static class into injected services:
     `gear_PictureBox`/`gear_TextBox` fields are deleted, same dead-code cleanup pattern as the other
     slices.
   - **Remaining in `IScanProgressReporter`, still bridging to `UserInterface`:** character display
-    (name/element/level/constellation/talents), mora/material display, navigation image. The user
-    plans to revamp character scanning separately, so that group is being deliberately skipped for now
-    rather than carved into `ScanViewModel` ahead of a redesign that would likely change its shape
-    anyway.
+    (name/element/level/constellation/talents) and navigation image. The user plans to revamp
+    character scanning separately, so that group is being deliberately skipped for now rather than
+    carved into `ScanViewModel` ahead of a redesign that would likely change its shape anyway.
+- **`ScanViewModel` — material/mora display group** ✅ **done** — same treatment as gear: `ScanViewModel`
+  now owns `MaterialText`/material nameplate+quantity images and `MoraText`/mora image (raising
+  `MaterialChanged`/`MoraChanged`) instead of `UserInterface` writing into them directly. Full-replace
+  semantics (not `ErrorAdded`'s incremental-append pattern) — `MaterialScraper` calls
+  `ResetCharacterDisplay()` immediately before every `SetMaterial`/`SetMora`, so the original UI only
+  ever showed the most recently scanned material, not an accumulating log, same as gear.
+  - **Notable wrinkle: materials/mora reuse character display's controls.** `SetMaterial`/`SetMora`
+    write into `cName_PictureBox`/`cLevel_PictureBox`/`navigation_PictureBox`/`character_TextBox` — the
+    exact same WinForms controls the still-unconverted character-display methods use (this coupling
+    predates this slice; not something introduced here). Since character display stays on the static
+    `UserInterface` bridge for now, those backing fields and `UserInterface.Init`'s signature are
+    untouched — only the two now-dead methods (`SetMaterial`/`SetMora`) were removed from
+    `UserInterface`. `MainForm` renders both `ScanViewModel`'s new material/mora state and (for now)
+    `UserInterface`'s character-display state into the same target controls; they don't run
+    concurrently (materials/mora scan as their own sequential phase, not through the worker pool), so
+    there's no ordering conflict, just two code paths converging on the same controls until character
+    display is converted too.
+  - Reused the `imageLock`/`CloneBitmap` infrastructure from the gear slice's concurrency fix (renamed
+    from `gearLock`) rather than duplicating it — materials/mora are called from `MaterialScraper`'s
+    single scan thread, not the concurrent worker pool weapons/artifacts use, so the lock isn't
+    strictly required for correctness today, but keeping the same defensive pattern avoids relying on
+    "this happens to be single-threaded" as a correctness invariant that could silently break later.
+  - `ResetAll()` now also disposes/clears the material and mora images, matching gear's reset hygiene.
+  - 5 new `ScanViewModelTests` (text/image state, dispose-on-replace safety). No test for the `ResetAll()`
+    path specifically — it also calls `UserInterface.ResetCharacterDisplay()`, which needs live WinForms
+    controls `UserInterface.Init` never receives in a headless test, so it would crash there; the same
+    testing constraint noted for character display.
 
 **Bugs found during §2.5 live testing (2026-07-01), unrelated to the MVVM changes:**
 - **Negative list index in `ArtifactScraper.ScanArtifacts`/`WeaponScraper.ScanWeapons`:** both compute
