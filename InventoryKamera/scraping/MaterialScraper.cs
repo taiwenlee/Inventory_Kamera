@@ -37,12 +37,12 @@ namespace InventoryKamera
 		private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
 
-		public MaterialScraper()
+		public MaterialScraper(IOcrService ocrService) : base(ocrService)
 		{
 			inventoryPage = InventoryPage.CharacterDevelopmentItems;
 		}
 
-		public MaterialScraper(InventoryPage section) : base()
+		public MaterialScraper(IOcrService ocrService, InventoryPage section) : base(ocrService)
 		{
 			inventoryPage = section;
 		}
@@ -265,13 +265,13 @@ namespace InventoryKamera
 			}
 		}
 
-		public static string ParseMoraFromScreenshot(Bitmap screenshot)
+		public string ParseMoraFromScreenshot(Bitmap screenshot)
 		{
 			using (var gray = GenshinProcesor.ConvertToGrayscale(screenshot))
 			{
 				var invert = (Bitmap)gray.Clone();
 				GenshinProcesor.SetInvert(ref invert);
-				var input = GenshinProcesor.AnalyzeText(invert).Split(' ').ToList();
+				var input = ocrService.AnalyzeText(invert).Split(' ').ToList();
 				Logger.Debug("Scanned mora input: {0}", input.ToString());
 				input.RemoveAll(e => Regex.IsMatch(e.Trim(), @"[^0-9]") || string.IsNullOrWhiteSpace(e.Trim()));
 				var mora = input.LastOrDefault();
@@ -306,7 +306,7 @@ namespace InventoryKamera
 			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
 			GenshinProcesor.SetInvert(ref n);
 
-			string text = GenshinProcesor.AnalyzeText(n,Tesseract.PageSegMode.Auto);
+			string text = ocrService.AnalyzeText(n,Tesseract.PageSegMode.Auto);
 			text = Regex.Replace(text, @"[\W\s]", string.Empty).ToLower();
 
 			//UI
@@ -322,7 +322,7 @@ namespace InventoryKamera
 			return null;
 		}
 
-		public static int ScanMaterialCount(Rectangle rectangle, out Bitmap quantity)
+		public int ScanMaterialCount(Rectangle rectangle, out Bitmap quantity)
 		{
 			Dictionary<int, int> counts = new Dictionary<int, int>();
 			var region = new RECT(
@@ -355,7 +355,7 @@ namespace InventoryKamera
 						GenshinProcesor.SetInvert(ref n);
                         GenshinProcesor.SetThreshold(50, ref n);
 
-                        string original = GenshinProcesor.AnalyzeText(n).Trim();
+                        string original = ocrService.AnalyzeText(n).Trim();
 
 						n.Dispose();
 						copy.Dispose();

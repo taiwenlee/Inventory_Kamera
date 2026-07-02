@@ -11,18 +11,12 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using Tesseract;
 
 namespace InventoryKamera
 {
     public static class GenshinProcesor
 	{
 		private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
-
-		// OCR is now IOcrService/OcrService (Phase 2 §2.1) -- this static field is a thin bridge
-		// so the many existing GenshinProcesor.AnalyzeText(...) call sites keep working unchanged.
-		// Rewiring those call sites to take IOcrService via constructor injection is follow-up work.
-		private static readonly IOcrService ocrService = new OcrService();
 
 		internal static Dictionary<string, string> Stats = new Dictionary<string, string>
 		{
@@ -169,9 +163,9 @@ namespace InventoryKamera
 			else throw new KeyNotFoundException($"Could not find '{target}' entry in characters.json");
 		}
 
-		internal static void AssignTravelerName(string name)
+		internal static void AssignTravelerName(string name, IOcrService ocrService)
 		{
-			name = string.IsNullOrWhiteSpace(name) ? CharacterScraper.ScanMainCharacterName() : name.ToLower();
+			name = string.IsNullOrWhiteSpace(name) ? CharacterScraper.ScanMainCharacterName(ocrService) : name.ToLower();
 			if (!string.IsNullOrWhiteSpace(name))
 			{
 				UpdateCharacterName("traveler", name);
@@ -182,20 +176,6 @@ namespace InventoryKamera
 				UserInterface.AddError("Could not parse Traveler's username");
 			}
 		}
-
-		#region OCR
-
-		// Thin forwarding wrappers to the extracted IOcrService (see the `ocrService` field above),
-		// kept so the many existing call sites (GenshinProcesor.AnalyzeText(...) across every
-		// scraper) don't all need to change in the same pass that introduced the service.
-
-		internal static void RestartEngines() => ocrService.Restart();
-
-		/// <summary> Use Tesseract OCR to find words on picture to string </summary>
-		internal static string AnalyzeText(Bitmap bitmap, PageSegMode pageMode = PageSegMode.SingleLine, bool numbersOnly = false) =>
-			ocrService.AnalyzeText(bitmap, pageMode, numbersOnly);
-
-		#endregion OCR
 
 		#region Check valid parameters
 

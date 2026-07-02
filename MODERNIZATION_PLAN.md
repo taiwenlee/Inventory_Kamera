@@ -12,7 +12,7 @@
 |---|---|---|
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
-| **2 — Architecture** | 🔄 **in progress** | §2.1 fully carved up: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. Call sites for all four still go through `GenshinProcesor`'s thin forwarding wrappers — not yet rewired to constructor injection. §2.2–2.5 not started. |
+| **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 started: `IOcrService` is fully constructor-injected into all 5 scrapers, `GenshinProcesor.AnalyzeText`/`RestartEngines` deleted. `IImagePreprocessor` DI + §2.3–2.5 not started. |
 | **3 — UX** | ⬜ not started | §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
 
 **Runtime:** the app now targets **`net8.0-windows`** (was net472 through Phase 0). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
@@ -237,7 +237,7 @@ primitive-level timing benchmark shows large measured improvements.
 > as Phase 1), not attempted all at once. `2.1` is being extracted one service at a time; `2.2`–`2.5`
 > not started.
 
-### 2.1 Decompose `GenshinProcesor` 🔄 in progress
+### 2.1 Decompose `GenshinProcesor` ✅ done
 Split the 957-line static class into injected services:
 - **`IOcrService`** ✅ **done** — extracted the Tesseract engine pool (`engines`, `InitEngines`,
   `RestartEngines`, `AnalyzeText`, `BitmapToPix`) into `OcrService`, a real class with an explicit,
@@ -247,16 +247,8 @@ Split the 957-line static class into injected services:
   effect, so OCR couldn't be unit-tested at all. `OcrServiceTests` now does real Tesseract
   recognition round-trips (render known digits → `AnalyzeText` → assert exact match) — verified
   passing with exact recognition, not just "close enough."
-  - **Scoped deliberately smaller than the ideal end state:** `GenshinProcesor.AnalyzeText`/
-    `RestartEngines` remain as thin static forwarding wrappers to one internally-held `OcrService`
-    instance, so all ~23 existing call sites across the 5 scraper files keep working unchanged.
-    Full removal of the static access pattern — every scraper taking `IOcrService` via constructor
-    instead of calling `GenshinProcesor.AnalyzeText(...)` — is real follow-up work, not done here.
-    It's a bigger lift than it looks: several of `ArtifactScraper`'s scanning methods
-    (`CatalogueFromBitmapsAsync`, `GetRarity`, `IsEnhancementMaterial`, etc.) are themselves
-    `static`, called both internally and externally as `ArtifactScraper.SomeMethod(...)` from
-    `InventoryKamera.cs` — converting those to instance methods too is in scope for finishing 2.1,
-    not a side effect of it.
+  - **Fully rewired in §2.2** (see below) — `GenshinProcesor.AnalyzeText`/`RestartEngines` are gone;
+    every scraper now takes `IOcrService` via constructor injection.
 - **`IImagePreprocessor`** ✅ **done** (this scope) — added `IImagePreprocessor`/`ImageProcessor`,
   an instance-method seam over the existing static `ImageProcessing` (extracted in Phase 1). The
   static class stays as the actual implementation — it's already pinned pixel-for-pixel to Accord's
@@ -302,8 +294,30 @@ Split the 957-line static class into injected services:
     `ArtifactScraper.cs`, `WeaponScraper.cs`, `MaterialScraper.cs`, `CharacterScraper.cs` are
     unchanged.
 
-### 2.2 Introduce DI + Hosting — not started
-- `Microsoft.Extensions.DependencyInjection` + `Microsoft.Extensions.Hosting`. Compose services at startup; scrapers receive dependencies via ctor instead of reaching into statics. `IOcrService`'s extraction (2.1) is designed to make this a mechanical follow-up (constructor-inject it into the 5 scrapers + `InventoryKamera`) once ready — no DI container wired up yet, `GenshinProcesor` just holds one instance directly.
+### 2.2 Introduce DI + Hosting 🔄 in progress
+- **`IOcrService` constructor injection** ✅ **done** — `InventoryKamera` (the single orchestrator)
+  now constructs one `OcrService` and passes it into all 5 scrapers' constructors
+  (`WeaponScraper`, `ArtifactScraper`, `MaterialScraper` via the shared `InventoryScraper` base;
+  `CharacterScraper` directly, since it doesn't share that base). `GenshinProcesor.AnalyzeText`/
+  `RestartEngines` are deleted — no more static forwarding wrapper for OCR. This is a genuine
+  composition root, not a DI container yet: no `Microsoft.Extensions.DependencyInjection` package
+  added, since there's currently exactly one consumer per service and one constructor call site,
+  which doesn't earn a container. Revisit once `IImagePreprocessor` gets the same treatment and the
+  wiring in `InventoryKamera`'s constructor gets noisy enough to justify one.
+  - **Mechanical fallout handled along the way:** several scraper methods that only ever called
+    static `GenshinProcesor`/`ImageProcessing` helpers had themselves been declared `static`
+    (`ArtifactScraper.CatalogueFromBitmapsAsync`, `IsEnhancementMaterial`, and ~8 private
+    `ScanArtifactX`/`ScanX` helpers across `ArtifactScraper`/`MaterialScraper`/`CharacterScraper`).
+    Once those bodies needed the injected `ocrService` instance field, the methods themselves had to
+    become instance methods too — flagged as likely follow-up work in the §2.1 write-up above, and
+    it was: call sites in `InventoryKamera.cs` that used to say `ArtifactScraper.SomeMethod(...)`
+    now go through the `artifactScraper`/`weaponScraper` instance fields it already held.
+    `CharacterScraper.ScanMainCharacterName` stayed `static` but now takes `IOcrService` as an
+    explicit parameter (mirrors `LookupService`/`TextNormalizer`'s shape) since it's called from
+    `GenshinProcesor.AssignTravelerName`, a static method with no scraper instance to reach through.
+- **`IImagePreprocessor` constructor injection** — not started; call sites still call
+  `ImageProcessing.*`/`GenshinProcesor`'s image-op forwarding wrappers directly.
+- `Microsoft.Extensions.Hosting` / typed startup composition — not started.
 
 ### 2.3 Modern configuration — not started
 - Replace `Properties.Settings`/`Settings.settings` + `JsonUserSettingsProvider` with `Microsoft.Extensions.Configuration` + a typed `IOptions<ScanSettings>` bound to a user `appsettings.json` in `%AppData%`.
@@ -315,7 +329,7 @@ Split the 957-line static class into injected services:
 - Introduce a `ScanViewModel` exposing observable progress/state. Scrapers report progress via an `IProgress<ScanProgress>` / events — **not** by writing into static `UserInterface` WinForms controls.
 - `MainForm` becomes a thin view bound to the view model. This is the bridge to Phase 3.
 
-**Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained. **Not yet met** — all four §2.1 services (`IOcrService`, `LookupService`, `IImagePreprocessor`, `TextNormalizer`) are unit-tested (✅) but their static-forwarding access pattern isn't removed yet (`GenshinProcesor` still holds the mutable static lookup dictionaries and forwards to them), and DI + config + MVVM haven't started.
+**Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained. **Not yet met** — the OCR engine pool (the genuinely stateful/mutable piece) is now fully off statics and constructor-injected (✅). `IImagePreprocessor` still has static call sites to rewire. `LookupService`/`TextNormalizer` are intentionally stateless static classes (no mutable state to remove — they take the lookup data as parameters each call), but the lookup *dictionaries themselves* still live as mutable static fields on `GenshinProcesor`; moving those into an owned, non-static data store is unstarted follow-up work (likely folds into §2.4's typed models). Config + MVVM haven't started.
 
 ---
 

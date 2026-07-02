@@ -61,8 +61,12 @@ namespace InventoryKamera
         private int prevColumn = 0;
         private int prevRow = 0;
 
-        public InventoryScraper() 
+        protected readonly IOcrService ocrService;
+
+        public InventoryScraper(IOcrService ocrService)
         {
+            this.ocrService = ocrService;
+
             materialPages = new List<InventoryPage>();
 
             materialPages.AddRange(Enum.GetValues(typeof(InventoryPage)).Cast<InventoryPage>());
@@ -107,7 +111,7 @@ namespace InventoryKamera
             GenshinProcesor.SetInvert(ref n);
 
             // Analyze
-            string text = Regex.Replace(GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.SingleBlock).ToLower(), @"[\W]", string.Empty);
+            string text = Regex.Replace(ocrService.AnalyzeText(n, Tesseract.PageSegMode.SingleBlock).ToLower(), @"[\W]", string.Empty);
 
             n.Dispose();
 
@@ -140,7 +144,7 @@ namespace InventoryKamera
                 GenshinProcesor.SetContrast(60.0, ref n);
                 GenshinProcesor.SetInvert(ref n);
 
-                string text = GenshinProcesor.AnalyzeText(n).Trim();
+                string text = ocrService.AnalyzeText(n).Trim();
                 n.Dispose();
 
                 // Remove any non-numeric and '/' characters
@@ -216,7 +220,7 @@ namespace InventoryKamera
             using (var bm = Navigation.CaptureRegion(region))
             {
                 var g = GenshinProcesor.ConvertToGrayscale(bm);
-                var mode = GenshinProcesor.AnalyzeText(g).Trim().ToLower();
+                var mode = ocrService.AnalyzeText(g).Trim().ToLower();
                 return mode.Contains("level") ? "level" : mode.Contains("quality") ? "quality" : null;
             }
         }

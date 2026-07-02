@@ -14,8 +14,11 @@ namespace InventoryKamera
 
 		protected int NumOfCharToScan;
 
-        public CharacterScraper()
+		private readonly IOcrService ocrService;
+
+        public CharacterScraper(IOcrService ocrService)
 		{
+			this.ocrService = ocrService;
 			NumOfCharToScan = Properties.Settings.Default.NumOfCharToScan;
 		}
 
@@ -98,7 +101,7 @@ namespace InventoryKamera
             }
 		}
 
-		private static Character ScanCharacter(string firstCharacter)
+		private Character ScanCharacter(string firstCharacter)
 		{
 			var character = new Character();
 			Navigation.SelectCharacterAttributes();
@@ -194,7 +197,7 @@ namespace InventoryKamera
 			return character;
 		}
 
-		public static string ScanMainCharacterName()
+		public static string ScanMainCharacterName(IOcrService ocrService)
 		{
 			var xReference = 1280.0;
 			var yReference = 720.0;
@@ -218,7 +221,7 @@ namespace InventoryKamera
 
 			UserInterface.SetNavigation_Image(nameBitmap);
 
-			string text = GenshinProcesor.AnalyzeText(n).Trim();
+			string text = ocrService.AnalyzeText(n).Trim();
 			if (text != "")
 			{
 				// Only keep a-Z and 0-9
@@ -237,7 +240,7 @@ namespace InventoryKamera
 			return text;
 		}
 
-		private static void ScanNameAndElement(ref string name, ref string element)
+		private void ScanNameAndElement(ref string name, ref string element)
 		{
 			int attempts = 0;
 			int maxAttempts = 75;
@@ -257,8 +260,8 @@ namespace InventoryKamera
 					GenshinProcesor.SetInvert(ref n);
 
 					n = GenshinProcesor.ResizeImage(n, n.Width * 2, n.Height * 2);
-					string block = GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.Auto).ToLower().Trim();
-					string line = GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.SingleLine).ToLower().Trim();
+					string block = ocrService.AnalyzeText(n, Tesseract.PageSegMode.Auto).ToLower().Trim();
+					string line = ocrService.AnalyzeText(n, Tesseract.PageSegMode.SingleLine).ToLower().Trim();
 
 					// Characters with wrapped names will not have a slash
 					string nameAndElement = line.Contains("/") ? line : block;
@@ -301,7 +304,7 @@ namespace InventoryKamera
 			element = null;
 		}
 
-		private static int ScanLevel(ref bool ascended)
+		private int ScanLevel(ref bool ascended)
 		{
             int attempt = 0;
 
@@ -327,7 +330,7 @@ namespace InventoryKamera
 				GenshinProcesor.SetInvert(ref n);
 				GenshinProcesor.SetContrast(30.0, ref bm);
 
-				string text = GenshinProcesor.AnalyzeText(n).Trim();
+				string text = ocrService.AnalyzeText(n).Trim();
 				Logger.Debug("Scanned character level as {0}", text);
 
 				text = Regex.Replace(text, @"(?![0-9/]).", string.Empty);
@@ -358,7 +361,7 @@ namespace InventoryKamera
 			return -1;
 		}
 
-		private static int ScanExperience()
+		private int ScanExperience()
 		{
 			int experience = 0;
 
@@ -376,7 +379,7 @@ namespace InventoryKamera
 			//Scraper.SetInvert(ref bm);
 			GenshinProcesor.SetContrast(30.0, ref bm);
 
-			string text = GenshinProcesor.AnalyzeText(bm);
+			string text = ocrService.AnalyzeText(bm);
 			text = text.Trim();
 			text = Regex.Replace(text, @"(?![0-9\s/]).", string.Empty);
 
@@ -450,7 +453,7 @@ namespace InventoryKamera
 			return constellation;
 		}
 
-		private static Dictionary<string, int> ScanTalents(Character character)
+		private Dictionary<string, int> ScanTalents(Character character)
 		{
 			var talents = new Dictionary<string, int>
 			{
@@ -509,7 +512,7 @@ namespace InventoryKamera
 					GenshinProcesor.SetContrast(60, ref n);
 					GenshinProcesor.SetInvert(ref n);
 
-					var text = GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.SingleBlock).Trim().Split('\n').ToList();
+					var text = ocrService.AnalyzeText(n, Tesseract.PageSegMode.SingleBlock).Trim().Split('\n').ToList();
 
 					if (int.TryParse(Regex.Replace(text.Last(), @"\D", string.Empty), out int level))
 					{

@@ -14,7 +14,7 @@ namespace InventoryKamera
 	{
 		private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-		public ArtifactScraper() 
+		public ArtifactScraper(IOcrService ocrService) : base(ocrService)
 		{
 			inventoryPage = InventoryPage.Artifacts;
             SortByLevel = Properties.Settings.Default.MinimumArtifactLevel > 0;
@@ -165,7 +165,7 @@ namespace InventoryKamera
                 height: (int)((Navigation.IsNormal ? 0.0422 : 0.0367) * Navigation.GetHeight())))
             {
                 //Navigation.DisplayBitmap(x);
-				var t = GenshinProcesor.AnalyzeText(x).Trim().ToLower();
+				var t = ocrService.AnalyzeText(x).Trim().ToLower();
 				if (t != null && t.Contains("filter"))
 				{
 					Navigation.ClearArtifactFilters();
@@ -304,7 +304,7 @@ namespace InventoryKamera
                 height: (int)(card.Height * (Navigation.IsNormal ? 0.0475 : 0.0809))));
         }
 
-        public static async Task<Artifact> CatalogueFromBitmapsAsync(List<Bitmap> bm, int id)
+        public async Task<Artifact> CatalogueFromBitmapsAsync(List<Bitmap> bm, int id)
 		{
 			// Init Variables
 			string gearSlot = null;
@@ -376,7 +376,7 @@ namespace InventoryKamera
 			return colors.IndexOf(c);
 		}
 
-		public static bool IsEnhancementMaterial(Bitmap card)
+		public bool IsEnhancementMaterial(Bitmap card)
 		{
 			RECT reference = Navigation.GetAspectRatio() == new Size(16, 9) ?
 				new RECT(new Rectangle(862, 80, 327, 560)) : (RECT)new Rectangle(862, 80, 328, 640);
@@ -389,14 +389,14 @@ namespace InventoryKamera
 			return !string.IsNullOrWhiteSpace(material) && GenshinProcesor.enhancementMaterials.Contains(material.ToLower());
 		}
 
-		private static string ScanEnhancementMaterialName(Bitmap bm)
+		private string ScanEnhancementMaterialName(Bitmap bm)
 		{
 			GenshinProcesor.SetGamma(0.2, 0.2, 0.2, ref bm);
 			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
 			GenshinProcesor.SetInvert(ref n);
 
 			// Analyze
-			string name = Regex.Replace(GenshinProcesor.AnalyzeText(n).ToLower(), @"[\W]", string.Empty);
+			string name = Regex.Replace(ocrService.AnalyzeText(n).ToLower(), @"[\W]", string.Empty);
 			name = GenshinProcesor.FindClosestMaterialName(name);
 			n.Dispose();
 
@@ -405,21 +405,21 @@ namespace InventoryKamera
 
 		#region Task Methods
 
-		private static string ScanArtifactGearSlot(Bitmap bm)
+		private string ScanArtifactGearSlot(Bitmap bm)
 		{
 			// Process Img
 			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
 			GenshinProcesor.SetContrast(80.0, ref n);
 			GenshinProcesor.SetInvert(ref n);
 
-			string gearSlot = GenshinProcesor.AnalyzeText(n).Trim().ToLower();
+			string gearSlot = ocrService.AnalyzeText(n).Trim().ToLower();
 			gearSlot = Regex.Replace(gearSlot, @"[\W_]", string.Empty);
 			gearSlot = GenshinProcesor.FindClosestGearSlot(gearSlot);
 			n.Dispose();
 			return gearSlot;
 		}
 
-		private static string ScanArtifactMainStat(Bitmap bm, string gearSlot)
+		private string ScanArtifactMainStat(Bitmap bm, string gearSlot)
 		{
 			switch (gearSlot)
 			{
@@ -441,7 +441,7 @@ namespace InventoryKamera
 					GenshinProcesor.SetInvert(ref n);
 
 					// Get Main Stat
-					string mainStat = GenshinProcesor.AnalyzeText(n).ToLower().Trim();
+					string mainStat = ocrService.AnalyzeText(n).ToLower().Trim();
 					
 
 					// Remove anything not a-z as well as removes spaces/underscores
@@ -459,7 +459,7 @@ namespace InventoryKamera
 			}
 		}
 
-		private static int ScanArtifactLevel(Bitmap bm)
+		private int ScanArtifactLevel(Bitmap bm)
 		{
 			// Process Img
 			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
@@ -467,7 +467,7 @@ namespace InventoryKamera
 			GenshinProcesor.SetInvert(ref n);
 
 			// numbersOnly = true => seems to interpret the '+' as a '4'
-			string text = GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.SingleWord).Trim().ToLower();
+			string text = ocrService.AnalyzeText(n, Tesseract.PageSegMode.SingleWord).Trim().ToLower();
 			n.Dispose();
 
 			// Get rid of all non digits
@@ -476,7 +476,7 @@ namespace InventoryKamera
 			return int.TryParse(text, out int level) ? level : -1;
 		}
 
-		private static (List<SubStat> active, List<SubStat> unactivated) ScanArtifactSubStats(Bitmap artifactImage)
+		private (List<SubStat> active, List<SubStat> unactivated) ScanArtifactSubStats(Bitmap artifactImage)
         {
             Bitmap bm = (Bitmap)artifactImage.Clone();
 			List<string> lines = new List<string>();
@@ -488,7 +488,7 @@ namespace InventoryKamera
 			bool hasUnactivated = false;
 			using (var n = GenshinProcesor.ConvertToGrayscale(bm))
 			{
-				text = GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.Auto).ToLower();
+				text = ocrService.AnalyzeText(n, Tesseract.PageSegMode.Auto).ToLower();
 			}
 
 			if(text.Contains("(unactivated)"))
@@ -567,12 +567,12 @@ namespace InventoryKamera
             return (substats, unactivated);
         }
 
-        private static string ScanArtifactEquippedCharacter(Bitmap bm)
+        private string ScanArtifactEquippedCharacter(Bitmap bm)
 		{
 			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
 			GenshinProcesor.SetContrast(60.0, ref n);
 
-			string equippedCharacter = GenshinProcesor.AnalyzeText(n).ToLower();
+			string equippedCharacter = ocrService.AnalyzeText(n).ToLower();
 			n.Dispose();
 
 			if (equippedCharacter != "")
@@ -589,7 +589,7 @@ namespace InventoryKamera
 			return null;
 		}
 
-		private static string ScanArtifactSet(Bitmap itemName)
+		private string ScanArtifactSet(Bitmap itemName)
         {
             GenshinProcesor.SetGamma(0.2, 0.2, 0.2, ref itemName);
             Bitmap grayscale = GenshinProcesor.ConvertToGrayscale(itemName);
@@ -603,7 +603,7 @@ namespace InventoryKamera
                     g.Clear(Color.White);
                     g.DrawImage(grayscale, (padded.Width - grayscale.Width) / 2, (padded.Height - grayscale.Height) / 2);
 
-                    var scannedText = GenshinProcesor.AnalyzeText(grayscale, Tesseract.PageSegMode.Auto).ToLower().Replace("\n", " ");
+                    var scannedText = ocrService.AnalyzeText(grayscale, Tesseract.PageSegMode.Auto).ToLower().Replace("\n", " ");
                     string text = Regex.Replace(scannedText, @"[\W]", string.Empty);
                     text = GenshinProcesor.FindClosestArtifactSetFromArtifactName(text);
 

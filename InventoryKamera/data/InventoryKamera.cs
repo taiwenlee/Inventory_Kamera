@@ -39,6 +39,8 @@ namespace InventoryKamera
 		private CancellationTokenSource workerAbortCts;
 		private List<Task> imageProcessorTasks;
 
+		private readonly IOcrService ocrService;
+
 		private WeaponScraper weaponScraper;
 		private ArtifactScraper artifactScraper;
 		private CharacterScraper characterScraper;
@@ -68,10 +70,12 @@ namespace InventoryKamera
 			workerChannel = Channel.CreateUnbounded<OCRImageCollection>();
 			workerAbortCts = new CancellationTokenSource();
 
-			weaponScraper = new WeaponScraper();
-			artifactScraper = new ArtifactScraper();
-			characterScraper = new CharacterScraper();
-			materialScraper = new MaterialScraper();
+			ocrService = new OcrService();
+
+			weaponScraper = new WeaponScraper(ocrService);
+			artifactScraper = new ArtifactScraper(ocrService);
+			characterScraper = new CharacterScraper(ocrService);
+			materialScraper = new MaterialScraper(ocrService);
 
 			// Base worker count on available CPU (leaving headroom for the UI/navigation thread) so
 			// small machines don't oversubscribe; the scanner-speed setting further caps it down for
@@ -125,11 +129,11 @@ namespace InventoryKamera
 			}
 			Logger.Debug("Added {NumWorkers} workers", NumWorkers);
 
-			GenshinProcesor.RestartEngines();
+			ocrService.Restart();
 
 
 			// Assign Traveler's custom name
-			GenshinProcesor.AssignTravelerName(Properties.Settings.Default.TravelerName);
+			GenshinProcesor.AssignTravelerName(Properties.Settings.Default.TravelerName, ocrService);
 
             // Assign Wanderer's custom name
             GenshinProcesor.UpdateCharacterName("wanderer", Properties.Settings.Default.WandererName);
@@ -357,7 +361,7 @@ namespace InventoryKamera
 							break;
 
 						case "artifact":
-							if (ArtifactScraper.IsEnhancementMaterial(imageCollection.Bitmaps.Last()))
+							if (artifactScraper.IsEnhancementMaterial(imageCollection.Bitmaps.Last()))
 							{
 								Logger.Debug("Enhancement Material found for artifact #{artifactID}", imageCollection.Id);
 								artifactScraper.StopScanning = true;
@@ -366,7 +370,7 @@ namespace InventoryKamera
 
 							UserInterface.SetGearPictureBox(imageCollection.Bitmaps.Last());
 							// Scan as artifact
-							Artifact artifact = await ArtifactScraper.CatalogueFromBitmapsAsync(imageCollection.Bitmaps, imageCollection.Id);
+							Artifact artifact = await artifactScraper.CatalogueFromBitmapsAsync(imageCollection.Bitmaps, imageCollection.Id);
 							UserInterface.SetGear(imageCollection.Bitmaps.Last(), artifact);
 
 							string artifactPath = $"./logging/artifacts/artifact{artifact.Id}/";

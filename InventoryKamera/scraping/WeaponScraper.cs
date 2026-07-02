@@ -13,7 +13,7 @@ namespace InventoryKamera
     {
 		private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
-		public WeaponScraper()
+		public WeaponScraper(IOcrService ocrService) : base(ocrService)
         {
             inventoryPage = InventoryPage.Weapons;
             SortByLevel = Properties.Settings.Default.MinimumWeaponLevel > 1;
@@ -305,7 +305,7 @@ namespace InventoryKamera
 			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
 			GenshinProcesor.SetInvert(ref n);
 
-			string text = GenshinProcesor.AnalyzeText(n).Trim();
+			string text = ocrService.AnalyzeText(n).Trim();
 			n.Dispose();
 			text = Regex.Replace(text, @"(?![\d/]).", string.Empty);
 
@@ -335,7 +335,7 @@ namespace InventoryKamera
 					Bitmap n = GenshinProcesor.ConvertToGrayscale(up);
 					GenshinProcesor.SetInvert(ref n);
 
-					string text = GenshinProcesor.AnalyzeText(n).Trim();
+					string text = ocrService.AnalyzeText(n).Trim();
 					n.Dispose();
 					text = Regex.Replace(text, @"[^\d]", string.Empty);
 
@@ -354,7 +354,7 @@ namespace InventoryKamera
 			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
 			GenshinProcesor.SetContrast(60.0, ref n);
 
-			string extractedString = GenshinProcesor.AnalyzeText(n);
+			string extractedString = ocrService.AnalyzeText(n);
 			n.Dispose();
 
 			if (extractedString != "")
