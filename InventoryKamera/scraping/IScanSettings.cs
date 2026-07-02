@@ -18,6 +18,12 @@ namespace InventoryKamera
         decimal MinimumWeaponLevel { get; }
         decimal MinimumArtifactLevel { get; }
         bool LogScreenshots { get; }
+
+        /// <summary>
+        /// Tesseract mean-confidence percentage (0-100) below which a recognized item should be
+        /// surfaced for inline user correction instead of used automatically (Phase 3 §3.3).
+        /// </summary>
+        int OcrConfidenceThreshold { get; }
         string TravelerName { get; }
         string WandererName { get; }
         int SortByObtained { get; }

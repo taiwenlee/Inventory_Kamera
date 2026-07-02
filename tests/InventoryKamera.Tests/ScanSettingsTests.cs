@@ -49,6 +49,23 @@ namespace InventoryKamera.Tests
         }
 
         [Fact]
+        public void OcrConfidenceThreshold_ReflectsLiveChangesToApplicationSettings()
+        {
+            int original = Properties.Settings.Default.OcrConfidenceThreshold;
+            try
+            {
+                IScanSettings settings = new ScanSettings();
+
+                Properties.Settings.Default.OcrConfidenceThreshold = 75;
+                Assert.Equal(75, settings.OcrConfidenceThreshold);
+            }
+            finally
+            {
+                Properties.Settings.Default.OcrConfidenceThreshold = original;
+            }
+        }
+
+        [Fact]
         public void TravelerName_ReflectsLiveChangesToApplicationSettings()
         {
             string original = Properties.Settings.Default.TravelerName;

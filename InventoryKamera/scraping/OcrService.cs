@@ -58,12 +58,18 @@ namespace InventoryKamera
 
         public string AnalyzeText(Bitmap bitmap, PageSegMode pageMode = PageSegMode.SingleLine, bool numbersOnly = false)
         {
-            // Lazily start the pool if a caller reaches AnalyzeText before Restart() -- normal
-            // production flow always calls Restart() once per scan first, but this keeps the service
-            // safe (and directly usable in tests) even if that ordering isn't followed.
+            return AnalyzeTextWithConfidence(bitmap, pageMode, numbersOnly).Text;
+        }
+
+        public (string Text, float Confidence) AnalyzeTextWithConfidence(Bitmap bitmap, PageSegMode pageMode = PageSegMode.SingleLine, bool numbersOnly = false)
+        {
+            // Lazily start the pool if a caller reaches AnalyzeTextWithConfidence before Restart() --
+            // normal production flow always calls Restart() once per scan first, but this keeps the
+            // service safe (and directly usable in tests) even if that ordering isn't followed.
             if (engines is null) Restart();
 
             string text = "";
+            float confidence;
             // Blocks efficiently until an engine is free, instead of busy-polling with Thread.Sleep.
             TesseractEngine e = engines.Take();
 
@@ -80,10 +86,11 @@ namespace InventoryKamera
                     }
                     while (iter.Next(PageIteratorLevel.TextLine));
                 }
+                confidence = page.GetMeanConfidence();
             }
             engines.Add(e);
 
-            return text;
+            return (text, confidence);
         }
 
         /// <summary>

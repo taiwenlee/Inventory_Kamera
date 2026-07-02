@@ -17,9 +17,7 @@ namespace InventoryKamera
 			ConfigureLogging();
             try
             {
-				if (Environment.OSVersion.Version.Major >= 6)
-					SetProcessDPIAware();
-
+				Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
 				Application.EnableVisualStyles();
 				Application.SetCompatibleTextRenderingDefault(false);
 				Application.Run(new MainForm());
@@ -80,8 +78,5 @@ namespace InventoryKamera
             LogManager.Configuration = config;
         }
 
-        // ***also dllimport of that function***
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-		private static extern bool SetProcessDPIAware();
-	}
+    }
 }

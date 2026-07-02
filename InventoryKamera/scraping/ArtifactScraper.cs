@@ -101,6 +101,11 @@ namespace InventoryKamera
 				// detection fails, which can make this arithmetic go negative and throw.
 				for (int i = cardsRemaining < fullPage ? Math.Max(0, ( rows - ( totalRows - rowsQueued ) ) * cols) : 0; i < rectangles.Count; i++)
 				{
+					// Blocks here (not just once at loop entry) if a previously-queued item's
+					// recognition is still awaiting an inline correction -- keeps the game from being
+					// clicked/scrolled further ahead of what the user is currently looking at.
+					progressReporter.WaitIfCorrectionPending();
+
 					Rectangle item = rectangles[i];
 					Navigation.SetCursor(item.Center().X, item.Center().Y);
 					Navigation.Click();
@@ -119,6 +124,10 @@ namespace InventoryKamera
 				}
 
 				Logger.Debug("Finished queuing page of artifacts. Scrolling...");
+
+				// The last item(s) queued this page may still be awaiting correction on a worker
+				// thread -- wait before scrolling the game past what's currently displayed.
+				progressReporter.WaitIfCorrectionPending();
 
 				rowsQueued += rows;
 
@@ -553,7 +562,7 @@ namespace InventoryKamera
 				}
 			}
 
-			if(substats.Count == 0 )
+            if (substats.Count == 0)
 			{
 				Logger.Debug("Failed to obtain substats");
 			}
@@ -605,13 +614,30 @@ namespace InventoryKamera
                     g.Clear(Color.White);
                     g.DrawImage(grayscale, (padded.Width - grayscale.Width) / 2, (padded.Height - grayscale.Height) / 2);
 
-                    var scannedText = ocrService.AnalyzeText(grayscale, Tesseract.PageSegMode.Auto).ToLower().Replace("\n", " ");
+                    var (rawText, confidence) = ocrService.AnalyzeTextWithConfidence(grayscale, Tesseract.PageSegMode.Auto);
+                    var scannedText = rawText.ToLower().Replace("\n", " ");
                     string text = Regex.Replace(scannedText, @"[\W]", string.Empty);
-                    text = GenshinProcesor.FindClosestArtifactSetFromArtifactName(text);
+                    string setName = GenshinProcesor.FindClosestArtifactSetFromArtifactName(text);
+
+                    float confidencePercent = confidence * 100;
+                    Logger.Debug("Artifact set name OCR: rawText=\"{0}\" matchedSet=\"{1}\" confidence={2:0.0}% threshold={3}%", text, setName, confidencePercent, scanSettings.OcrConfidenceThreshold);
+                    // No fuzzy-match hit at all (setName null) is always worth a correction regardless
+                    // of OCR confidence -- Tesseract can be very confident about text that still
+                    // doesn't resemble any known artifact set.
+                    if (string.IsNullOrWhiteSpace(setName) || confidencePercent < scanSettings.OcrConfidenceThreshold)
+                    {
+                        Logger.Debug("Artifact set name below confidence threshold or no fuzzy match -- requesting inline correction");
+                        string corrected = progressReporter.RequestCorrection(grayscale, text, confidencePercent, "Artifact set name");
+                        if (!string.IsNullOrWhiteSpace(corrected))
+                        {
+                            string normalized = Regex.Replace(corrected.ToLower(), @"[\W]", string.Empty);
+                            setName = GenshinProcesor.FindClosestArtifactSetFromArtifactName(normalized) ?? corrected;
+                        }
+                    }
 
 					grayscale.Dispose();
 
-					return text;
+					return setName;
                 }
             }
         }

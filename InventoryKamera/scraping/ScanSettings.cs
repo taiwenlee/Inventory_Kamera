@@ -24,6 +24,7 @@ namespace InventoryKamera
         public decimal MinimumWeaponLevel => Properties.Settings.Default.MinimumWeaponLevel;
         public decimal MinimumArtifactLevel => Properties.Settings.Default.MinimumArtifactLevel;
         public bool LogScreenshots => Properties.Settings.Default.LogScreenshots;
+        public int OcrConfidenceThreshold => Properties.Settings.Default.OcrConfidenceThreshold;
         public string TravelerName => Properties.Settings.Default.TravelerName;
         public string WandererName => Properties.Settings.Default.WandererName;
         public int SortByObtained => Properties.Settings.Default.SortByObtained;

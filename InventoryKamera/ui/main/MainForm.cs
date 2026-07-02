@@ -34,8 +34,6 @@ namespace InventoryKamera
         private static InventoryKamera data = new InventoryKamera(scanViewModel);
         private static DatabaseManager databaseManager = new DatabaseManager();
 
-        private int Delay;
-
         private bool running = false;
 
         public MainForm()
@@ -66,6 +64,12 @@ namespace InventoryKamera
             scanViewModel.MaterialChanged += OnMaterialChanged;
             scanViewModel.MoraChanged += OnMoraChanged;
             scanViewModel.NavigationImageChanged += OnNavigationImageChanged;
+            scanViewModel.CorrectionRequested += OnCorrectionRequested;
+
+            UiTheme.RoundCorners(StartScan_Button, 8);
+            UiTheme.RoundCorners(ManualExportButton, 6);
+            UiTheme.RoundCorners(button1, 6);
+            UiTheme.ApplyWindowChromeTint(this);
         }
 
         // Renders scanViewModel's counter state into the labels MainForm owns directly -- the
@@ -80,8 +84,21 @@ namespace InventoryKamera
                 ArtifactsScanned_Label.Text = scanViewModel.ArtifactCount.ToString();
                 ArtifactsMax_Label.Text = scanViewModel.ArtifactMax?.ToString() ?? "?";
                 CharactersScanned_Label.Text = scanViewModel.CharacterCount.ToString();
+                MaterialsScanned_Label.Text = scanViewModel.MaterialCount.ToString();
+                EstimatedTimeRemaining_Label.Text = "ETA: " + FormatEta(scanViewModel.EstimatedTimeRemaining);
             };
             WeaponsScannedCount_Label.Invoke(render);
+        }
+
+        private static string FormatEta(TimeSpan? eta)
+        {
+            if (!eta.HasValue) return "--";
+            if (eta.Value < TimeSpan.FromSeconds(1)) return "almost done";
+            return eta.Value.TotalHours >= 1
+                ? $"{(int)eta.Value.TotalHours}h {eta.Value.Minutes}m"
+                : eta.Value.TotalMinutes >= 1
+                    ? $"{(int)eta.Value.TotalMinutes}m {eta.Value.Seconds}s"
+                    : $"{eta.Value.Seconds}s";
         }
 
         private void OnProgramStatusChanged()
@@ -102,6 +119,30 @@ namespace InventoryKamera
                 ErrorLog_TextBox.AppendText(error.Replace("\n", Environment.NewLine) + Environment.NewLine);
             };
             ErrorLog_TextBox.Invoke(render);
+        }
+
+        // Runs on the scan thread. Invoke() blocks the caller until the delegate returns, and
+        // ShowDialog() blocks until the user closes the dialog -- together that's the entire
+        // pause-the-scan-thread mechanism (Phase 3 §3.3), no separate wait handle needed. If the form
+        // is closing/disposed when this fires, args.ResolvedText simply stays null and
+        // ScanViewModel.RequestCorrection falls back to the original OCR text.
+        private void OnCorrectionRequested(OcrCorrectionEventArgs args)
+        {
+            try
+            {
+                Invoke((System.Windows.Forms.MethodInvoker)delegate
+                {
+                    using (var dialog = new ui.OcrCorrectionForm(args.Image, args.RecognizedText, args.ConfidencePercent, args.FieldLabel))
+                    {
+                        if (dialog.ShowDialog(this) == DialogResult.OK)
+                        {
+                            args.ResolvedText = dialog.CorrectedText;
+                        }
+                    }
+                });
+            }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
         }
 
         private void OnErrorsReset()
@@ -248,18 +289,44 @@ namespace InventoryKamera
 
             UpdateKeyTextBoxes();
 
-            Delay = ScannerDelay_TrackBar.Value;
-
             ProgramStatus_Label.Text = "";
-            if (string.IsNullOrWhiteSpace(OutputPath_TextBox.Text))
+            if (string.IsNullOrWhiteSpace(Properties.Settings.Default.OutputPath))
             {
-                OutputPath_TextBox.Text = Directory.GetCurrentDirectory() + @"\GenshinData";
+                Properties.Settings.Default.OutputPath = Directory.GetCurrentDirectory() + @"\GenshinData";
             }
-            
+
+            ScanAllArtifactPages_CheckBox.Checked = SortByObtainedControl.Value == 0;
+            ScanAllCharacters_CheckBox.Checked = NumOfCharToScanControl.Value == 0;
+        }
+
+        private void ScanAllArtifactPages_CheckBox_CheckedChanged(object sender, EventArgs e)
+        {
+            SortByObtainedControl.Enabled = !ScanAllArtifactPages_CheckBox.Checked;
+            if (ScanAllArtifactPages_CheckBox.Checked)
+            {
+                SortByObtainedControl.Value = 0;
+            }
+            else if (SortByObtainedControl.Value == 0)
+            {
+                SortByObtainedControl.Value = 1;
+            }
+        }
+
+        private void ScanAllCharacters_CheckBox_CheckedChanged(object sender, EventArgs e)
+        {
+            NumOfCharToScanControl.Enabled = !ScanAllCharacters_CheckBox.Checked;
+            if (ScanAllCharacters_CheckBox.Checked)
+            {
+                NumOfCharToScanControl.Value = 0;
+            }
+            else if (NumOfCharToScanControl.Value == 0)
+            {
+                NumOfCharToScanControl.Value = 1;
+            }
         }
 
         private void UpdateKeyTextBoxes()
-        { 
+        {
             Navigation.inventoryKey = (VirtualKeyCode)Properties.Settings.Default.InventoryKey;
             Navigation.characterKey = (VirtualKeyCode)Properties.Settings.Default.CharacterKey;
             Navigation.slotOneKey = (VirtualKeyCode)Properties.Settings.Default.Slot1Key;
@@ -283,74 +350,83 @@ namespace InventoryKamera
             }
         }
 
-        private void ValidateCustomName(object sender, EventArgs e)
+        // Phase 3 §3.2 pre-flight validation. Runs synchronously on the UI thread, before any scan
+        // state is touched (hotkey registration, "Scanning" status, etc.), so a bad setup fails
+        // immediately and visibly instead of surfacing as a generic error a few seconds into a scan
+        // that already looked like it started. Locates the game window as a side effect (via
+        // Navigation.Initialize()) -- the scan thread re-initializes on its own right after, which is
+        // redundant but harmless (the window won't move in that split second) and keeps this check
+        // fully independent of the scan thread's own error handling.
+        private bool PreflightChecksPass()
         {
-            var textbox = sender as TextBox;
-            var name = textbox.Text;
-
-            if (!string.IsNullOrWhiteSpace(name))
+            var settings = Properties.Settings.Default;
+            int[] navigationKeys = { settings.InventoryKey, settings.CharacterKey, settings.Slot1Key };
+            if (navigationKeys.Distinct().Count() != navigationKeys.Length)
             {
-                if (GenshinProcesor.Characters.ContainsKey(name.ConvertToGood().ToLower()))
+                MessageBox.Show(
+                    "Two or more of your Inventory/Character Screen/Slot 1 keybinds are set to the " +
+                    "same key. Set them to different keys under Options.",
+                    "Pre-flight Check Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+            if (navigationKeys.Contains((int)Keys.Enter))
+            {
+                MessageBox.Show(
+                    "One of your keybinds is set to Enter, which is reserved for stopping a scan in " +
+                    "progress. Choose a different key under Options.",
+                    "Pre-flight Check Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            try
+            {
+                Navigation.Initialize();
+            }
+            catch (NullReferenceException)
+            {
+                MessageBox.Show("Genshin Impact isn't running. Please start the game and try again.",
+                    "Pre-flight Check Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+            catch (NotImplementedException ex)
+            {
+                MessageBox.Show(ex.Message, "Pre-flight Check Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            List<Size> supportedAspectRatios = new List<Size> { new Size(16, 9), new Size(8, 5) };
+            if (!supportedAspectRatios.Contains(Navigation.GetAspectRatio()))
+            {
+                MessageBox.Show(
+                    $"{Navigation.GetSize().Width}x{Navigation.GetSize().Height} is an unsupported resolution. " +
+                    "Inventory Kamera supports 16:9 and 8:5 (16:10) aspect ratios.",
+                    "Pre-flight Check Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            // CaptureWindow() downscales above 1080p (Navigation.CaptureScale), so compare against the
+            // expected scaled size rather than the real window size directly.
+            using (var capture = Navigation.CaptureWindow())
+            {
+                var expectedSize = new Size(
+                    (int)(Navigation.GetSize().Width * Navigation.CaptureScale),
+                    (int)(Navigation.GetSize().Height * Navigation.CaptureScale));
+                if (capture.Size != expectedSize)
                 {
-                    textbox.BackColor = Color.Yellow;
-                }
-                else
-                {
-                    textbox.BackColor = Color.White;
+                    MessageBox.Show(
+                        "Window size and screenshot size mismatch. Please make sure the game is not in fullscreen mode.",
+                        "Pre-flight Check Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return false;
                 }
             }
-        }
 
-        private void ValidateCustomName1(object sender, EventArgs e)
-        {
-            var textbox = sender as TextBox;
-            var name = textbox.Text;
-
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                if (GenshinProcesor.Characters.ContainsKey(name.ConvertToGood().ToLower()))
-                {
-                    textbox.BackColor = Color.Yellow;
-                }
-                else
-                {
-                    textbox.BackColor = Color.White;
-                }
-            }
-        }
-        private void ValidateCustomName2(object sender, EventArgs e)
-        {
-            var textbox = sender as TextBox;
-            var name = textbox.Text;
-
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                if (GenshinProcesor.Characters.ContainsKey(name.ConvertToGood().ToLower()))
-                {
-                    textbox.BackColor = Color.Yellow;
-                }
-                else
-                {
-                    textbox.BackColor = Color.White;
-                }
-            }
-        }
-
-
-        private void DisplayCustomNameTooltip(object sender, EventArgs e)
-        {
-            var textbox = sender as TextBox;
-            
-            if (textbox.BackColor == Color.Yellow)
-            {
-                var tooltip = new ToolTip();
-                tooltip.Show($"{textbox.Text} already exists as a character's name.\n" +
-                    $"This may affect equipping items to characters and is not fully supported yet.", textbox);
-            }
+            return true;
         }
 
         private void StartButton_Clicked(object sender, EventArgs e)
         {
+            if (!PreflightChecksPass()) return;
+
             GC.Collect();
 
             scanViewModel.ResetAll();
@@ -358,7 +434,7 @@ namespace InventoryKamera
             scanViewModel.SetProgramStatus("Scanning");
             Logger.Info("Starting scan");
 
-            if (Directory.Exists(OutputPath_TextBox.Text) || Directory.CreateDirectory(OutputPath_TextBox.Text).Exists)
+            if (Directory.Exists(Properties.Settings.Default.OutputPath) || Directory.CreateDirectory(Properties.Settings.Default.OutputPath).Exists)
             {
                 if (running)
                 {
@@ -406,14 +482,20 @@ namespace InventoryKamera
                             throw new NotImplementedException($"{Navigation.GetSize().Width}x{Navigation.GetSize().Height} is an unsupported resolution.");
                         }
 
-                        if (Navigation.GetSize() != Navigation.CaptureWindow().Size) throw new FormatException("Window size and screenshot size mismatch. Please make sure the game is not in a fullscreen mode.");
+                        using (var capture = Navigation.CaptureWindow())
+                        {
+                            var expectedSize = new Size(
+                                (int)(Navigation.GetSize().Width * Navigation.CaptureScale),
+                                (int)(Navigation.GetSize().Height * Navigation.CaptureScale));
+                            if (capture.Size != expectedSize) throw new FormatException("Window size and screenshot size mismatch. Please make sure the game is not in a fullscreen mode.");
+                        }
 
                         data = new InventoryKamera(scanViewModel);
 
                         Logger.Info("Resolution: {0}x{1}", Navigation.GetSize().Width, Navigation.GetSize().Height);
 
                         // Add navigation delay
-                        Navigation.SetDelay(ScannerDelayValue(Delay));
+                        Navigation.SetDelay(ScannerDelayValue(Properties.Settings.Default.ScannerDelay));
 
 
                         // The Data object of json object
@@ -434,7 +516,7 @@ namespace InventoryKamera
                             Logger.Info("Data converted to GOOD");
 
                             // Make Json File
-                            good.WriteToJSON(OutputPath_TextBox.Text, scanViewModel);
+                            good.WriteToJSON(Properties.Settings.Default.OutputPath, scanViewModel);
                             Logger.Info("Exported data");
 
                             scanViewModel.SetProgramStatus("Finished");
@@ -471,10 +553,10 @@ namespace InventoryKamera
             }
             else
             {
-                if (string.IsNullOrWhiteSpace(OutputPath_TextBox.Text))
+                if (string.IsNullOrWhiteSpace(Properties.Settings.Default.OutputPath))
                     scanViewModel.AddError("Please set an output directory");
                 else
-                    scanViewModel.AddError($"{OutputPath_TextBox.Text} is not a valid directory");
+                    scanViewModel.AddError($"{Properties.Settings.Default.OutputPath} is not a valid directory");
             }
         }
 
@@ -511,21 +593,6 @@ namespace InventoryKamera
             Process.Start("https://github.com/taiwenlee/Inventory_Kamera/issues");
         }
 
-        private void FileSelectButton_Click(object sender, EventArgs e)
-        {
-            // A nicer file browser
-            CommonOpenFileDialog d = new CommonOpenFileDialog
-            {
-                InitialDirectory = !Directory.Exists(OutputPath_TextBox.Text) ? Directory.GetCurrentDirectory() : OutputPath_TextBox.Text,
-                IsFolderPicker = true
-            };
-
-            if (d.ShowDialog() == CommonFileDialogResult.Ok)
-            {
-                OutputPath_TextBox.Text = d.FileName;
-            }
-        }
-
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
             SaveSettings();
@@ -536,11 +603,6 @@ namespace InventoryKamera
         private void SaveSettings()
         {
             Properties.Settings.Default.Save();
-        }
-
-        private void ScannerDelay_TrackBar_ValueChanged(object sender, EventArgs e)
-        {
-            Delay = ((TrackBar)sender).Value;
         }
 
         private void Exit_MenuItem_Click(object sender, EventArgs e)
@@ -681,14 +743,33 @@ namespace InventoryKamera
 
         private void ExportFolderMenuItem_Click(object sender, EventArgs e)
         {
-            if (Directory.Exists(OutputPath_TextBox.Text) || Directory.CreateDirectory(OutputPath_TextBox.Text).Exists)
+            if (Directory.Exists(Properties.Settings.Default.OutputPath) || Directory.CreateDirectory(Properties.Settings.Default.OutputPath).Exists)
             {
-                Process.Start($@"{OutputPath_TextBox.Text}");
+                Process.Start($@"{Properties.Settings.Default.OutputPath}");
             }
             else
             {
                 Process.Start("explorer.exe");
             }
+        }
+
+        private void AdvancedSettingsMenuItem_Click(object sender, EventArgs e)
+        {
+            new ui.SettingsForm().ShowDialog(this);
+        }
+
+        // Throwaway feasibility spike for Phase 3 §6c -- see game/ControllerSpike.cs.
+        private void TestControllerInputMenuItem_Click(object sender, EventArgs e)
+        {
+            const int alttabSeconds = 4;
+            MessageBox.Show(
+                $"After clicking OK, you have {alttabSeconds} seconds to switch to Genshin (Alt+Tab). " +
+                "The left stick will nudge and the A button will press once the timer runs out.",
+                "Controller Input Spike", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            string result = game.ControllerSpike.TapAButton(alttabSeconds);
+            MessageBox.Show(result, "Controller Input Spike", MessageBoxButtons.OK,
+                result.StartsWith("Success") ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         }
 
         private void MainForm_Shown(object sender, EventArgs e)
@@ -721,7 +802,7 @@ namespace InventoryKamera
                 }
             }
             catch (RateLimitExceededException) { Logger.Warn("Rate limit exceeded checking for Kamera Update!!!! This warning should be resolved in an hour."); }
-            
+
         }
 
         private void CheckForGenshinUpdates()
@@ -742,7 +823,7 @@ namespace InventoryKamera
                                 MessageBox.Show("Unable to update game data. Please check the log for more details", "Update failed", buttons: MessageBoxButtons.OK, icon: MessageBoxIcon.Stop);
                                 break;
                             case UpdateStatus.Success:
-                                MessageBox.Show($"Update for game version {databaseManager.LocalVersion.ToString(2) } successful.", "Update status", buttons: MessageBoxButtons.OK, icon: MessageBoxIcon.Information);
+                                MessageBox.Show($"Update for game version {databaseManager.LocalVersion.ToString(2)} successful.", "Update status", buttons: MessageBoxButtons.OK, icon: MessageBoxIcon.Information);
                                 Logger.Info("Updated game data to {0}", databaseManager.LocalVersion.ToString(2));
                                 break;
                             default:
@@ -785,6 +866,16 @@ namespace InventoryKamera
         private void updateExecutablesToolStripMenuItem_Click(object sender, EventArgs e)
         {
             new ExecutablesForm().Show();
+        }
+
+        private void label2_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void WeaponsScannedCount_Label_Click(object sender, EventArgs e)
+        {
+
         }
     }
 }

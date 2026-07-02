@@ -82,6 +82,71 @@ namespace InventoryKamera.Tests
         }
 
         [Fact]
+        public void SetCharacterMax_IsNullUntilSet()
+        {
+            var viewModel = new ScanViewModel();
+
+            Assert.Null(viewModel.CharacterMax);
+
+            viewModel.SetCharacter_Max(5);
+
+            Assert.Equal(5, viewModel.CharacterMax);
+        }
+
+        [Fact]
+        public void SetMaterial_IncrementsMaterialCountAndRaisesCountersChanged()
+        {
+            var viewModel = new ScanViewModel();
+            int raisedCount = 0;
+            viewModel.CountersChanged += () => raisedCount++;
+            using var nameplate = MakeSolidColor(4, 4, Color.Red);
+            using var quantity = MakeSolidColor(4, 4, Color.Blue);
+
+            viewModel.SetMaterial(nameplate, quantity, "Mora", 5000);
+            viewModel.SetMaterial(nameplate, quantity, "Hero's Wit", 12);
+
+            Assert.Equal(2, viewModel.MaterialCount);
+            Assert.Equal(2, raisedCount);
+        }
+
+        [Fact]
+        public void ResetCounters_ZerosMaterialCountAndCharacterMax()
+        {
+            var viewModel = new ScanViewModel();
+            using var nameplate = MakeSolidColor(4, 4, Color.Red);
+            using var quantity = MakeSolidColor(4, 4, Color.Blue);
+            viewModel.SetMaterial(nameplate, quantity, "Mora", 1);
+            viewModel.SetCharacter_Max(5);
+
+            viewModel.ResetCounters();
+
+            Assert.Equal(0, viewModel.MaterialCount);
+            Assert.Null(viewModel.CharacterMax);
+        }
+
+        [Fact]
+        public void EstimatedTimeRemaining_IsNullWithNoKnownMax()
+        {
+            var viewModel = new ScanViewModel();
+
+            viewModel.IncrementWeaponCount();
+
+            // No SetWeapon_Max call -- no known total to extrapolate a rate against.
+            Assert.Null(viewModel.EstimatedTimeRemaining);
+        }
+
+        [Fact]
+        public void EstimatedTimeRemaining_IsZeroOnceDoneReachesTotal()
+        {
+            var viewModel = new ScanViewModel();
+            viewModel.SetWeapon_Max(1);
+
+            viewModel.IncrementWeaponCount();
+
+            Assert.Equal(TimeSpan.Zero, viewModel.EstimatedTimeRemaining);
+        }
+
+        [Fact]
         public void SetGearTextBox_SetsTextAndRaisesGearChanged()
         {
             var viewModel = new ScanViewModel();

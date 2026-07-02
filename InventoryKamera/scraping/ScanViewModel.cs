@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Threading;
 
@@ -26,6 +27,9 @@ namespace InventoryKamera
         private int artifactCount;
         private int? artifactMax;
         private int characterCount;
+        private int? characterMax;
+        private int materialCount;
+        private readonly Stopwatch scanStopwatch = new Stopwatch();
 
         private string programStatus = "";
         private bool programStatusOk = true;
@@ -58,6 +62,47 @@ namespace InventoryKamera
         /// <summary>Null until <see cref="SetArtifact_Max"/> runs -- matches the original "?" placeholder.</summary>
         public int? ArtifactMax => artifactMax;
         public int CharacterCount => characterCount;
+
+        /// <summary>
+        /// Null until <see cref="SetCharacter_Max"/> runs -- unlike weapon/artifact max, this is only
+        /// known when the user has set a specific "characters to scan" count (not "All"), since
+        /// scanning "all" characters has no fixed total known in advance.
+        /// </summary>
+        public int? CharacterMax => characterMax;
+
+        /// <summary>
+        /// Count of distinct materials scanned so far. No corresponding "max" -- material scanning
+        /// scrolls until it sees a repeat, so the total isn't known in advance.
+        /// </summary>
+        public int MaterialCount => materialCount;
+
+        /// <summary>
+        /// Rough estimate of remaining scan time, based on progress so far across whichever
+        /// categories have a known max (weapons/artifacts always; characters only when the user set a
+        /// specific count instead of "All"). Null until at least one item with a known max has been
+        /// scanned, so there's a rate to extrapolate from.
+        /// </summary>
+        public TimeSpan? EstimatedTimeRemaining
+        {
+            get
+            {
+                int done = 0, total = 0;
+                if (weaponMax.HasValue) { done += weaponCount; total += weaponMax.Value; }
+                if (artifactMax.HasValue) { done += artifactCount; total += artifactMax.Value; }
+                if (characterMax.HasValue) { done += characterCount; total += characterMax.Value; }
+
+                if (total <= 0 || done <= 0) return null;
+                if (done >= total) return TimeSpan.Zero;
+
+                double elapsedSeconds = scanStopwatch.Elapsed.TotalSeconds;
+                if (elapsedSeconds <= 0) return null;
+
+                double itemsPerSecond = done / elapsedSeconds;
+                if (itemsPerSecond <= 0) return null;
+
+                return TimeSpan.FromSeconds((total - done) / itemsPerSecond);
+            }
+        }
 
         /// <summary>Raised after <see cref="SetProgramStatus"/> runs.</summary>
         public event Action ProgramStatusChanged;
@@ -171,6 +216,12 @@ namespace InventoryKamera
             CountersChanged?.Invoke();
         }
 
+        public void SetCharacter_Max(int value)
+        {
+            characterMax = value;
+            CountersChanged?.Invoke();
+        }
+
         public void IncrementWeaponCount()
         {
             Interlocked.Increment(ref weaponCount);
@@ -196,6 +247,9 @@ namespace InventoryKamera
             Volatile.Write(ref artifactCount, 0);
             artifactMax = null;
             Volatile.Write(ref characterCount, 0);
+            characterMax = null;
+            Volatile.Write(ref materialCount, 0);
+            scanStopwatch.Restart();
             CountersChanged?.Invoke();
         }
 
@@ -312,7 +366,9 @@ namespace InventoryKamera
                 materialQuantityImage = quantityClone;
             }
             materialText = $"Name: {name}\nCount: {count}";
+            Interlocked.Increment(ref materialCount);
             MaterialChanged?.Invoke();
+            CountersChanged?.Invoke();
         }
 
         public void SetMora(Bitmap mora, int count)
@@ -336,6 +392,53 @@ namespace InventoryKamera
                 navigationImage = clone;
             }
             NavigationImageChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Raised by <see cref="RequestCorrection"/> on the calling (scan) thread. Subscribers must
+        /// marshal onto the UI thread themselves (matching every other event here) and set
+        /// <see cref="OcrCorrectionEventArgs.ResolvedText"/> before returning from that marshaled
+        /// call -- typically by showing a modal dialog inside <c>Control.Invoke</c>, whose own
+        /// blocking-until-closed behavior is what pauses the scan thread; no separate wait handle is
+        /// needed here.
+        /// </summary>
+        public event Action<OcrCorrectionEventArgs> CorrectionRequested;
+
+        // Weapon/artifact recognition runs on background worker threads pulled from a channel that
+        // the main click/scroll loop feeds and moves on from immediately (see ArtifactScraper/
+        // WeaponScraper's QueueScan) -- so blocking a worker thread inside RequestCorrection does
+        // NOT, by itself, stop the click loop from continuing to drive the game while a correction
+        // dialog sits open. correctionsPending/correctionGate close a separate gate the click loops
+        // check between items (IScanProgressReporter.WaitIfCorrectionPending), so the game genuinely
+        // pauses for as long as any correction is outstanding -- a count, not a single flag, since
+        // multiple low-confidence recognitions can be in flight on different workers at once and the
+        // gate must stay closed until every one of them resolves, not just the first.
+        private int correctionsPending;
+        private readonly ManualResetEventSlim correctionGate = new ManualResetEventSlim(true);
+
+        /// <summary>Blocks the calling thread while any inline correction is awaiting user input.</summary>
+        public void WaitIfCorrectionPending() => correctionGate.Wait();
+
+        public string RequestCorrection(Bitmap image, string recognizedText, float confidencePercent, string fieldLabel)
+        {
+            // No subscriber (headless run, unit test) -- degrade to "use the OCR result as-is"
+            // instead of raising an event nobody will ever resolve, which would block forever.
+            if (CorrectionRequested == null) return recognizedText;
+
+            if (Interlocked.Increment(ref correctionsPending) == 1) correctionGate.Reset();
+
+            var clone = CloneBitmap(image);
+            try
+            {
+                var args = new OcrCorrectionEventArgs(clone, recognizedText, confidencePercent, fieldLabel);
+                CorrectionRequested.Invoke(args);
+                return args.ResolvedText ?? recognizedText;
+            }
+            finally
+            {
+                clone.Dispose();
+                if (Interlocked.Decrement(ref correctionsPending) == 0) correctionGate.Set();
+            }
         }
 
         public void SetMainCharacterName(string text) => UserInterface.SetMainCharacterName(text);

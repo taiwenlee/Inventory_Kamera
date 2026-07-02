@@ -88,21 +88,26 @@ namespace InventoryKamera
         /// <returns>An image of the in-game item card</returns>
         internal Bitmap GetItemCard()
         {
+            // Reverted to capturing the whole window and cropping in memory (2026-07-05) -- a direct
+            // Navigation.CaptureRegion(cardRectangle) here was faster (avoids grabbing the ~85% of the
+            // screen that gets thrown away) but CopyFromScreen has no bounds clipping of its own, and
+            // this method's percentage-based rectangle math has no equivalent safety net outside
+            // GenshinProcesor.CopyBitmap's ClipToSource -- caused screenshots to spill past the window
+            // edge (reported as "screenshotting the whole screen") on at least one non-4K windowed
+            // setup. Worth revisiting with an explicit clamp, but reverting to the known-safe pattern
+            // first rather than guessing at a fix blind.
             Rectangle cardRectangle = new Rectangle();
 
             using (var window = Navigation.CaptureWindow())
             {
-
                 cardRectangle.X = (int)(window.Width * 0.6807);
                 cardRectangle.Y = (int)(window.Height * (Navigation.IsNormal ? 0.1102 : 0.0989));
 
                 cardRectangle.Width = (int)(window.Width * 0.2573);
                 cardRectangle.Height = (int)(window.Height * (Navigation.IsNormal ? 0.7787 : 0.8022));
 
-
                 return GenshinProcesor.CopyBitmap(window, cardRectangle);
             }
-
         }
 
         /// <summary>
@@ -112,16 +117,31 @@ namespace InventoryKamera
         /// <returns>String parsed from nameplate</returns>
         internal string ScanItemName(Bitmap nameplate)
         {
+            return ScanItemNameWithConfidence(nameplate).Text;
+        }
+
+        /// <summary>
+        /// Same recognition as <see cref="ScanItemName"/>, also returning Tesseract's confidence --
+        /// used by callers that gate low-confidence item names on inline correction (Phase 3 §3.3).
+        /// Not the default <see cref="ScanItemName"/> return shape because one caller
+        /// (<c>WeaponScraper.ScanEnchancementOreName</c>) runs on every weapon used as upgrade fodder,
+        /// often dozens per scan -- gating correction there would mean a popup for nearly every junk
+        /// item fed to a bulk enhancement, so only callers that specifically opt in (the weapon's own
+        /// headline name) should request the confidence and act on it.
+        /// </summary>
+        internal (string Text, float ConfidencePercent) ScanItemNameWithConfidence(Bitmap nameplate)
+        {
             GenshinProcesor.SetGamma(0.2, 0.2, 0.2, ref nameplate);
             Bitmap n = imagePreprocessor.ConvertToGrayscale(nameplate);
             imagePreprocessor.SetInvert(ref n);
 
             // Analyze
-            string text = Regex.Replace(ocrService.AnalyzeText(n, Tesseract.PageSegMode.SingleBlock).ToLower(), @"[\W]", string.Empty);
+            var (rawText, confidence) = ocrService.AnalyzeTextWithConfidence(n, Tesseract.PageSegMode.SingleBlock);
+            string text = Regex.Replace(rawText.ToLower(), @"[\W]", string.Empty);
 
             n.Dispose();
 
-            return text;
+            return (text, confidence * 100);
         }
 
         /// <summary>
@@ -150,11 +170,21 @@ namespace InventoryKamera
                 imagePreprocessor.SetContrast(60.0, ref n);
                 imagePreprocessor.SetInvert(ref n);
 
-                string text = ocrService.AnalyzeText(n).Trim();
+                var (rawText, confidence) = ocrService.AnalyzeTextWithConfidence(n);
+                string text = rawText.Trim();
                 n.Dispose();
 
                 // Remove any non-numeric and '/' characters
                 text = Regex.Replace(text, @"[^0-9/]", string.Empty);
+
+                float confidencePercent = confidence * 100;
+                Logger.Debug("{0} item count OCR: text=\"{1}\" confidence={2:0.0}% threshold={3}%", inventoryPage, text, confidencePercent, scanSettings.OcrConfidenceThreshold);
+                if (string.IsNullOrWhiteSpace(text) || confidencePercent < scanSettings.OcrConfidenceThreshold)
+                {
+                    Logger.Debug("{0} item count below confidence threshold -- requesting inline correction", inventoryPage);
+                    string corrected = progressReporter.RequestCorrection(countBitmap, text, confidencePercent, $"{inventoryPage} item count");
+                    text = Regex.Replace(corrected ?? string.Empty, @"[^0-9/]", string.Empty);
+                }
 
                 if (string.IsNullOrWhiteSpace(text) || scanSettings.LogScreenshots)
                 {
@@ -381,6 +411,23 @@ namespace InventoryKamera
             }
         }
 
+        // Navigation.CaptureWindow()/CaptureRegion() downscale their own output above 1080p real
+        // window height (Navigation.CaptureScale) -- both the grid-detection screenshot below and
+        // every OCR crop taken elsewhere get proportionally fewer pixels at 4K for free. The one
+        // place that needs to know about it explicitly: rectangle.Center() gets fed straight into
+        // Navigation.SetCursor/CaptureRegion by every caller of GetPageOfItems, both of which expect
+        // real screen coordinates -- so rectangles are scaled back up by 1/CaptureScale immediately
+        // before returning, and every caller downstream (clicking, per-item OCR-region capture) never
+        // needs to know downscaling happened at all.
+        private static Rectangle ScaleRectangle(Rectangle r, double inverseScale)
+        {
+            return new Rectangle(
+                (int)(r.X * inverseScale),
+                (int)(r.Y * inverseScale),
+                (int)(r.Width * inverseScale),
+                (int)(r.Height * inverseScale));
+        }
+
         internal (List<Rectangle> rectangles, int cols, int rows) GetPageOfItems(int pageNum, bool acceptLess = false)
         {
             // Screenshot of inventory
@@ -402,6 +449,9 @@ namespace InventoryKamera
                     // Fill Bottom Region
                     g.FillRectangle(brush, 0, (int)(processedScreenshot.Height * 0.9), processedScreenshot.Width, processedScreenshot.Height);
                 }
+
+                double inverseCaptureScale = 1.0 / Navigation.CaptureScale;
+
                 try
                 {
                     List<Rectangle> rectangles;
@@ -410,6 +460,9 @@ namespace InventoryKamera
                     int itemPerPage = (inventoryPage != InventoryPage.Artifacts || !Navigation.IsNormal) ? 40 : 32;
                     do
                     {
+                        // rectangles stay in screenshot's own (possibly downscaled) coordinate space
+                        // through the whole retry loop -- debug drawing below clones/draws onto
+                        // screenshot itself, so they need to line up with it, not real coordinates.
                         (rectangles, cols, rows) = ProcessScreenshot(processedScreenshot, weight);
                         itemCount = rows * cols;
                         if (itemCount != itemPerPage && !acceptLess)
@@ -461,6 +514,12 @@ namespace InventoryKamera
 
                             SaveInventoryBitmap(screenshot, $"{inventoryPage}Inventory{pageNum}_{cols}x{rows} - weight {weight}.png");
                         }
+
+                        // Only now, right before handing rectangles to callers that click/capture at
+                        // real screen coordinates, map them out of screenshot's (possibly downscaled)
+                        // space -- prevRect gets cached already-scaled so the fallback path above needs
+                        // no further conversion.
+                        if (inverseCaptureScale != 1.0) rectangles = rectangles.Select(r => ScaleRectangle(r, inverseCaptureScale)).ToList();
 
                         prevRect = rectangles; prevColumn = cols; prevRow = rows;
                         return (rectangles, cols, rows);

@@ -34,6 +34,18 @@ namespace InventoryKamera
 		[DllImport("user32.dll", SetLastError = true)]
 		private static extern bool ClientToScreen(IntPtr hWnd, ref RECT Rect);
 
+		[DllImport("user32.dll", SetLastError = true)]
+		private static extern bool GetWindowRect(IntPtr hWnd, ref RECT Rect);
+
+		[DllImport("user32.dll")]
+		private static extern uint GetDpiForWindow(IntPtr hWnd);
+
+		[DllImport("user32.dll")]
+		private static extern IntPtr GetThreadDpiAwarenessContext();
+
+		[DllImport("user32.dll")]
+		private static extern int GetAwarenessFromDpiAwarenessContext(IntPtr dpiContext);
+
 		public static void Initialize()
 		{
 			var executables = Properties.Settings.Default.Executables;
@@ -42,10 +54,25 @@ namespace InventoryKamera
 				Logger.Debug("Checking for {0}.exe", processName);
 				if (InitializeProcess(processName, out IntPtr handle))
 				{
-					// Get area and position
+					// Get area and position. WindowPosition must be zeroed immediately before this
+					// ClientToScreen call: it treats WindowPosition's current value as the client-space
+					// point to convert, so if Initialize() runs twice without an intervening Reset()
+					// (as it does: PreflightChecksPass() calls it, then the scan thread calls it again),
+					// a stale already-converted screen coordinate gets converted a second time,
+					// compounding the window's offset. This was invisible in fullscreen (origin ~(0,0),
+					// doubling has no effect) but broke windowed mode outright (captured region shifted
+					// by roughly the window's own screen offset).
+					WindowPosition = new RECT();
 					ClientToScreen(handle, ref WindowPosition);
 					GetClientRect(handle, ref WindowSize);
-					
+
+					RECT windowRect = new RECT();
+					GetWindowRect(handle, ref windowRect);
+					uint gameDpi = GetDpiForWindow(handle);
+					int ourAwareness = GetAwarenessFromDpiAwarenessContext(GetThreadDpiAwarenessContext());
+					Logger.Debug("DPI diagnostics: our process awareness={0} (2=PerMonitorAware, 3=PerMonitorAwareV2), game window DPI={1}, GetWindowRect=({2},{3})-({4},{5})",
+						ourAwareness, gameDpi, windowRect.Left, windowRect.Top, windowRect.Right, windowRect.Bottom);
+
 					try
 					{
 						AspectRatio = GetAspectRatio();
@@ -79,11 +106,64 @@ namespace InventoryKamera
 
 		#region Window Capturing
 
+		/// <summary>
+		/// Max real window height before capture output gets downscaled. Above this, every capture
+		/// (grid detection AND the OCR crops taken from real-coordinate regions) works with fewer
+		/// pixels -- Kirsch edge detection, blob connected-component labeling, per-pixel filters, and
+		/// Tesseract itself are all O(pixel count), and at 4K a region that's e.g. 5% of screen width
+		/// is proportionally 4x more pixels than the same UI text at 1080p for no recognition benefit.
+		/// 1.0 (no downscaling) at or below this height.
+		/// </summary>
+		private const int MaxCaptureHeight = 1080;
+
+		/// <summary>
+		/// Ratio applied to every <see cref="CaptureWindow"/>/<see cref="CaptureRegion(RECT, PixelFormat)"/>
+		/// result relative to the real window. Callers that turn captured-image pixel coordinates into
+		/// clicks (only the blob-detected grid rectangles in <c>InventoryScraper.GetPageOfItems</c> do
+		/// this) must divide by this to map back to real screen coordinates -- every other consumer
+		/// either crops proportionally within an already-captured bitmap or computes its region from
+		/// <see cref="GetWidth"/>/<see cref="GetHeight"/> directly, both of which stay correct
+		/// automatically since capture position (not just size) is still sourced from the real screen.
+		/// </summary>
+		public static double CaptureScale => Math.Min(1.0, MaxCaptureHeight / (double)GetHeight());
+
+		// Scale per-call, based on the captured bitmap's own height, not CaptureScale (which reflects
+		// the whole real window). Most CaptureRegion crops are small UI-element regions (nameplate,
+		// stat lines, item counts) that stay well under MaxCaptureHeight even at 4K -- resizing those
+		// costs more (bitmap allocation + a high-quality bicubic blit) than it saves (they're already
+		// too small for downscaling to meaningfully cut per-pixel filter/OCR time), and doing it on
+		// every one of the many small captures a scan makes measurably slowed scans down. Only
+		// genuinely large captures -- chiefly the whole-window CaptureWindow() used for grid detection,
+		// whose raw height always equals GetHeight() and therefore exactly matches CaptureScale -- are
+		// worth downscaling.
+		private static Bitmap DownscaleCapture(Bitmap source)
+		{
+			if (source.Height <= MaxCaptureHeight) return source;
+
+			double scale = MaxCaptureHeight / (double)source.Height;
+			int width = (int)(source.Width * scale);
+			int height = MaxCaptureHeight;
+			var downscaled = new Bitmap(width, height, source.PixelFormat);
+			using (var g = Graphics.FromImage(downscaled))
+			{
+				// Bilinear, not HighQualityBicubic -- this runs on every large capture in the scan's
+				// hottest paths (once per item, not once per page), and bicubic's extra quality buys
+				// nothing OCR/detection care about at this downscale ratio while costing meaningfully
+				// more CPU per call.
+				g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
+				g.DrawImage(source, 0, 0, width, height);
+			}
+			source.Dispose();
+			return downscaled;
+		}
+
 		public static Bitmap CaptureWindow(PixelFormat format = PixelFormat.Format24bppRgb)
 		{
 			Bitmap bmp = new Bitmap(GetWidth(), GetHeight(), format);
 			using (Graphics gfxBmp = Graphics.FromImage(bmp))
 			{
+				Logger.Debug("CaptureWindow: capturing {0}x{1} from screen position ({2},{3})",
+					bmp.Width, bmp.Height, GetPosition().Left, GetPosition().Top);
 				gfxBmp.CopyFromScreen(GetPosition().Left, GetPosition().Top, 0, 0, bmp.Size);
 
 				var uidRegion = new RECT(
@@ -93,7 +173,7 @@ namespace InventoryKamera
 					Bottom: bmp.Height);
 				gfxBmp.FillRectangle(new SolidBrush(Color.Black), uidRegion);
 			}
-			return bmp;
+			return DownscaleCapture(bmp);
 		}
 
 		public static Bitmap CaptureRegion(RECT region, PixelFormat format = PixelFormat.Format24bppRgb)
@@ -103,7 +183,7 @@ namespace InventoryKamera
 			{
 				gfxBmp.CopyFromScreen(GetPosition().Left + region.Left, GetPosition().Top + region.Top, 0, 0, bmp.Size);
 			}
-			return bmp;
+			return DownscaleCapture(bmp);
 		}
 
 		public static Bitmap CaptureRegion(int x, int y, int width, int height, PixelFormat format = PixelFormat.Format24bppRgb)

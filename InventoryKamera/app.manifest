@@ -37,17 +37,21 @@
       <!--<supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />-->
     </application>
   </compatibility>
-  <!-- Indicates that the application is DPI-aware and will not be automatically scaled by Windows at higher
-       DPIs. Windows Presentation Foundation (WPF) applications are automatically DPI-aware and do not need 
-       to opt in. Windows Forms applications targeting .NET Framework 4.6 that opt into this setting, should 
-       also set the 'EnableWindowsFormsHighDpiAutoResizing' setting to 'true' in their app.config. -->
-  <!--
-  <application xmlns="urn:schemas-microsoft-com:asm.v3">
-    <windowsSettings>
-      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
-    </windowsSettings>
-  </application>
-  -->
+  <!-- DPI awareness (2026-07-05): needed to fix windowed mode screen capture landing outside the
+       game window on scaled displays (GetClientRect/ClientToScreen report virtualized coordinates
+       while Graphics.CopyFromScreen operates in real physical pixels once the process is
+       DPI-unaware; fullscreen sidesteps this via native resolution, windowed mode does not). A
+       manifest-based dpiAware/dpiAwareness block was tried here first, built and shipped cleanly,
+       but had no runtime effect: the SDK's WFAC010 build warning explains that .NET (Core) WinForms
+       apps must set DPI mode via the ApplicationHighDpiMode project property (see
+       InventoryKamera.csproj) or Application.SetHighDpiMode, not the manifest, which is ignored.
+       Caution if a manifest DPI block is ever reintroduced anywhere in this file: no XML comment
+       body may contain a literal double hyphen anywhere except as the closing marker; an earlier,
+       unrelated edit to this file used one as a prose dash, which the XML spec forbids inside
+       comments. dotnet build and System.Xml tolerate that silently, but Windows' native manifest
+       parser used at process activation does not, and rejects the whole file with an Invalid Xml
+       syntax error only at launch, never at build time. See MODERNIZATION_PLAN.md's cross-cutting
+       risks section for the full incident history. -->
   <!-- Enable themes for Windows common controls and dialogs (Windows XP and later) -->
   <!--
   <dependency>

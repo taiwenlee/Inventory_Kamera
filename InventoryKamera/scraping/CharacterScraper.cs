@@ -35,6 +35,8 @@ namespace InventoryKamera
 			string first = null;
 			HashSet<string> scanned = new HashSet<string>();
 
+			if (NumOfCharToScan != 0) progressReporter.SetCharacter_Max(NumOfCharToScan);
+
 			progressReporter.ResetCharacterDisplay();
 
 			while (true)

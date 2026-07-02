@@ -21,5 +21,14 @@ namespace InventoryKamera
 
         /// <summary>Recognizes text in a captured region.</summary>
         string AnalyzeText(Bitmap bitmap, PageSegMode pageMode = PageSegMode.SingleLine, bool numbersOnly = false);
+
+        /// <summary>
+        /// Recognizes text in a captured region, also returning Tesseract's own mean confidence
+        /// (0.0-1.0, page-level average across recognized text lines) for that recognition. Used by
+        /// callers that need to decide whether a result is trustworthy enough to use automatically or
+        /// should be surfaced for inline user correction (Phase 3 §3.3) — most callers that just need
+        /// the text should keep using <see cref="AnalyzeText"/>.
+        /// </summary>
+        (string Text, float Confidence) AnalyzeTextWithConfidence(Bitmap bitmap, PageSegMode pageMode = PageSegMode.SingleLine, bool numbersOnly = false);
     }
 }

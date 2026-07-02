@@ -54,6 +54,11 @@ namespace InventoryKamera
                 // detection fails, which can make this arithmetic go negative and throw.
                 for (int i = cardsRemaining < fullPage ? Math.Max(0, (rows - (totalRows - rowsQueued)) * cols) : 0; i < rectangles.Count; i++)
                 {
+                    // Blocks here (not just once at loop entry) if a previously-queued item's
+                    // recognition is still awaiting an inline correction -- keeps the game from being
+                    // clicked/scrolled further ahead of what the user is currently looking at.
+                    progressReporter.WaitIfCorrectionPending();
+
                     Rectangle item = rectangles[i];
                     Navigation.SetCursor(item.Center().X, item.Center().Y + offset);
                     Navigation.Click();
@@ -71,6 +76,10 @@ namespace InventoryKamera
                     }
                 }
                 Logger.Debug("Finished queuing page of weapons. Scrolling...");
+
+                // The last item(s) queued this page may still be awaiting correction on a worker
+                // thread -- wait before scrolling the game past what's currently displayed.
+                progressReporter.WaitIfCorrectionPending();
 
                 rowsQueued += rows;
 
@@ -261,7 +270,7 @@ namespace InventoryKamera
 
 				var taskName = Task.Run(() =>
 				{
-					name = ScanWeaponName(ScanItemName(bm[w_name]));
+					name = ScanWeaponNameWithCorrection(bm[w_name]);
 				});
 				var taskLevel = Task.Run(() => level = ScanLevel(bm[w_level], ref ascended));
 				var taskRefinement = Task.Run(() => refinementLevel = ScanRefinement(bm[w_refinement]));
@@ -300,6 +309,32 @@ namespace InventoryKamera
 		private string ScanWeaponName(string name)
         {
             return GenshinProcesor.FindClosestWeapon(name);
+        }
+
+        /// <summary>
+        /// Weapon name recognition, gated on inline correction (Phase 3 §3.3) since a misread name
+        /// silently corrupts export data -- unlike <see cref="ScanEnchancementOreName"/> (fed dozens
+        /// of times per scan by enhancement fodder), this runs once per weapon actually being
+        /// cataloged, so a correction popup here is rare enough not to be disruptive.
+        /// </summary>
+        private string ScanWeaponNameWithCorrection(Bitmap nameBitmap)
+        {
+            var (rawName, confidencePercent) = ScanItemNameWithConfidence(nameBitmap);
+            string name = ScanWeaponName(rawName);
+
+            Logger.Debug("Weapon name OCR: rawText=\"{0}\" matchedName=\"{1}\" confidence={2:0.0}% threshold={3}%", rawName, name, confidencePercent, scanSettings.OcrConfidenceThreshold);
+            if (string.IsNullOrWhiteSpace(name) || confidencePercent < scanSettings.OcrConfidenceThreshold)
+            {
+                Logger.Debug("Weapon name below confidence threshold -- requesting inline correction");
+                string corrected = progressReporter.RequestCorrection(nameBitmap, rawName, confidencePercent, "Weapon name");
+                if (!string.IsNullOrWhiteSpace(corrected) && corrected != rawName)
+                {
+                    string normalized = Regex.Replace(corrected.ToLower(), @"[\W]", string.Empty);
+                    name = ScanWeaponName(normalized) ?? corrected;
+                }
+            }
+
+            return name;
         }
 
         public int ScanLevel(Bitmap bm, ref bool ascended)
