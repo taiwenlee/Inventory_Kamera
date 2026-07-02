@@ -37,12 +37,12 @@ namespace InventoryKamera
 		private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
 
-		public MaterialScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor) : base(ocrService, imagePreprocessor)
+		public MaterialScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings) : base(ocrService, imagePreprocessor, scanSettings)
 		{
 			inventoryPage = InventoryPage.CharacterDevelopmentItems;
 		}
 
-		public MaterialScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, InventoryPage section) : base(ocrService, imagePreprocessor)
+		public MaterialScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, InventoryPage section) : base(ocrService, imagePreprocessor, scanSettings)
 		{
 			inventoryPage = section;
 		}
@@ -121,7 +121,7 @@ namespace InventoryKamera
 								UserInterface.AddError($"Failed to parse quantity for {material.name}");
 								SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
 							}
-							if (Properties.Settings.Default.LogScreenshots || material.count == 0)
+							if (scanSettings.LogScreenshots || material.count == 0)
                             {
 								SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
                             }
@@ -210,7 +210,7 @@ namespace InventoryKamera
 							UserInterface.AddError($"Failed to parse quantity for {material.name}");
 							SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
 						}
-						else if (Properties.Settings.Default.LogScreenshots)
+						else if (scanSettings.LogScreenshots)
 						{
 							SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
 						}
@@ -252,7 +252,7 @@ namespace InventoryKamera
 				{
 					UserInterface.ResetCharacterDisplay();
 					UserInterface.SetMora(screenshot, count);
-                    if (Properties.Settings.Default.LogScreenshots) 
+                    if (scanSettings.LogScreenshots) 
 						SaveInventoryBitmap(screenshot, "mora.png");
 				}
 				else

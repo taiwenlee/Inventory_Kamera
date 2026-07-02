@@ -63,11 +63,13 @@ namespace InventoryKamera
 
         protected readonly IOcrService ocrService;
         protected readonly IImagePreprocessor imagePreprocessor;
+        protected readonly IScanSettings scanSettings;
 
-        public InventoryScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor)
+        public InventoryScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings)
         {
             this.ocrService = ocrService;
             this.imagePreprocessor = imagePreprocessor;
+            this.scanSettings = scanSettings;
 
             materialPages = new List<InventoryPage>();
 
@@ -152,7 +154,7 @@ namespace InventoryKamera
                 // Remove any non-numeric and '/' characters
                 text = Regex.Replace(text, @"[^0-9/]", string.Empty);
 
-                if (string.IsNullOrWhiteSpace(text) || Properties.Settings.Default.LogScreenshots)
+                if (string.IsNullOrWhiteSpace(text) || scanSettings.LogScreenshots)
                 {
                     SaveInventoryBitmap(countBitmap, "ItemCount.png");
                     SaveInventoryBitmap(Navigation.CaptureWindow(), $"InventoryWindow_{Navigation.GetWidth()}x{Navigation.GetHeight()}.png");
@@ -449,7 +451,7 @@ namespace InventoryKamera
                     }
                     else
                     {
-                        if (Properties.Settings.Default.LogScreenshots)
+                        if (scanSettings.LogScreenshots)
                         {
                             SaveInventoryBitmap(screenshot, $"{inventoryPage}Inventory.png");
                             using (Graphics g = Graphics.FromImage(screenshot))

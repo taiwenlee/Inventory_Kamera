@@ -14,11 +14,11 @@ namespace InventoryKamera
 	{
 		private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-		public ArtifactScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor) : base(ocrService, imagePreprocessor)
+		public ArtifactScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings) : base(ocrService, imagePreprocessor, scanSettings)
 		{
 			inventoryPage = InventoryPage.Artifacts;
-            SortByLevel = Properties.Settings.Default.MinimumArtifactLevel > 0;
-            SortByObtained = Properties.Settings.Default.SortByObtained;
+            SortByLevel = scanSettings.MinimumArtifactLevel > 0;
+            SortByObtained = scanSettings.SortByObtained;
         }
 
         public void ScanArtifacts(int count = 0)
@@ -238,8 +238,8 @@ namespace InventoryKamera
                 card
 			};
 
-            bool belowRarity = GetRarity(name) < Properties.Settings.Default.MinimumArtifactRarity;
-            bool belowLevel = ScanArtifactLevel(level) < Properties.Settings.Default.MinimumArtifactLevel;
+            bool belowRarity = GetRarity(name) < scanSettings.MinimumArtifactRarity;
+            bool belowLevel = ScanArtifactLevel(level) < scanSettings.MinimumArtifactLevel;
             StopScanning = (SortByLevel && belowLevel) || (!SortByLevel && belowRarity);
 
 			if (StopScanning || belowRarity || belowLevel)

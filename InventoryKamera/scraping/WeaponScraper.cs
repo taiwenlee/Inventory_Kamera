@@ -13,10 +13,10 @@ namespace InventoryKamera
     {
 		private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
-		public WeaponScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor) : base(ocrService, imagePreprocessor)
+		public WeaponScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings) : base(ocrService, imagePreprocessor, scanSettings)
         {
             inventoryPage = InventoryPage.Weapons;
-            SortByLevel = Properties.Settings.Default.MinimumWeaponLevel > 1;
+            SortByLevel = scanSettings.MinimumWeaponLevel > 1;
         }
 
         public void ScanWeapons(int count = 0)
@@ -193,8 +193,8 @@ namespace InventoryKamera
 
             bool a = false;
 
-            bool belowRarity = GetQuality(name) < Properties.Settings.Default.MinimumWeaponRarity;
-            bool belowLevel = ScanLevel(level, ref a) < Properties.Settings.Default.MinimumWeaponLevel;
+            bool belowRarity = GetQuality(name) < scanSettings.MinimumWeaponRarity;
+            bool belowLevel = ScanLevel(level, ref a) < scanSettings.MinimumWeaponLevel;
             StopScanning = (SortByLevel && belowLevel) || (!SortByLevel && belowRarity);
 
             if (StopScanning || belowRarity || belowLevel)

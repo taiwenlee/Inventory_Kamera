@@ -16,12 +16,14 @@ namespace InventoryKamera
 
 		private readonly IOcrService ocrService;
 		private readonly IImagePreprocessor imagePreprocessor;
+		private readonly IScanSettings scanSettings;
 
-        public CharacterScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor)
+        public CharacterScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings)
 		{
 			this.ocrService = ocrService;
 			this.imagePreprocessor = imagePreprocessor;
-			NumOfCharToScan = Properties.Settings.Default.NumOfCharToScan;
+			this.scanSettings = scanSettings;
+			NumOfCharToScan = scanSettings.NumOfCharToScan;
 		}
 
 		public void ScanCharacters(ref List<Character> Characters)
@@ -431,7 +433,7 @@ namespace InventoryKamera
 				var pause = constellation == 0 ? 700 : 550;
 				Navigation.SystemWait(pause);
 
-				if (Properties.Settings.Default.LogScreenshots)
+				if (scanSettings.LogScreenshots)
 				{
 					var screenshot = Navigation.CaptureWindow();
 					Directory.CreateDirectory($"./logging/characters/{character.NameGOOD}");

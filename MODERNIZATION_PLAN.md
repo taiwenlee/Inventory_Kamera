@@ -12,14 +12,14 @@
 |---|---|---|
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
-| **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2: both stateful services (`IOcrService`, `IImagePreprocessor`) fully constructor-injected into all 5 scrapers; their `GenshinProcesor` static forwarding wrappers deleted. No DI container yet (hand-wired composition root). §2.3–2.5 not started. |
+| **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4–2.5 not started. |
 | **3 — UX** | ⬜ not started | §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
 
-**Runtime:** the app now targets **`net8.0-windows`** (was net472 through Phase 0). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
+**Runtime:** the app now targets **`net8.0-windows7.0`** (was net472 through Phase 0; bumped from bare `net8.0-windows` after live testing surfaced 670+ spurious CA1416 warnings — see below). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
-**Test/CI status:** 103 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService`/`TextNormalizer` tests using fake dictionaries, and `ImageProcessor` delegation tests. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
+**Test/CI status:** 106 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService`/`TextNormalizer` tests using fake dictionaries, `ImageProcessor` delegation tests, and `ScanSettings` live-forwarding tests. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
 
-**Standing gap:** an end-to-end manual smoke scan against the live game has not been run since Phase 0 (needs admin + the game). Everything else is verified by build/test/reflection-level checks.
+**Standing gap:** live smoke-testing during Phase 2 (2026-07-01) surfaced two real bugs missed by build/test verification alone — a pre-existing `NullReferenceException` in `GetPageOfItems` when page-item detection exhausts its retries with `LogScreenshots` enabled, and a cancel-latency regression (same method's retry loop had no `CancelRequested` check, so Stop couldn't interrupt it — previously masked by the crash). Both fixed and verified live. This is a reminder that build+test-green doesn't substitute for live verification on a scan-heavy, UI-automation-driven app like this one; keep testing live where practical as Phase 2 continues.
 
 ---
 
@@ -334,8 +334,44 @@ Split the 957-line static class into injected services:
   constructor now wires two services by hand (`ocrService`, `imagePreprocessor`); still doesn't earn
   a DI container on its own, but is the last one before that tradeoff should be revisited.
 
-### 2.3 Modern configuration — not started
-- Replace `Properties.Settings`/`Settings.settings` + `JsonUserSettingsProvider` with `Microsoft.Extensions.Configuration` + a typed `IOptions<ScanSettings>` bound to a user `appsettings.json` in `%AppData%`.
+### 2.3 Modern configuration ✅ scan logic done, UI intentionally untouched
+- **Original plan** (quoted from the first draft of this doc) was "replace `Properties.Settings` +
+  `JsonUserSettingsProvider` with `Microsoft.Extensions.Configuration` + a typed
+  `IOptions<ScanSettings>` bound to a user `appsettings.json`." **Revised after investigating actual
+  usage** — two things that first draft didn't account for:
+  1. 52 of the 79 `Properties.Settings.Default.*` call sites are in `MainForm.Designer.cs`/
+     `MainUI.Designer.cs` — WinForms Designer-generated two-way data bindings (e.g.
+     `checkBox.DataBindings.Add("Checked", Properties.Settings.Default, "EquipWeapons", ...)`), which
+     only work against a `System.Configuration.ApplicationSettingsBase`-derived object. Hand-rewriting
+     these would mean replacing WinForms' native settings-binding with manual event-handler wiring
+     throughout both forms — a much bigger, fragile change that risks the Designer regenerating over
+     hand edits if the forms are ever reopened in it. **Left untouched** — still `Properties.Settings`.
+  2. `Properties.Settings.Default` is read *live* at multiple different points in the scan lifecycle
+     (some at scraper-construction time, e.g. `SortByLevel`; most per-call, e.g. `LogScreenshots`
+     checked repeatedly mid-scan) specifically so a user's mid-session checkbox change (no
+     restart/save needed) applies to the very next scan. A `Microsoft.Extensions.Configuration`
+     snapshot loaded once from `appsettings.json` would silently go stale for exactly that case —
+     `Properties.Settings.Default.Save()` only fires on app close, so a snapshot read from disk
+     wouldn't even see in-session UI changes at all.
+- **What was actually done:** added `IScanSettings`/`ScanSettings` — a thin instance-method seam,
+  same shape as `IImagePreprocessor`/`ImageProcessor`, whose properties live-forward to
+  `Properties.Settings.Default` under the hood rather than snapshotting it. This preserves both
+  existing timing behaviors (constructor-time reads still happen once at construction; per-call reads
+  still reflect live changes) while decoupling scan logic from the concrete WinForms settings type.
+  Constructor-injected into all 5 scrapers and `InventoryKamera` alongside `ocrService`/
+  `imagePreprocessor`. Replaced all 27 `Properties.Settings.Default.*` reads in scraper files +
+  `InventoryKamera.cs` (the two files that own scan logic) with `scanSettings.*`; left
+  `DatabaseManager.cs` (update-check), `GOOD.cs` (export format), `Navigation.cs` (process discovery),
+  and `ExecutablesForm.cs`/`MainForm.cs`/`MainUI.cs` (UI) on `Properties.Settings.Default` directly —
+  those are different concerns, not scan logic. `ScanSettingsTests` (3 tests) confirms the live
+  pass-through behavior.
+  - **Scoped deliberately smaller than the original idea:** the underlying persistence mechanism
+    (`JsonUserSettingsProvider` writing `settings.json` to `%LocalAppData%`) is unchanged — this slice
+    is only about *who reaches into it and how*, not *how/where it's stored*. A real migration off
+    `Properties.Settings`/`ApplicationSettingsBase` entirely would need to also solve the WinForms
+    Designer-binding problem above, which is realistically §2.5 (MVVM) territory — once `MainForm`
+    binds to a view model instead of controls binding straight to `Properties.Settings.Default`, the
+    same live-settings requirement can be satisfied by the view model instead.
 
 ### 2.4 Typed data models — not started
 - Replace `Dictionary<string,JObject>` for characters/artifacts with typed records; complete the System.Text.Json migration started in 1.4.
@@ -344,7 +380,7 @@ Split the 957-line static class into injected services:
 - Introduce a `ScanViewModel` exposing observable progress/state. Scrapers report progress via an `IProgress<ScanProgress>` / events — **not** by writing into static `UserInterface` WinForms controls.
 - `MainForm` becomes a thin view bound to the view model. This is the bridge to Phase 3.
 
-**Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained. **Not yet met** — both genuinely stateful/mutable services (`IOcrService`'s engine pool, `IImagePreprocessor`) are now off statics and constructor-injected (✅) across all 5 scrapers. `LookupService`/`TextNormalizer` are intentionally stateless static classes (no mutable state to remove — they take the lookup data as parameters each call), but the lookup *dictionaries themselves* still live as mutable static fields on `GenshinProcesor`; moving those into an owned, non-static data store is unstarted follow-up work (likely folds into §2.4's typed models). Config + MVVM haven't started.
+**Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained. **Not yet met** — both genuinely stateful/mutable services (`IOcrService`'s engine pool, `IImagePreprocessor`) are now off statics and constructor-injected (✅) across all 5 scrapers, and scan logic's config reads go through `IScanSettings` instead of `Properties.Settings.Default` directly (✅). `LookupService`/`TextNormalizer` are intentionally stateless static classes (no mutable state to remove — they take the lookup data as parameters each call), but the lookup *dictionaries themselves* still live as mutable static fields on `GenshinProcesor`; moving those into an owned, non-static data store is unstarted follow-up work (likely folds into §2.4's typed models). `Properties.Settings.Default` itself is still the underlying persistence mechanism (by design — see §2.3). MVVM hasn't started.
 
 ---
 

@@ -41,6 +41,7 @@ namespace InventoryKamera
 
 		private readonly IOcrService ocrService;
 		private readonly IImagePreprocessor imagePreprocessor;
+		private readonly IScanSettings scanSettings;
 
 		private WeaponScraper weaponScraper;
 		private ArtifactScraper artifactScraper;
@@ -73,17 +74,18 @@ namespace InventoryKamera
 
 			ocrService = new OcrService();
 			imagePreprocessor = new ImageProcessor();
+			scanSettings = new ScanSettings();
 
-			weaponScraper = new WeaponScraper(ocrService, imagePreprocessor);
-			artifactScraper = new ArtifactScraper(ocrService, imagePreprocessor);
-			characterScraper = new CharacterScraper(ocrService, imagePreprocessor);
-			materialScraper = new MaterialScraper(ocrService, imagePreprocessor);
+			weaponScraper = new WeaponScraper(ocrService, imagePreprocessor, scanSettings);
+			artifactScraper = new ArtifactScraper(ocrService, imagePreprocessor, scanSettings);
+			characterScraper = new CharacterScraper(ocrService, imagePreprocessor, scanSettings);
+			materialScraper = new MaterialScraper(ocrService, imagePreprocessor, scanSettings);
 
 			// Base worker count on available CPU (leaving headroom for the UI/navigation thread) so
 			// small machines don't oversubscribe; the scanner-speed setting further caps it down for
 			// the slower, lower-load profiles.
 			int baseWorkers = Math.Max(1, Environment.ProcessorCount - 1);
-			int userCap = Properties.Settings.Default.ScannerDelay == 0 ? 3 : 2;
+			int userCap = scanSettings.ScannerDelay == 0 ? 3 : 2;
 			NumWorkers = Math.Min(baseWorkers, userCap);
 
 			Logger.Info("Kamera initialized");
@@ -135,17 +137,17 @@ namespace InventoryKamera
 
 
 			// Assign Traveler's custom name
-			GenshinProcesor.AssignTravelerName(Properties.Settings.Default.TravelerName, ocrService, imagePreprocessor);
+			GenshinProcesor.AssignTravelerName(scanSettings.TravelerName, ocrService, imagePreprocessor);
 
             // Assign Wanderer's custom name
-            GenshinProcesor.UpdateCharacterName("wanderer", Properties.Settings.Default.WandererName);
+            GenshinProcesor.UpdateCharacterName("wanderer", scanSettings.WandererName);
 
 			// GenshinProcesor.ReloadData() (above) ensures manequin1/manequin2 exist in characters.json
 			// via the JSON object model, so these are now guaranteed to succeed.
-			GenshinProcesor.UpdateCharacterName("manequin1", Properties.Settings.Default.Manequin1Name);
-			GenshinProcesor.UpdateCharacterName("manequin2", Properties.Settings.Default.Manequin2Name);
+			GenshinProcesor.UpdateCharacterName("manequin1", scanSettings.Manequin1Name);
+			GenshinProcesor.UpdateCharacterName("manequin2", scanSettings.Manequin2Name);
 
-            if (Properties.Settings.Default.ScanWeapons && !CancelRequested)
+            if (scanSettings.ScanWeapons && !CancelRequested)
 			{
 				Logger.Info("Scanning weapons...");
 				// Get Weapons
@@ -164,7 +166,7 @@ namespace InventoryKamera
 				Logger.Info("Done scanning weapons");
 			}
 
-			if (Properties.Settings.Default.ScanArtifacts && !CancelRequested)
+			if (scanSettings.ScanArtifacts && !CancelRequested)
 			{
 				Logger.Info("Scanning artifacts...");
 
@@ -187,7 +189,7 @@ namespace InventoryKamera
 			// No more weapon/artifact items will be queued; workers drain whatever's left, then finish.
 			workerChannel.Writer.Complete();
 
-			if (Properties.Settings.Default.ScanCharacters && !CancelRequested)
+			if (scanSettings.ScanCharacters && !CancelRequested)
 			{
 				Logger.Info("Scanning characters...");
 				// Get characters
@@ -207,17 +209,17 @@ namespace InventoryKamera
 			// Wait for Image Processors to finish
 			AwaitProcessors();
 
-			if (Properties.Settings.Default.ScanCharacters)
+			if (scanSettings.ScanCharacters)
 			{
 				// Assign Artifacts to Characters
-				if (Properties.Settings.Default.ScanArtifacts)
+				if (scanSettings.ScanArtifacts)
 					AssignArtifacts();
-				if (Properties.Settings.Default.ScanWeapons)
+				if (scanSettings.ScanWeapons)
 					AssignWeapons();
 			}
 
 			// Scan Character Development Items
-			if (Properties.Settings.Default.ScanCharDevItems && !CancelRequested)
+			if (scanSettings.ScanCharDevItems && !CancelRequested)
 			{
 				Logger.Info("Scanning character development materials...");
 				// Get Materials
@@ -239,7 +241,7 @@ namespace InventoryKamera
 			}
 
 			// Scan Materials
-			if (Properties.Settings.Default.ScanMaterials && !CancelRequested)
+			if (scanSettings.ScanMaterials && !CancelRequested)
 			{
 				Logger.Info("Scanning materials...");
 				// Get Materials
@@ -313,7 +315,7 @@ namespace InventoryKamera
 
 							string weaponPath = $"./logging/weapons/weapon{weapon.Id}/";
 
-							if (Properties.Settings.Default.LogScreenshots) Directory.CreateDirectory(weaponPath);
+							if (scanSettings.LogScreenshots) Directory.CreateDirectory(weaponPath);
 
 							if (weapon.IsValid())
 							{
@@ -341,7 +343,7 @@ namespace InventoryKamera
 								}
 							}
 
-                            if (!weapon.IsValid() || Properties.Settings.Default.LogScreenshots)
+                            if (!weapon.IsValid() || scanSettings.LogScreenshots)
                             {
                                 Directory.CreateDirectory(weaponPath + "name");
                                 imageCollection.Bitmaps[0].Save(weaponPath + "name/name.png");
@@ -377,7 +379,7 @@ namespace InventoryKamera
 
 							string artifactPath = $"./logging/artifacts/artifact{artifact.Id}/";
 
-                            if (Properties.Settings.Default.LogScreenshots) Directory.CreateDirectory(artifactPath);
+                            if (scanSettings.LogScreenshots) Directory.CreateDirectory(artifactPath);
 
 							if (artifact.IsValid())
 							{
@@ -407,7 +409,7 @@ namespace InventoryKamera
 								}
 							}
 
-                            if (!artifact.IsValid() || Properties.Settings.Default.LogScreenshots)
+                            if (!artifact.IsValid() || scanSettings.LogScreenshots)
                             {
                                 Directory.CreateDirectory(artifactPath + "name");
                                 imageCollection.Bitmaps[0].Save(artifactPath + "name/name.png");
