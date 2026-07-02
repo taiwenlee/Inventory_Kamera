@@ -434,14 +434,6 @@ namespace InventoryKamera
                     }
                     while (itemCount != itemPerPage && weight < 1 && counter < 25);
 
-                    if (Properties.Settings.Default.LogScreenshots)
-                    {
-                        SaveInventoryBitmap(screenshot, $"{inventoryPage}Inventory.png");
-                        using (Graphics g = Graphics.FromImage(screenshot))
-                            rectangles.ForEach(r => g.DrawRectangle(new Pen(Color.Green, 2), r));
-
-                        SaveInventoryBitmap(screenshot, $"{inventoryPage}Inventory{pageNum}_{cols}x{rows} - weight {weight}.png");
-                    }
                     processedScreenshot.Dispose();
 
                     if (rectangles == null)
@@ -449,12 +441,21 @@ namespace InventoryKamera
                         Logger.Warn("Could not find {0} items in inventory. Re-using previous item page.", itemPerPage);
 
                         return prevRect == null ?
-                            throw new ArgumentNullException("Could not find first page of items!") 
+                            throw new ArgumentNullException("Could not find first page of items!")
                             :
                             (prevRect, prevColumn, prevRow);
                     }
                     else
                     {
+                        if (Properties.Settings.Default.LogScreenshots)
+                        {
+                            SaveInventoryBitmap(screenshot, $"{inventoryPage}Inventory.png");
+                            using (Graphics g = Graphics.FromImage(screenshot))
+                                rectangles.ForEach(r => g.DrawRectangle(new Pen(Color.Green, 2), r));
+
+                            SaveInventoryBitmap(screenshot, $"{inventoryPage}Inventory{pageNum}_{cols}x{rows} - weight {weight}.png");
+                        }
+
                         prevRect = rectangles; prevColumn = cols; prevRow = rows;
                         return (rectangles, cols, rows);
                     }
