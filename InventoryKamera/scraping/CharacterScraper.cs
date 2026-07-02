@@ -123,7 +123,7 @@ namespace InventoryKamera
 				return character;
             }
 
-            if (string.IsNullOrWhiteSpace(name))
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(element))
 			{
 				if (string.IsNullOrWhiteSpace(name)) progressReporter.AddError("Could not determine character's name");
 				if (string.IsNullOrWhiteSpace(element)) progressReporter.AddError("Could not determine character's element");
@@ -170,14 +170,23 @@ namespace InventoryKamera
 				// Scale down talents due to constellations
 				if (character.Constellation >= 3)
 				{
-					if (GenshinProcesor.Characters.ContainsKey(name.ToLower()))
+					if (GenshinProcesor.Characters.TryGetValue(name.ToLower(), out var characterData))
 					{
+						if (characterData["ConstellationOrder"] == null)
+						{
+							// Every character in the database should have this field -- its absence
+							// means the character data failed to fully download/parse, not that this
+							// character legitimately lacks constellation-order data.
+							progressReporter.AddError($"{character.NameGOOD}: missing ConstellationOrder data. Talent levels were not adjusted for constellation bonuses.");
+							return character;
+						}
+
 						string talentLeveledAtConst3 = character.NameGOOD.Contains("Traveler")
-                            ? (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][character.Element.ToLower()][0]
-                            : (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][0];
+                            ? (string)characterData["ConstellationOrder"][character.Element.ToLower()][0]
+                            : (string)characterData["ConstellationOrder"][0];
                         string talentLeveledAtConst5 = character.NameGOOD.Contains("Traveler")
-							? (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][character.Element.ToLower()][1]
-							: (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][1];
+							? (string)characterData["ConstellationOrder"][character.Element.ToLower()][1]
+							: (string)characterData["ConstellationOrder"][1];
 
 						// Scale down talents
 						if (character.Constellation >= 3)
