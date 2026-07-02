@@ -12,7 +12,7 @@
 |---|---|---|
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
-| **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4–2.5 not started. |
+| **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4 investigated and deliberately deferred (remote/variable-shape data + a mutable field make it a real design problem, not a mechanical one). §2.5 not started. |
 | **3 — UX** | ⬜ not started | §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
 
 **Runtime:** the app now targets **`net8.0-windows7.0`** (was net472 through Phase 0; bumped from bare `net8.0-windows` after live testing surfaced 670+ spurious CA1416 warnings — see below). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
@@ -373,8 +373,28 @@ Split the 957-line static class into injected services:
     binds to a view model instead of controls binding straight to `Properties.Settings.Default`, the
     same live-settings requirement can be satisfied by the view model instead.
 
-### 2.4 Typed data models — not started
-- Replace `Dictionary<string,JObject>` for characters/artifacts with typed records; complete the System.Text.Json migration started in 1.4.
+### 2.4 Typed data models — investigated, deliberately deferred
+- Original idea: replace `Dictionary<string,JObject>` for characters/artifacts with typed records;
+  complete the System.Text.Json migration started in 1.4.
+- **Investigated (2026-07-01), not implemented.** Direct usage is small (~11 call sites outside
+  `LookupService`/`TextNormalizer`, which already take `Dictionary<string, JObject>` params from
+  §2.1), but two real problems surfaced that the original one-line plan didn't account for:
+  1. `Characters`/`Artifacts` are loaded from **remote, semi-externally-controlled JSON**
+     (`DatabaseManager.LoadCharacters()`/`LoadArtifacts()`, fetched from a hosted database this repo
+     doesn't own). One field, `ConstellationOrder`, is shaped differently per character — a flat
+     array normally, a dictionary keyed by element for Travelers
+     (`Characters[name]["ConstellationOrder"][element][0]` in `CharacterScraper.cs`). A strict typed
+     record needs a custom converter to tolerate that shape switch, and any future drift in the
+     remote schema becomes a hard deserialization failure instead of just an ignored field — a
+     meaningfully different risk profile than typing purely local, self-controlled data.
+  2. It's not read-only: `GenshinProcesor.UpdateCharacterName()` mutates the loaded data in place
+     (`Characters[target]["CustomName"] = name`) to implement the Traveler/Manequin custom-name
+     feature. A record model needs to decide how to handle that one mutable field without losing the
+     rest of the read-only safety a typed model is meant to buy.
+  - **Decision:** skip for now rather than force a design under time pressure. Small enough surface
+    area to revisit later without blocking anything else in Phase 2; the eventual owner will need to
+    resolve both the tolerant-deserialization and the mutable-field questions before this is a clean
+    win over `Dictionary<string, JObject>`.
 
 ### 2.5 Decouple UI from logic (MVVM-lite) — not started
 - Introduce a `ScanViewModel` exposing observable progress/state. Scrapers report progress via an `IProgress<ScanProgress>` / events — **not** by writing into static `UserInterface` WinForms controls.
