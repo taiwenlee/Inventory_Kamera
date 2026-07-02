@@ -4,11 +4,12 @@ namespace InventoryKamera
 {
     /// <summary>
     /// The scan-progress-reporting surface scan logic calls into during a scan, behind an injectable
-    /// seam instead of the concrete static <see cref="UserInterface"/> WinForms class (Phase 2 §2.5,
-    /// first slice). Deliberately scoped to just decoupling call sites from the static type -- it does
-    /// not yet change how progress reaches the UI (still direct WinForms control manipulation with
-    /// <c>Control.Invoke</c> marshaling under <see cref="UserInterfaceReporter"/>); replacing that with
-    /// an observable view model is the larger, separate part of §2.5 this doesn't attempt.
+    /// seam instead of the concrete static <see cref="UserInterface"/> WinForms class (Phase 2 §2.5).
+    /// <see cref="ScanViewModel"/> is the only implementation: most methods still delegate straight to
+    /// <see cref="UserInterface"/>'s direct <c>Control.Invoke</c> writes, but it owns real observable
+    /// state for the counter group as the first slice of the larger MVVM redesign -- see the plan
+    /// doc's §2.5 sequencing note for why the rest is being carved out incrementally instead of all at
+    /// once.
     /// </summary>
     internal interface IScanProgressReporter
     {

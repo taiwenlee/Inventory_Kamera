@@ -63,7 +63,13 @@ namespace InventoryKamera
 			get { return Characters.Count > 0 || Inventory.Size > 0; }
         }
 
-		public InventoryKamera()
+		/// <param name="progressReporter">
+		/// Owned by the caller (<see cref="MainForm"/>), not constructed here: unlike
+		/// <c>ocrService</c>/<c>imagePreprocessor</c>/<c>scanSettings</c>, a <see cref="ScanViewModel"/>
+		/// needs to outlive any single <see cref="InventoryKamera"/> instance (MainForm recreates one
+		/// per scan) so its subscribers don't have to re-subscribe every time.
+		/// </param>
+		internal InventoryKamera(IScanProgressReporter progressReporter)
 		{
 			Characters = new List<Character>();
 			Inventory = new Inventory();
@@ -76,7 +82,7 @@ namespace InventoryKamera
 			ocrService = new OcrService();
 			imagePreprocessor = new ImageProcessor();
 			scanSettings = new ScanSettings();
-			progressReporter = new UserInterfaceReporter();
+			this.progressReporter = progressReporter;
 
 			weaponScraper = new WeaponScraper(ocrService, imagePreprocessor, scanSettings, progressReporter);
 			artifactScraper = new ArtifactScraper(ocrService, imagePreprocessor, scanSettings, progressReporter);

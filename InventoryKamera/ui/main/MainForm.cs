@@ -25,7 +25,13 @@ namespace InventoryKamera
     {
         private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
         private static Thread scannerThread;
-        private static InventoryKamera data = new InventoryKamera();
+
+        // Owns the weapon/artifact/character counter state (first real slice of the MVVM redesign,
+        // Phase 2 §2.5) -- declared before `data` so its static-field initializer runs first, and
+        // long-lived across scans (unlike `data`, which gets recreated per scan below) so subscribers
+        // never need to re-subscribe.
+        private static ScanViewModel scanViewModel = new ScanViewModel();
+        private static InventoryKamera data = new InventoryKamera(scanViewModel);
         private static DatabaseManager databaseManager = new DatabaseManager();
 
         private int Delay;
@@ -53,14 +59,27 @@ namespace InventoryKamera
                 CharacterLevel_PictureBox,
                 new[] { CharacterTalent1_PictureBox, CharacterTalent2_PictureBox, CharacterTalent3_PictureBox },
                 CharacterOutput_TextBox,
-                WeaponsScannedCount_Label,
-                WeaponsMax_Labell,
-                ArtifactsScanned_Label,
-                ArtifactsMax_Label,
-                CharactersScanned_Label,
                 ProgramStatus_Label,
                 ErrorLog_TextBox,
                 Navigation_Image);
+
+            scanViewModel.CountersChanged += OnCountersChanged;
+        }
+
+        // Renders scanViewModel's counter state into the labels MainForm owns directly -- the
+        // counterpart to UserInterface's Control.Invoke-based updates, but for the one control group
+        // that's been carved out into real observable state (Phase 2 §2.5, first slice).
+        private void OnCountersChanged()
+        {
+            System.Windows.Forms.MethodInvoker render = delegate
+            {
+                WeaponsScannedCount_Label.Text = scanViewModel.WeaponCount.ToString();
+                WeaponsMax_Labell.Text = scanViewModel.WeaponMax?.ToString() ?? "?";
+                ArtifactsScanned_Label.Text = scanViewModel.ArtifactCount.ToString();
+                ArtifactsMax_Label.Text = scanViewModel.ArtifactMax?.ToString() ?? "?";
+                CharactersScanned_Label.Text = scanViewModel.CharacterCount.ToString();
+            };
+            WeaponsScannedCount_Label.Invoke(render);
         }
 
         private double ScannerDelayValue(int value)
@@ -240,7 +259,7 @@ namespace InventoryKamera
         {
             GC.Collect();
 
-            UserInterface.ResetAll();
+            scanViewModel.ResetAll();
 
             UserInterface.SetProgramStatus("Scanning");
             Logger.Info("Starting scan");
@@ -295,7 +314,7 @@ namespace InventoryKamera
 
                         if (Navigation.GetSize() != Navigation.CaptureWindow().Size) throw new FormatException("Window size and screenshot size mismatch. Please make sure the game is not in a fullscreen mode.");
 
-                        data = new InventoryKamera();
+                        data = new InventoryKamera(scanViewModel);
 
                         Logger.Info("Resolution: {0}x{1}", Navigation.GetSize().Width, Navigation.GetSize().Height);
 

@@ -12,12 +12,12 @@
 |---|---|---|
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
-| **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4 investigated and deliberately deferred (remote/variable-shape data + a mutable field make it a real design problem, not a mechanical one). §2.5 first slice done: `IScanProgressReporter` seam added over the static `UserInterface`; the actual MVVM redesign (observable view model, `MainForm` as a thin view) is unstarted and substantially bigger. |
+| **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4 investigated and deliberately deferred (remote/variable-shape data + a mutable field make it a real design problem, not a mechanical one). §2.5 two slices done: `IScanProgressReporter` seam added over the static `UserInterface`, and `ScanViewModel` now owns real observable state for the counters group (first genuine MVVM slice, unit-tested). The rest of the control groups (gear/character/status/errors displays) and `MainForm.cs` itself are unstarted and substantially bigger. |
 | **3 — UX** | ⬜ not started | §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
 
 **Runtime:** the app now targets **`net8.0-windows7.0`** (was net472 through Phase 0; bumped from bare `net8.0-windows` after live testing surfaced 670+ spurious CA1416 warnings — see below). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
-**Test/CI status:** 106 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService`/`TextNormalizer` tests using fake dictionaries, `ImageProcessor` delegation tests, and `ScanSettings` live-forwarding tests. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
+**Test/CI status:** 110 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService`/`TextNormalizer` tests using fake dictionaries, `ImageProcessor` delegation tests, `ScanSettings` live-forwarding tests, and `ScanViewModel` counter-state tests. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
 
 **Standing gap:** live smoke-testing during Phase 2 (2026-07-01) surfaced two real bugs missed by build/test verification alone — a pre-existing `NullReferenceException` in `GetPageOfItems` when page-item detection exhausts its retries with `LogScreenshots` enabled, and a cancel-latency regression (same method's retry loop had no `CancelRequested` check, so Stop couldn't interrupt it — previously masked by the crash). Both fixed and verified live. A full scan was also run live after the `IScanProgressReporter` seam (§2.5's first slice) landed, confirming progress display, error reporting, and cancel all still behave identically now that scan logic goes through the injected interface instead of the static `UserInterface` directly. This is a reminder that build+test-green doesn't substitute for live verification on a scan-heavy, UI-automation-driven app like this one; keep testing live where practical as Phase 2 continues.
 
@@ -396,30 +396,39 @@ Split the 957-line static class into injected services:
     resolve both the tolerant-deserialization and the mutable-field questions before this is a clean
     win over `Dictionary<string, JObject>`.
 
-### 2.5 Decouple UI from logic (MVVM-lite) 🔄 first slice done
-- **`IScanProgressReporter` seam** ✅ **done** (this scope) — added `IScanProgressReporter`/
-  `UserInterfaceReporter`, same instance-method-seam shape as `IImagePreprocessor`/`ImageProcessor`
-  and `IScanSettings`/`ScanSettings`. `UserInterfaceReporter` delegates straight to the existing
-  static `UserInterface` (unchanged — still does direct WinForms control manipulation with
-  `Control.Invoke` thread marshaling, wired up once via `UserInterface.Init` from `MainForm`).
-  Constructor-injected into all 5 scrapers and `InventoryKamera` alongside `ocrService`/
-  `imagePreprocessor`/`scanSettings`; replaced the ~48 `UserInterface.*` calls in scraper files and
-  `InventoryKamera.cs` with `progressReporter.*`. Left `GOOD.cs` (1 call, export logic) and
-  `MainForm.cs` (12 calls — `UserInterface.Init` itself plus a few direct status/reset calls issued
-  from UI event handlers, not scan logic) on the static class — same "not scan logic" scoping used in
-  §2.3.
-  - **No test added:** unlike `ImageProcessor`/`ScanSettings`, exercising `UserInterfaceReporter`
-    means calling through to real `Control.Invoke`, which requires a live window handle and pumped
-    message loop — calling it from a headless xUnit test risks a hang rather than a fast, useful
-    assertion. Confirmed correct by compilation + the existing OCR/ImagePreprocessor/ScanSettings test
-    coverage exercising the same scraper code paths that now call through this seam.
-  - **This is only the first, low-risk slice of §2.5** — it decouples scan logic call sites from the
-    concrete static type, same pattern as every other Phase 2 service, but does **not** touch the
-    actual mechanism: progress still reaches the UI via direct `Control.Invoke` calls into WinForms
-    controls, not an observable `ScanViewModel`. The real MVVM redesign — a view model exposing
-    observable progress/state, `MainForm` becoming a thin view bound to it instead of controls being
-    written into directly — is unstarted, substantially bigger, and UI-wide (touches `MainForm.cs`'s
-    ~676 lines and its Designer-generated control wiring) in a way this slice deliberately avoided.
+### 2.5 Decouple UI from logic (MVVM-lite) 🔄 two slices done
+- **`IScanProgressReporter` seam** ✅ **done** — added the interface, initially implemented by a
+  `UserInterfaceReporter` that delegated every method straight to the existing static `UserInterface`
+  (same instance-method-seam shape as `IImagePreprocessor`/`ImageProcessor` and `IScanSettings`/
+  `ScanSettings`). Constructor-injected into all 5 scrapers and `InventoryKamera` alongside
+  `ocrService`/`imagePreprocessor`/`scanSettings`; replaced the ~48 `UserInterface.*` calls in scraper
+  files and `InventoryKamera.cs` with `progressReporter.*`. Left `GOOD.cs` (1 call, export logic) and
+  `MainForm.cs` (`UserInterface.Init` itself plus a few direct status/reset calls from UI event
+  handlers, not scan logic) on the static class — same "not scan logic" scoping used in §2.3.
+- **`ScanViewModel` — first real MVVM slice, counters group** ✅ **done** — replaced
+  `UserInterfaceReporter` with `ScanViewModel`, which owns genuine observable state (not a delegating
+  bridge) for exactly one control group: the weapon/artifact/character counters. `MainForm` now owns
+  one long-lived `ScanViewModel` instance (declared *before* the `InventoryKamera data` field so its
+  static initializer runs first — important because `MainForm` recreates `data` per scan but the view
+  model needs to outlive that so subscribers never re-subscribe), subscribes to
+  `ScanViewModel.CountersChanged` once at startup, and renders the 5 counter labels itself in that
+  handler — instead of `UserInterface` owning those controls directly. `UserInterface`'s
+  `SetWeapon_Max`/`SetArtifact_Max`/`Increment*Count`/`ResetCounters`/`ResetAll` and their backing
+  `Label` fields are deleted (dead once nothing called them); `UserInterfaceReporter` is deleted too
+  (its only use was inside `InventoryKamera`'s constructor, which now takes an injected
+  `IScanProgressReporter` from `MainForm` instead of constructing one itself).
+  - **Preserved an easy-to-miss detail:** the original `ResetCounters()` set the *count* labels to
+    `"0"` but the *max* labels to `"?"` (unknown until `SetWeapon_Max`/`SetArtifact_Max` run) — not the
+    same value. `ScanViewModel.WeaponMax`/`ArtifactMax` are `int?`, null until set, so `MainForm`'s
+    render handler reproduces the same `"?"` placeholder via `?.ToString() ?? "?"`.
+  - **This part is genuinely unit-tested** (`ScanViewModelTests`, 4 tests) — unlike the rest of
+    `IScanProgressReporter`, counter state is plain fields + a C# event with no `Control.Invoke`
+    dependency, so it doesn't have the WinForms-message-loop testing problem the rest of this seam has.
+  - **Everything else in `IScanProgressReporter` still bridges straight to `UserInterface`** — gear
+    display, character display, mora/material display, status, errors, navigation image. Carving those
+    out into more `ScanViewModel` state is the same kind of slice, done one control group at a time
+    with live testing after each, per the sequencing note below. `MainForm.cs`'s Designer-generated
+    control wiring for those groups is untouched.
 
 **Remaining §2.5/Phase 3 sequencing, planned but not started (2026-07-01):** the user wants the UI
 visually modernized eventually (dark mode, better layout/progress display, more guided flow) and

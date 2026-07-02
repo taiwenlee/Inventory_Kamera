@@ -21,16 +21,6 @@ namespace InventoryKamera
 		private static PictureBox[] cTalent_PictureBoxes = new PictureBox[3];
 		private static TextBox character_TextBox;
 
-		// Counters
-		private static Label weaponCount_Label;
-
-		private static Label weaponMax_Label;
-
-		private static Label artifactCount_Label;
-		private static Label artifactMax_Label;
-
-		private static Label characterCount_Label;
-
 		// Status
 		private static Label programStatus_Label;
 
@@ -40,7 +30,7 @@ namespace InventoryKamera
 		// Current Images
 		private static PictureBox navigation_PictureBox;
 
-		public static void Init(PictureBox _gear_PictureBox, TextBox _a_textbox, PictureBox _c_name, PictureBox _c_level, PictureBox[] _c_talent, TextBox _c_textbox, Label _weaponCount, Label _weaponMax, Label _artifactCount, Label _artifactMax, Label _characterCount, Label _programStatus, TextBox _error_textBox, PictureBox _navigation_Image)
+		public static void Init(PictureBox _gear_PictureBox, TextBox _a_textbox, PictureBox _c_name, PictureBox _c_level, PictureBox[] _c_talent, TextBox _c_textbox, Label _programStatus, TextBox _error_textBox, PictureBox _navigation_Image)
 		{
 			// Artifacts and Weapons
 			gear_PictureBox = _gear_PictureBox;
@@ -51,13 +41,6 @@ namespace InventoryKamera
 			cLevel_PictureBox = _c_level;
 			cTalent_PictureBoxes = _c_talent;
 			character_TextBox = _c_textbox;
-
-			// Counters
-			weaponCount_Label = _weaponCount;
-			weaponMax_Label = _weaponMax;
-			artifactCount_Label = _artifactCount;
-			artifactMax_Label = _artifactMax;
-			characterCount_Label = _characterCount;
 
 			// Status
 			programStatus_Label = _programStatus;
@@ -198,42 +181,6 @@ namespace InventoryKamera
 			}
 		}
 
-		public static void SetWeapon_Max(int value)
-		{
-			UpdateLabel(value.ToString(), weaponMax_Label);
-			Logger.Info("Parsed {value} weapons to scan", value);
-		}
-
-		public static void SetArtifact_Max(int value)
-		{
-			UpdateLabel(value.ToString(), artifactMax_Label);
-			Logger.Info("Parsed {value} artifacts to scan", value);
-		}
-
-		public static void IncrementArtifactCount()
-		{
-			lock (artifactCount_Label)
-			{
-				UpdateLabel($"{Int32.Parse(artifactCount_Label.Text) + 1}", artifactCount_Label);
-			}
-		}
-
-		public static void IncrementWeaponCount()
-		{
-			lock (weaponCount_Label)
-			{
-				UpdateLabel($"{Int32.Parse(weaponCount_Label.Text) + 1}", weaponCount_Label);
-			}
-		}
-
-		public static void IncrementCharacterCount()
-		{
-			lock (characterCount_Label)
-			{
-				UpdateLabel($"{Int32.Parse(characterCount_Label.Text) + 1}", characterCount_Label);
-			}
-		}
-
 		public static void SetProgramStatus(string status, bool ok = true)
 		{
 			MethodInvoker statusAction = delegate
@@ -285,21 +232,6 @@ namespace InventoryKamera
 			gear_TextBox.Invoke(textAction);
 		}
 
-		public static void ResetCounters()
-		{
-			MethodInvoker characterCountAction = delegate { characterCount_Label.Text = "0"; weaponMax_Label.Refresh(); };
-			MethodInvoker weaponCountAction = delegate { weaponCount_Label.Text = "0"; weaponMax_Label.Refresh(); };
-			MethodInvoker weaponMaxAction = delegate { weaponMax_Label.Text = "?"; weaponMax_Label.Refresh(); };
-			MethodInvoker artifactCountAction = delegate { artifactCount_Label.Text = "0"; artifactMax_Label.Refresh(); };
-			MethodInvoker artifactMaxAction = delegate { artifactMax_Label.Text = "?"; artifactMax_Label.Refresh(); };
-
-			characterCount_Label.Invoke(characterCountAction);
-			weaponCount_Label.Invoke(weaponCountAction);
-			weaponMax_Label.Invoke(weaponMaxAction);
-			artifactCount_Label.Invoke(artifactCountAction);
-			artifactMax_Label.Invoke(artifactMaxAction);
-		}
-
 		public static void ResetErrors()
 		{
 			MethodInvoker textAction = delegate { error_TextBox.Clear(); };
@@ -307,15 +239,5 @@ namespace InventoryKamera
 			error_TextBox.Invoke(textAction);
 		}
 
-		public static void ResetAll()
-		{
-			ResetGearDisplay();
-
-			ResetCharacterDisplay();
-
-			ResetCounters();
-
-			ResetErrors();
-		}
 	}
 }
