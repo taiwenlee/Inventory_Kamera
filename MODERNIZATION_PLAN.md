@@ -12,8 +12,9 @@
 |---|---|---|
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
-| **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4 investigated and deliberately deferred (remote/variable-shape data + a mutable field make it a real design problem, not a mechanical one). §2.5 two slices done: `IScanProgressReporter` seam added over the static `UserInterface`, and `ScanViewModel` now owns real observable state for the counters group (first genuine MVVM slice, unit-tested). The rest of the control groups (gear/character/status/errors displays) and `MainForm.cs` itself are unstarted and substantially bigger. |
-| **3 — UX** | ⬜ not started | §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
+| **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4 investigated and deliberately deferred (remote/variable-shape data + a mutable field make it a real design problem, not a mechanical one). §2.5 done except character display: `ScanViewModel` now owns real observable state for counters, status/errors, gear, material/mora, and navigation image (six slices, unit-tested where possible). Character display stays on the static `UserInterface` bridge pending the scan-input revamp (§6c). |
+| **3 — UX** | 🔄 **starting** | Unblocked now that `ScanViewModel` exists. Immediate focus: declutter/reorganize `MainForm`'s current layout (see §3.0) before the rest of §3's feature list. §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
+| **Scan input revamp** | 💭 **idea, testing pending** | Move artifact/character-grid navigation to keyboard-driven input instead of mouse clicks + blob-detected screen coordinates — see §6c for why and what's blocked on live testing. |
 
 **Runtime:** the app now targets **`net8.0-windows7.0`** (was net472 through Phase 0; bumped from bare `net8.0-windows` after live testing surfaced 670+ spurious CA1416 warnings — see below). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
@@ -585,6 +586,21 @@ underneath is clean. Sequencing:
 
 **Goal:** turn the "don't touch your mouse and wait" black box into a guided, transparent tool. Built on the Phase 2 view model.
 
+### 3.0 Declutter/reorganize MainForm 🔄 in progress (started 2026-07-01)
+**Why this is first, ahead of §3.1–3.5's feature list:** the user's own words — "the UX of the program
+[is] super cluttered and things are all over the place." Adding more features (live progress, inline
+correction, onboarding) onto a cluttered layout compounds the problem instead of fixing it. This is a
+layout/information-architecture pass on the existing `MainForm`, not new functionality — group related
+controls, fix visual hierarchy, cut down on cramming everything into one dense screen — using the
+`ScanViewModel` seam from §2.5 as the data source so this doesn't have to fight the old direct-control-
+writing pattern while reorganizing.
+- Not yet scoped in detail — next step is to actually look at `MainForm.Designer.cs`'s current control
+  layout (and ideally a screenshot/description of the live app) to identify what's cluttered before
+  proposing a new layout, rather than guessing.
+- Given `MainForm.cs`'s Designer-generated control wiring is large and this touches visual layout
+  directly (hard to verify without seeing the running app), this should land in small, individually
+  reviewed slices — same discipline as §2.5's MVVM slices, not one big rewrite.
+
 ### 3.1 Live scan feedback
 - Per-category progress (characters / weapons / artifacts / materials) with running counts + ETA.
 - Live thumbnail of the current capture region and last-recognized item.
@@ -670,6 +686,43 @@ dependencies), it was reverted via `git revert` rather than kept as a not-quite-
   before the full rewrite was attempted).
 - The `IScreenCapture` seam pattern itself is sound and reusable regardless — reintroducing it
   wouldn't need to be redone from scratch.
+
+---
+
+## 6c. Scan input revamp — keyboard-driven navigation — 💭 idea, testing pending (2026-07-01)
+
+**Motivation:** artifact/weapon grid-item detection (`ProcessScreenshot`/`GetPageOfItems` in
+`InventoryScraper.cs`) reconstructs the item grid from blob-detected column/row coordinates —
+reliable most of the time, but if an entire row or column has zero detected blobs, that row/column
+silently never appears in the reconstructed grid (see the live-testing note under §2.5's bugs list).
+Separately, character-screen navigation currently uses mouse clicks at computed screen-percentage
+coordinates. Genshin has since added keyboard-navigable controls to most UI (confirmed shipped, not
+just leaked — the earlier leak found in research was about a *different*, still-in-testing feature:
+automatic keyboard/controller input-method switching, version 6.7). The idea: drive grid/menu
+navigation with keyboard input (arrow keys/Tab moving a native in-game cursor, Enter to select)
+instead of mouse clicks against computed pixel coordinates — this would sidestep the blob-detection
+failure mode entirely, since a keyboard cursor's grid position is known deterministically rather than
+re-detected from a screenshot each time.
+
+**Known constraint:** per the user, clicking into constellations and clicking into talents still
+require mouse input even with keyboard nav enabled elsewhere — any design needs a mouse fallback for
+just those two panels.
+
+**Controller input explicitly out of scope for now:** a virtual-controller approach (ViGEmBus +
+`Nefarius.ViGEm.Client`) was considered, since there's no native Windows API for synthesizing
+XInput/gamepad state the way `SendInput` handles mouse/keyboard. Research found **ViGEmBus was
+archived in November 2023** (trademark dispute with ViGEM GmbH), is no longer maintained, and its
+successor ("VirtualPad") isn't mature yet — a real feature built on an unmaintained kernel driver is
+a meaningfully bigger long-term risk than keyboard-only input, which needs no extra driver at all
+(the existing `InputSimulator`/`sim.Keyboard` in `Navigation.cs` already does `SendInput`-based key
+presses with zero extra dependencies). Revisit controller input only if keyboard-only turns out to be
+insufficient.
+
+**Blocked on:** the user needs to test Genshin's actual keyboard-navigation behavior live (which keys
+move the cursor on which screens, exact behavior on the artifact/weapon/character grids) before this
+can be designed concretely — not something verifiable from this environment. Once tested, this
+becomes real design work on `Navigation.cs` (currently percentage-of-window mouse coordinates +
+`sim.Keyboard.KeyPress` for a few menu shortcuts) and the scrapers that call into it.
 
 ---
 
