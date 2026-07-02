@@ -16,19 +16,13 @@ namespace InventoryKamera
 		private static PictureBox[] cTalent_PictureBoxes = new PictureBox[3];
 		private static TextBox character_TextBox;
 
-		// Current Images
-		private static PictureBox navigation_PictureBox;
-
-		public static void Init(PictureBox _c_name, PictureBox _c_level, PictureBox[] _c_talent, TextBox _c_textbox, PictureBox _navigation_Image)
+		public static void Init(PictureBox _c_name, PictureBox _c_level, PictureBox[] _c_talent, TextBox _c_textbox)
 		{
 			// Characters
 			cName_PictureBox = _c_name;
 			cLevel_PictureBox = _c_level;
 			cTalent_PictureBoxes = _c_talent;
 			character_TextBox = _c_textbox;
-
-			// Navigation Image
-			navigation_PictureBox = _navigation_Image;
 		}
 
 		private static void UpdateElements(Bitmap bm, string text, PictureBox pictureBox, TextBox textBox)
@@ -122,11 +116,6 @@ namespace InventoryKamera
 				UpdatePictureBox(bm, cTalent_PictureBoxes[i]);
 				UpdateTextBox($"Talent {i + 1}: {text}", character_TextBox);
 			}
-		}
-
-		public static void SetNavigation_Image(Bitmap bm)
-		{
-			UpdatePictureBox(bm, navigation_PictureBox);
 		}
 
 		public static void ResetCharacterDisplay()

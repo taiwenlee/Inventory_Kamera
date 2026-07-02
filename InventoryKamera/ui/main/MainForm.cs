@@ -56,8 +56,7 @@ namespace InventoryKamera
                 CharacterName_PictureBox,
                 CharacterLevel_PictureBox,
                 new[] { CharacterTalent1_PictureBox, CharacterTalent2_PictureBox, CharacterTalent3_PictureBox },
-                CharacterOutput_TextBox,
-                Navigation_Image);
+                CharacterOutput_TextBox);
 
             scanViewModel.CountersChanged += OnCountersChanged;
             scanViewModel.ProgramStatusChanged += OnProgramStatusChanged;
@@ -66,6 +65,7 @@ namespace InventoryKamera
             scanViewModel.GearChanged += OnGearChanged;
             scanViewModel.MaterialChanged += OnMaterialChanged;
             scanViewModel.MoraChanged += OnMoraChanged;
+            scanViewModel.NavigationImageChanged += OnNavigationImageChanged;
         }
 
         // Renders scanViewModel's counter state into the labels MainForm owns directly -- the
@@ -157,6 +157,21 @@ namespace InventoryKamera
                 previous?.Dispose();
 
                 CharacterOutput_TextBox.Text = scanViewModel.MoraText;
+            };
+            Navigation_Image.Invoke(render);
+        }
+
+        private void OnNavigationImageChanged()
+        {
+            // Shares Navigation_Image with OnMoraChanged -- the original UserInterface.SetMora and
+            // SetNavigation_Image wrote into the same navigation_PictureBox too, so this preserves the
+            // existing coupling rather than introducing a new one.
+            var image = scanViewModel.CloneNavigationImage();
+            System.Windows.Forms.MethodInvoker render = delegate
+            {
+                var previous = Navigation_Image.Image;
+                Navigation_Image.Image = image;
+                previous?.Dispose();
             };
             Navigation_Image.Invoke(render);
         }

@@ -211,5 +211,34 @@ namespace InventoryKamera.Tests
             Assert.NotSame(bitmap, viewModel.CloneMoraImage());
             Assert.Equal(1, raisedCount);
         }
+
+        [Fact]
+        public void SetNavigationImage_ClonesTheBitmapAndRaisesNavigationImageChanged()
+        {
+            var viewModel = new ScanViewModel();
+            int raisedCount = 0;
+            viewModel.NavigationImageChanged += () => raisedCount++;
+            using var bitmap = MakeSolidColor(4, 4, Color.Purple);
+
+            viewModel.SetNavigation_Image(bitmap);
+
+            Assert.NotSame(bitmap, viewModel.CloneNavigationImage());
+            Assert.Equal(1, raisedCount);
+        }
+
+        [Fact]
+        public void CloneNavigationImage_DisposesThePreviousImageOnReplace()
+        {
+            var viewModel = new ScanViewModel();
+            using var first = MakeSolidColor(4, 4, Color.Red);
+            using var second = MakeSolidColor(4, 4, Color.Blue);
+            viewModel.SetNavigation_Image(first);
+
+            var clone = viewModel.CloneNavigationImage();
+            viewModel.SetNavigation_Image(second);
+
+            // Clone taken before the replace is unaffected, same safety CloneGearImage relies on.
+            Assert.Equal(Color.FromArgb(255, 255, 0, 0), clone.GetPixel(0, 0));
+        }
     }
 }

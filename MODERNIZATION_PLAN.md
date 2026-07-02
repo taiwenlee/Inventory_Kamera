@@ -17,7 +17,7 @@
 
 **Runtime:** the app now targets **`net8.0-windows7.0`** (was net472 through Phase 0; bumped from bare `net8.0-windows` after live testing surfaced 670+ spurious CA1416 warnings — see below). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
-**Test/CI status:** 119 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService`/`TextNormalizer` tests using fake dictionaries, `ImageProcessor` delegation tests, `ScanSettings` live-forwarding tests, and `ScanViewModel` counter/gear/material/mora-state tests (including a concurrency regression test). GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
+**Test/CI status:** 121 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService`/`TextNormalizer` tests using fake dictionaries, `ImageProcessor` delegation tests, `ScanSettings` live-forwarding tests, and `ScanViewModel` counter/gear/material/mora/navigation-image-state tests (including a concurrency regression test). GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
 
 **Standing gap:** live smoke-testing during Phase 2 (2026-07-01) surfaced two real bugs missed by build/test verification alone — a pre-existing `NullReferenceException` in `GetPageOfItems` when page-item detection exhausts its retries with `LogScreenshots` enabled, and a cancel-latency regression (same method's retry loop had no `CancelRequested` check, so Stop couldn't interrupt it — previously masked by the crash). Both fixed and verified live. A full scan was also run live after the `IScanProgressReporter` seam (§2.5's first slice) landed, confirming progress display, error reporting, and cancel all still behave identically now that scan logic goes through the injected interface instead of the static `UserInterface` directly. This is a reminder that build+test-green doesn't substitute for live verification on a scan-heavy, UI-automation-driven app like this one; keep testing live where practical as Phase 2 continues.
 
@@ -396,7 +396,7 @@ Split the 957-line static class into injected services:
     resolve both the tolerant-deserialization and the mutable-field questions before this is a clean
     win over `Dictionary<string, JObject>`.
 
-### 2.5 Decouple UI from logic (MVVM-lite) 🔄 five slices done
+### 2.5 Decouple UI from logic (MVVM-lite) 🔄 six slices done — only character display remains
 - **`IScanProgressReporter` seam** ✅ **done** — added the interface, initially implemented by a
   `UserInterfaceReporter` that delegated every method straight to the existing static `UserInterface`
   (same instance-method-seam shape as `IImagePreprocessor`/`ImageProcessor` and `IScanSettings`/
@@ -474,9 +474,7 @@ Split the 957-line static class into injected services:
     `gear_PictureBox`/`gear_TextBox` fields are deleted, same dead-code cleanup pattern as the other
     slices.
   - **Remaining in `IScanProgressReporter`, still bridging to `UserInterface`:** character display
-    (name/element/level/constellation/talents) and navigation image. The user plans to revamp
-    character scanning separately, so that group is being deliberately skipped for now rather than
-    carved into `ScanViewModel` ahead of a redesign that would likely change its shape anyway.
+    (name/element/level/constellation/talents) only — see below for why it's deliberately deferred.
 - **`ScanViewModel` — material/mora display group** ✅ **done** — same treatment as gear: `ScanViewModel`
   now owns `MaterialText`/material nameplate+quantity images and `MoraText`/mora image (raising
   `MaterialChanged`/`MoraChanged`) instead of `UserInterface` writing into them directly. Full-replace
@@ -504,6 +502,26 @@ Split the 957-line static class into injected services:
     path specifically — it also calls `UserInterface.ResetCharacterDisplay()`, which needs live WinForms
     controls `UserInterface.Init` never receives in a headless test, so it would crash there; the same
     testing constraint noted for character display.
+- **`ScanViewModel` — navigation image group** ✅ **done** — the last group besides character display.
+  `ScanViewModel` now owns a generic `NavigationImage` (raising `NavigationImageChanged`) instead of
+  `UserInterface.SetNavigation_Image` writing into `navigation_PictureBox` directly; same
+  clone/lock/dispose pattern as gear/material/mora. This is a broad "current capture region" preview
+  called from every scraper (weapons/artifacts/characters/materials), not tied to one scan phase.
+  - `navigation_PictureBox` shares its physical control (`Navigation_Image` in `MainForm`) with mora
+    display — that coupling already existed before this slice (both `SetMora` and
+    `SetNavigation_Image` wrote into the same control originally); `MainForm`'s `OnNavigationImageChanged`
+    and `OnMoraChanged` handlers both still write into `Navigation_Image`, preserving it rather than
+    trying to separate concerns that weren't separated in the original design.
+  - `UserInterface.SetNavigation_Image` and its backing `navigation_PictureBox` field (now fully dead —
+    it had no other users once this was the last method touching it) are deleted, along with the
+    corresponding parameter on `UserInterface.Init`.
+  - 3 new `ScanViewModelTests` (clone-not-reference, dispose-on-replace).
+  - **This closes out §2.5's non-character surface.** Every `IScanProgressReporter` method scan logic
+    calls now goes through real `ScanViewModel` state except the character-display group, which stays
+    deliberately deferred: Genshin has added keyboard-navigable controls to most of the character
+    screen (everything except clicking into constellations and talents, which still need the mouse),
+    so the user is planning a navigation revamp there — converting the display layer ahead of that
+    redesign risks being thrown away.
 
 **Bugs found during §2.5 live testing (2026-07-01), unrelated to the MVVM changes:**
 - **Negative list index in `ArtifactScraper.ScanArtifacts`/`WeaponScraper.ScanWeapons`:** both compute

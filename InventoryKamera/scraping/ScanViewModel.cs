@@ -7,15 +7,15 @@ namespace InventoryKamera
     /// <summary>
     /// MVVM redesign for §2.5, carved out one control group at a time: owns genuine observable state
     /// for the counters (weapon/artifact/character scanned/max), status/errors, gear
-    /// (weapon/artifact picture + text), and material/mora display groups instead of delegating
-    /// straight to <see cref="UserInterface"/>. <see cref="MainForm"/> owns one long-lived instance,
-    /// subscribes to <see cref="CountersChanged"/>/<see cref="ProgramStatusChanged"/>/
-    /// <see cref="ErrorAdded"/>/<see cref="ErrorsReset"/>/<see cref="GearChanged"/>/
-    /// <see cref="MaterialChanged"/>/<see cref="MoraChanged"/> once at startup, and renders those
-    /// controls itself -- instead of a shared static facade owning them. Character display still
-    /// bridges to <see cref="UserInterface"/> unchanged (deliberately deferred pending the user's
-    /// planned character-scanning revamp); carving that out too is left as a separate, individually
-    /// live-tested slice (see the plan doc's §2.5 sequencing note) rather than one large rewrite.
+    /// (weapon/artifact picture + text), material/mora display, and the generic navigation-image
+    /// preview instead of delegating straight to <see cref="UserInterface"/>. <see cref="MainForm"/>
+    /// owns one long-lived instance, subscribes to <see cref="CountersChanged"/>/
+    /// <see cref="ProgramStatusChanged"/>/<see cref="ErrorAdded"/>/<see cref="ErrorsReset"/>/
+    /// <see cref="GearChanged"/>/<see cref="MaterialChanged"/>/<see cref="MoraChanged"/>/
+    /// <see cref="NavigationImageChanged"/> once at startup, and renders those controls itself --
+    /// instead of a shared static facade owning them. Character display is the only group still
+    /// bridging to <see cref="UserInterface"/> (deliberately deferred pending the user's planned
+    /// character-scanning revamp) -- see the plan doc's §2.5 sequencing note.
     /// </summary>
     internal sealed class ScanViewModel : IScanProgressReporter
     {
@@ -40,6 +40,8 @@ namespace InventoryKamera
 
         private Bitmap moraImage;
         private string moraText = "";
+
+        private Bitmap navigationImage;
 
         /// <summary>
         /// Raised after any counter-related state changes. Scan logic calls this from background
@@ -142,6 +144,21 @@ namespace InventoryKamera
             }
         }
 
+        /// <summary>
+        /// Raised after <see cref="SetNavigation_Image"/> runs. This is a generic "current capture
+        /// region" preview called from every scraper (weapons/artifacts/characters/materials), not
+        /// specific to any one scan phase.
+        /// </summary>
+        public event Action NavigationImageChanged;
+
+        public Bitmap CloneNavigationImage()
+        {
+            lock (imageLock)
+            {
+                return navigationImage == null ? null : CloneBitmap(navigationImage);
+            }
+        }
+
         public void SetWeapon_Max(int value)
         {
             weaponMax = value;
@@ -201,6 +218,11 @@ namespace InventoryKamera
                 materialQuantityImage = null;
                 moraImage?.Dispose();
                 moraImage = null;
+                // Not paired with a NavigationImageChanged notification, matching the original
+                // UserInterface.ResetAll() -- it never cleared navigation_PictureBox either, so the
+                // control keeps showing the last preview until the next SetNavigation_Image call.
+                navigationImage?.Dispose();
+                navigationImage = null;
             }
             materialText = "";
             moraText = "";
@@ -305,12 +327,22 @@ namespace InventoryKamera
             MoraChanged?.Invoke();
         }
 
+        public void SetNavigation_Image(Bitmap bm)
+        {
+            var clone = CloneBitmap(bm);
+            lock (imageLock)
+            {
+                navigationImage?.Dispose();
+                navigationImage = clone;
+            }
+            NavigationImageChanged?.Invoke();
+        }
+
         public void SetMainCharacterName(string text) => UserInterface.SetMainCharacterName(text);
         public void SetCharacter_NameAndElement(Bitmap bm, string name, string element) => UserInterface.SetCharacter_NameAndElement(bm, name, element);
         public void SetCharacter_Level(Bitmap bm, int level, int maxLevel) => UserInterface.SetCharacter_Level(bm, level, maxLevel);
         public void SetCharacter_Constellation(int level) => UserInterface.SetCharacter_Constellation(level);
         public void SetCharacter_Talent(Bitmap bm, string text, int i) => UserInterface.SetCharacter_Talent(bm, text, i);
-        public void SetNavigation_Image(Bitmap bm) => UserInterface.SetNavigation_Image(bm);
         public void ResetCharacterDisplay() => UserInterface.ResetCharacterDisplay();
     }
 }
