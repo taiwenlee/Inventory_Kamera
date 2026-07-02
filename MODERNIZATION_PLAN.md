@@ -444,10 +444,15 @@ underneath is clean. Sequencing:
    updates correctly on screen. Do this as its own small, isolated slices (e.g., one control group at
    a time — gear display, then character display, then counters/status) with a live smoke test after
    each, rather than one large rewrite verified only at the end.
-3. **Visual reskin (Phase 3).** Only after step 1 lands: dark mode, layout/typography pass, live
-   per-category progress with counts/ETA (already sketched in §3.1 below), inline correction UI.
-   Doing this before the view model exists means redoing the visual work once the control-binding
-   story changes underneath it.
+3. **UX modernization, not just a visual reskin (Phase 3, already scoped below).** This is more than
+   theming: live per-category progress with counts/ETA (§3.1), pre-flight validation that catches bad
+   configs before a scan wastes 20+ minutes (§3.2), inline OCR review/correction instead of dumping
+   failures into `logging/` for a GitHub issue (§3.3), dark mode/DPI/accessibility polish (§3.4), and
+   guided onboarding + a real error-reporting flow (§3.5). All of it sits on top of the view model from
+   step 1 — pre-flight checks and inline correction in particular need two-way state (the view model
+   reacting to user corrections mid-scan), which direct `Control.Invoke` calls from background threads
+   can't cleanly support. Doing any of this before step 1 exists means redoing it once the
+   control-binding story changes underneath it.
 
 **Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained. **Not yet met** — both genuinely stateful/mutable services (`IOcrService`'s engine pool, `IImagePreprocessor`) are now off statics and constructor-injected (✅) across all 5 scrapers, scan logic's config reads go through `IScanSettings` instead of `Properties.Settings.Default` directly (✅), and scan logic's progress-reporting calls go through `IScanProgressReporter` instead of the static `UserInterface` directly (✅). `LookupService`/`TextNormalizer` are intentionally stateless static classes (no mutable state to remove — they take the lookup data as parameters each call), but the lookup *dictionaries themselves* still live as mutable static fields on `GenshinProcesor`; moving those into an owned, non-static data store is unstarted follow-up work (likely folds into §2.4's typed models). `Properties.Settings.Default` and the static `UserInterface` are both still the underlying mechanisms behind their respective seams (by design — see §2.3/§2.5). The actual "UI receives progress through an abstraction" criterion — an observable view model instead of direct control manipulation — hasn't started.
 
