@@ -434,7 +434,7 @@ namespace InventoryKamera
                         weight = Math.Min(weight, 1);
                         rectangles = null;
                     }
-                    while (itemCount != itemPerPage && weight < 1 && counter < 25);
+                    while (itemCount != itemPerPage && weight < 1 && counter < 25 && !InventoryKamera.CancelRequested);
 
                     processedScreenshot.Dispose();
 
