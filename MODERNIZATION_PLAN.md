@@ -421,6 +421,34 @@ Split the 957-line static class into injected services:
     written into directly — is unstarted, substantially bigger, and UI-wide (touches `MainForm.cs`'s
     ~676 lines and its Designer-generated control wiring) in a way this slice deliberately avoided.
 
+**Remaining §2.5/Phase 3 sequencing, planned but not started (2026-07-01):** the user wants the UI
+visually modernized eventually (dark mode, better layout/progress display, more guided flow) and
+asked for a recommendation. **Stay in WinForms rather than migrate to WPF/MAUI/a web UI** — this is a
+single-window automation utility with no cross-platform need, and a framework migration is a full
+rewrite disproportionate to the visual payoff; WinForms has enough modern theming options (owner-draw
+dark mode, updated layout/typography, lightweight third-party control libraries) once the architecture
+underneath is clean. Sequencing:
+1. **`ScanViewModel` + real MVVM (§2.5, remaining work).** Replace `UserInterface`'s direct
+   `Control.Invoke` writes with an observable view model (plain C# events or `INotifyPropertyChanged`
+   — doesn't need a full MVVM framework given the app's single-window scope) that `MainForm`
+   subscribes to and marshals onto the UI thread itself, instead of the facade owning that
+   responsibility. `IScanProgressReporter`'s public surface (already just 24 semantic methods scan
+   logic calls) is designed to map cleanly onto this — a `ScanViewModel`-backed implementation could
+   plausibly satisfy the same interface, meaning scan logic and its tests wouldn't need to change
+   again. `MainForm.cs` (~676 lines) and its Designer-generated bindings would need rewiring to read
+   from/subscribe to the view model instead of owning control state directly.
+2. **Verification strategy — apply the WGC lesson.** The WGC capture rewrite earlier this session was
+   reverted specifically because build+test-green didn't catch real-world failures that only live
+   testing surfaced (HDR washout, overlay capture). This MVVM rewrite has the same risk shape — a
+   headless test can confirm the view model's state machine is correct, but not that `MainForm`
+   updates correctly on screen. Do this as its own small, isolated slices (e.g., one control group at
+   a time — gear display, then character display, then counters/status) with a live smoke test after
+   each, rather than one large rewrite verified only at the end.
+3. **Visual reskin (Phase 3).** Only after step 1 lands: dark mode, layout/typography pass, live
+   per-category progress with counts/ETA (already sketched in §3.1 below), inline correction UI.
+   Doing this before the view model exists means redoing the visual work once the control-binding
+   story changes underneath it.
+
 **Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained. **Not yet met** — both genuinely stateful/mutable services (`IOcrService`'s engine pool, `IImagePreprocessor`) are now off statics and constructor-injected (✅) across all 5 scrapers, scan logic's config reads go through `IScanSettings` instead of `Properties.Settings.Default` directly (✅), and scan logic's progress-reporting calls go through `IScanProgressReporter` instead of the static `UserInterface` directly (✅). `LookupService`/`TextNormalizer` are intentionally stateless static classes (no mutable state to remove — they take the lookup data as parameters each call), but the lookup *dictionaries themselves* still live as mutable static fields on `GenshinProcesor`; moving those into an owned, non-static data store is unstarted follow-up work (likely folds into §2.4's typed models). `Properties.Settings.Default` and the static `UserInterface` are both still the underlying mechanisms behind their respective seams (by design — see §2.3/§2.5). The actual "UI receives progress through an abstraction" criterion — an observable view model instead of direct control manipulation — hasn't started.
 
 ---
