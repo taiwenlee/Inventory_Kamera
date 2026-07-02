@@ -2,9 +2,18 @@
 using System.Resources;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 // Allow the test project to exercise internal image-preprocessing logic during the Accord removal.
 [assembly: InternalsVisibleTo("InventoryKamera.Tests")]
+
+// GenerateAssemblyInfo is disabled below (this file is the source of assembly metadata instead), so
+// the SDK's usual auto-generated [assembly: SupportedOSPlatform] for a "windows"-suffixed TFM never
+// gets emitted. Without it, the CA1416 platform-compatibility analyzer has no assembly-wide baseline
+// to check WinForms/GDI+ call sites against, so it warns on nearly every one of them even though this
+// app has always been Windows-only. Declaring it here matches what TargetFramework net8.0-windows7.0
+// would have generated automatically.
+[assembly: SupportedOSPlatform("windows7.0")]
 
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
