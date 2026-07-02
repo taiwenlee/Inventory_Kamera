@@ -15,10 +15,12 @@ namespace InventoryKamera
 		protected int NumOfCharToScan;
 
 		private readonly IOcrService ocrService;
+		private readonly IImagePreprocessor imagePreprocessor;
 
-        public CharacterScraper(IOcrService ocrService)
+        public CharacterScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor)
 		{
 			this.ocrService = ocrService;
+			this.imagePreprocessor = imagePreprocessor;
 			NumOfCharToScan = Properties.Settings.Default.NumOfCharToScan;
 		}
 
@@ -197,7 +199,7 @@ namespace InventoryKamera
 			return character;
 		}
 
-		public static string ScanMainCharacterName(IOcrService ocrService)
+		public static string ScanMainCharacterName(IOcrService ocrService, IImagePreprocessor imagePreprocessor)
 		{
 			var xReference = 1280.0;
 			var yReference = 720.0;
@@ -216,8 +218,8 @@ namespace InventoryKamera
 
 			//Image Operations
 			GenshinProcesor.SetGamma(0.2, 0.2, 0.2, ref nameBitmap);
-			GenshinProcesor.SetInvert(ref nameBitmap);
-			Bitmap n = GenshinProcesor.ConvertToGrayscale(nameBitmap);
+			imagePreprocessor.SetInvert(ref nameBitmap);
+			Bitmap n = imagePreprocessor.ConvertToGrayscale(nameBitmap);
 
 			UserInterface.SetNavigation_Image(nameBitmap);
 
@@ -255,9 +257,9 @@ namespace InventoryKamera
 				Navigation.SystemWait(Navigation.Speed.Fast);
 				using (Bitmap bm = Navigation.CaptureRegion(region))
 				{
-					Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
-					GenshinProcesor.SetThreshold(110, ref n);
-					GenshinProcesor.SetInvert(ref n);
+					Bitmap n = imagePreprocessor.ConvertToGrayscale(bm);
+					imagePreprocessor.SetThreshold(110, ref n);
+					imagePreprocessor.SetInvert(ref n);
 
 					n = GenshinProcesor.ResizeImage(n, n.Width * 2, n.Height * 2);
 					string block = ocrService.AnalyzeText(n, Tesseract.PageSegMode.Auto).ToLower().Trim();
@@ -326,9 +328,9 @@ namespace InventoryKamera
 				Bitmap bm = Navigation.CaptureRegion(region);
 
 				bm = GenshinProcesor.ResizeImage(bm, bm.Width * 2, bm.Height * 2);
-				Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
-				GenshinProcesor.SetInvert(ref n);
-				GenshinProcesor.SetContrast(30.0, ref bm);
+				Bitmap n = imagePreprocessor.ConvertToGrayscale(bm);
+				imagePreprocessor.SetInvert(ref n);
+				imagePreprocessor.SetContrast(30.0, ref bm);
 
 				string text = ocrService.AnalyzeText(n).Trim();
 				Logger.Debug("Scanned character level as {0}", text);
@@ -377,7 +379,7 @@ namespace InventoryKamera
 			bm = GenshinProcesor.ResizeImage(bm, bm.Width * 6, bm.Height * 6);
 			//Scraper.ConvertToGrayscale(ref bm);
 			//Scraper.SetInvert(ref bm);
-			GenshinProcesor.SetContrast(30.0, ref bm);
+			imagePreprocessor.SetContrast(30.0, ref bm);
 
 			string text = ocrService.AnalyzeText(bm);
 			text = text.Trim();
@@ -397,7 +399,7 @@ namespace InventoryKamera
 			return experience;
 		}
 
-		private static int ScanConstellations(Character character)
+		private int ScanConstellations(Character character)
 		{
 			double yReference = 720.0;
 			int constellation;
@@ -441,7 +443,7 @@ namespace InventoryKamera
 				{
 					// Check a small region next to the text "Activate"
 					// for a mostly white backround
-					var statistics = ImageProcessing.AverageColor(region);
+					var statistics = imagePreprocessor.AverageColor(region);
 					if (statistics.R >= 190 && statistics.G >= 190 && statistics.B >= 190)
 						break;
 					
@@ -508,9 +510,9 @@ namespace InventoryKamera
 
 					talentLevel = GenshinProcesor.ResizeImage(talentLevel, talentLevel.Width * 2, talentLevel.Height * 2);
 
-					Bitmap n = GenshinProcesor.ConvertToGrayscale(talentLevel);
-					GenshinProcesor.SetContrast(60, ref n);
-					GenshinProcesor.SetInvert(ref n);
+					Bitmap n = imagePreprocessor.ConvertToGrayscale(talentLevel);
+					imagePreprocessor.SetContrast(60, ref n);
+					imagePreprocessor.SetInvert(ref n);
 
 					var text = ocrService.AnalyzeText(n, Tesseract.PageSegMode.SingleBlock).Trim().Split('\n').ToList();
 

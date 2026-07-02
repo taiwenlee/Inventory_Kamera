@@ -13,7 +13,7 @@ namespace InventoryKamera
     {
 		private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
-		public WeaponScraper(IOcrService ocrService) : base(ocrService)
+		public WeaponScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor) : base(ocrService, imagePreprocessor)
         {
             inventoryPage = InventoryPage.Weapons;
             SortByLevel = Properties.Settings.Default.MinimumWeaponLevel > 1;
@@ -302,8 +302,8 @@ namespace InventoryKamera
 
         public int ScanLevel(Bitmap bm, ref bool ascended)
 		{
-			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
-			GenshinProcesor.SetInvert(ref n);
+			Bitmap n = imagePreprocessor.ConvertToGrayscale(bm);
+			imagePreprocessor.SetInvert(ref n);
 
 			string text = ocrService.AnalyzeText(n).Trim();
 			n.Dispose();
@@ -332,8 +332,8 @@ namespace InventoryKamera
 			{
 				using (Bitmap up = GenshinProcesor.ScaleImage(image, factor))
 				{
-					Bitmap n = GenshinProcesor.ConvertToGrayscale(up);
-					GenshinProcesor.SetInvert(ref n);
+					Bitmap n = imagePreprocessor.ConvertToGrayscale(up);
+					imagePreprocessor.SetInvert(ref n);
 
 					string text = ocrService.AnalyzeText(n).Trim();
 					n.Dispose();
@@ -351,8 +351,8 @@ namespace InventoryKamera
 
 		public string ScanEquippedCharacter(Bitmap bm)
 		{
-			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
-			GenshinProcesor.SetContrast(60.0, ref n);
+			Bitmap n = imagePreprocessor.ConvertToGrayscale(bm);
+			imagePreprocessor.SetContrast(60.0, ref n);
 
 			string extractedString = ocrService.AnalyzeText(n);
 			n.Dispose();

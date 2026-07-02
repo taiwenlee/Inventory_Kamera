@@ -62,10 +62,12 @@ namespace InventoryKamera
         private int prevRow = 0;
 
         protected readonly IOcrService ocrService;
+        protected readonly IImagePreprocessor imagePreprocessor;
 
-        public InventoryScraper(IOcrService ocrService)
+        public InventoryScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor)
         {
             this.ocrService = ocrService;
+            this.imagePreprocessor = imagePreprocessor;
 
             materialPages = new List<InventoryPage>();
 
@@ -107,8 +109,8 @@ namespace InventoryKamera
         internal string ScanItemName(Bitmap nameplate)
         {
             GenshinProcesor.SetGamma(0.2, 0.2, 0.2, ref nameplate);
-            Bitmap n = GenshinProcesor.ConvertToGrayscale(nameplate);
-            GenshinProcesor.SetInvert(ref n);
+            Bitmap n = imagePreprocessor.ConvertToGrayscale(nameplate);
+            imagePreprocessor.SetInvert(ref n);
 
             // Analyze
             string text = Regex.Replace(ocrService.AnalyzeText(n, Tesseract.PageSegMode.SingleBlock).ToLower(), @"[\W]", string.Empty);
@@ -140,9 +142,9 @@ namespace InventoryKamera
             {
                 UserInterface.SetNavigation_Image(countBitmap);
 
-                Bitmap n = GenshinProcesor.ConvertToGrayscale(countBitmap);
-                GenshinProcesor.SetContrast(60.0, ref n);
-                GenshinProcesor.SetInvert(ref n);
+                Bitmap n = imagePreprocessor.ConvertToGrayscale(countBitmap);
+                imagePreprocessor.SetContrast(60.0, ref n);
+                imagePreprocessor.SetInvert(ref n);
 
                 string text = ocrService.AnalyzeText(n).Trim();
                 n.Dispose();
@@ -219,7 +221,7 @@ namespace InventoryKamera
 
             using (var bm = Navigation.CaptureRegion(region))
             {
-                var g = GenshinProcesor.ConvertToGrayscale(bm);
+                var g = imagePreprocessor.ConvertToGrayscale(bm);
                 var mode = ocrService.AnalyzeText(g).Trim().ToLower();
                 return mode.Contains("level") ? "level" : mode.Contains("quality") ? "quality" : null;
             }
@@ -252,16 +254,16 @@ namespace InventoryKamera
             int blobMaxWidth = (int)(iconMaxWidth * (1 + weight));
             {
                 // Image pre-processing
-                screenshot = ImageProcessing.EdgeDetectKirsch(screenshot); // Algorithm to find edges. Really good but can take ~1s
-                screenshot = ImageProcessing.ConvertToGrayscale(screenshot);
-                ImageProcessing.SetThreshold(75, ref screenshot); // Convert to black and white only based on pixel intensity
+                screenshot = imagePreprocessor.EdgeDetectKirsch(screenshot); // Algorithm to find edges. Really good but can take ~1s
+                screenshot = imagePreprocessor.ConvertToGrayscale(screenshot);
+                imagePreprocessor.SetThreshold(75, ref screenshot); // Convert to black and white only based on pixel intensity
 
                 // Note: Processing won't always detect all item rectangles on screen. Since the
                 // background isn't a solid color it's a bit trickier to filter out.
 
                 // Don't save overlapping blobs
                 List<Rectangle> rectangles = new List<Rectangle>();
-                List<Rectangle> blobRects = ImageProcessing.FindBlobRectangles(screenshot, blobMinWidth, blobMaxWidth, blobMinHeight, blobMaxHeight);
+                List<Rectangle> blobRects = imagePreprocessor.FindBlobRectangles(screenshot, blobMinWidth, blobMaxWidth, blobMinHeight, blobMaxHeight);
 
                 int minWidth = blobRects[0].Width;
                 int minHeight = blobRects[0].Height;
@@ -476,9 +478,9 @@ namespace InventoryKamera
         /// </summary>
         /// <param name="nameplate">The an item card's nameplate</param>
         /// <returns>An integer representing quality from 0 - 5 (invalid - 5 star)</returns>
-        internal static int GetQuality(Bitmap nameplate)
+        internal int GetQuality(Bitmap nameplate)
         {
-            var avg = ImageProcessing.AverageColor(nameplate);
+            var avg = imagePreprocessor.AverageColor(nameplate);
             var averageColor = Color.FromArgb((int)avg.R, (int)avg.G, (int)avg.B);
 
             Color fiveStar = Color.FromArgb(255, 188, 105, 50);

@@ -40,6 +40,7 @@ namespace InventoryKamera
 		private List<Task> imageProcessorTasks;
 
 		private readonly IOcrService ocrService;
+		private readonly IImagePreprocessor imagePreprocessor;
 
 		private WeaponScraper weaponScraper;
 		private ArtifactScraper artifactScraper;
@@ -71,11 +72,12 @@ namespace InventoryKamera
 			workerAbortCts = new CancellationTokenSource();
 
 			ocrService = new OcrService();
+			imagePreprocessor = new ImageProcessor();
 
-			weaponScraper = new WeaponScraper(ocrService);
-			artifactScraper = new ArtifactScraper(ocrService);
-			characterScraper = new CharacterScraper(ocrService);
-			materialScraper = new MaterialScraper(ocrService);
+			weaponScraper = new WeaponScraper(ocrService, imagePreprocessor);
+			artifactScraper = new ArtifactScraper(ocrService, imagePreprocessor);
+			characterScraper = new CharacterScraper(ocrService, imagePreprocessor);
+			materialScraper = new MaterialScraper(ocrService, imagePreprocessor);
 
 			// Base worker count on available CPU (leaving headroom for the UI/navigation thread) so
 			// small machines don't oversubscribe; the scanner-speed setting further caps it down for
@@ -133,7 +135,7 @@ namespace InventoryKamera
 
 
 			// Assign Traveler's custom name
-			GenshinProcesor.AssignTravelerName(Properties.Settings.Default.TravelerName, ocrService);
+			GenshinProcesor.AssignTravelerName(Properties.Settings.Default.TravelerName, ocrService, imagePreprocessor);
 
             // Assign Wanderer's custom name
             GenshinProcesor.UpdateCharacterName("wanderer", Properties.Settings.Default.WandererName);

@@ -37,12 +37,12 @@ namespace InventoryKamera
 		private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
 
-		public MaterialScraper(IOcrService ocrService) : base(ocrService)
+		public MaterialScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor) : base(ocrService, imagePreprocessor)
 		{
 			inventoryPage = InventoryPage.CharacterDevelopmentItems;
 		}
 
-		public MaterialScraper(IOcrService ocrService, InventoryPage section) : base(ocrService)
+		public MaterialScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, InventoryPage section) : base(ocrService, imagePreprocessor)
 		{
 			inventoryPage = section;
 		}
@@ -267,10 +267,10 @@ namespace InventoryKamera
 
 		public string ParseMoraFromScreenshot(Bitmap screenshot)
 		{
-			using (var gray = GenshinProcesor.ConvertToGrayscale(screenshot))
+			using (var gray = imagePreprocessor.ConvertToGrayscale(screenshot))
 			{
 				var invert = (Bitmap)gray.Clone();
-				GenshinProcesor.SetInvert(ref invert);
+				imagePreprocessor.SetInvert(ref invert);
 				var input = ocrService.AnalyzeText(invert).Split(' ').ToList();
 				Logger.Debug("Scanned mora input: {0}", input.ToString());
 				input.RemoveAll(e => Regex.IsMatch(e.Trim(), @"[^0-9]") || string.IsNullOrWhiteSpace(e.Trim()));
@@ -303,8 +303,8 @@ namespace InventoryKamera
 
 			// Alter Image
 			GenshinProcesor.SetGamma(0.2, 0.2, 0.2, ref bm);
-			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
-			GenshinProcesor.SetInvert(ref n);
+			Bitmap n = imagePreprocessor.ConvertToGrayscale(bm);
+			imagePreprocessor.SetInvert(ref n);
 
 			string text = ocrService.AnalyzeText(n,Tesseract.PageSegMode.Auto);
 			text = Regex.Replace(text, @"[\W\s]", string.Empty).ToLower();
@@ -344,16 +344,16 @@ namespace InventoryKamera
 					using (Bitmap rescaled = GenshinProcesor.ResizeImage(bm, (int)(bm.Width * scale), (int)(bm.Height * scale)))
                     {
                         Bitmap copy = (Bitmap)rescaled.Clone();
-                        GenshinProcesor.FilterColors(ref copy, rRange, bRange, gRange);
+                        imagePreprocessor.FilterColors(ref copy, rRange, bRange, gRange);
 
                         for (int i = 0; i < copy.Width; i++)
                             for (int j = 0; j < copy.Height * 0.25; j++)
                                 copy.SetPixel(i, j, Color.White);
 
-                        Bitmap n = GenshinProcesor.ConvertToGrayscale(copy);
+                        Bitmap n = imagePreprocessor.ConvertToGrayscale(copy);
                         
-						GenshinProcesor.SetInvert(ref n);
-                        GenshinProcesor.SetThreshold(50, ref n);
+						imagePreprocessor.SetInvert(ref n);
+                        imagePreprocessor.SetThreshold(50, ref n);
 
                         string original = ocrService.AnalyzeText(n).Trim();
 

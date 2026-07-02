@@ -163,9 +163,9 @@ namespace InventoryKamera
 			else throw new KeyNotFoundException($"Could not find '{target}' entry in characters.json");
 		}
 
-		internal static void AssignTravelerName(string name, IOcrService ocrService)
+		internal static void AssignTravelerName(string name, IOcrService ocrService, IImagePreprocessor imagePreprocessor)
 		{
-			name = string.IsNullOrWhiteSpace(name) ? CharacterScraper.ScanMainCharacterName(ocrService) : name.ToLower();
+			name = string.IsNullOrWhiteSpace(name) ? CharacterScraper.ScanMainCharacterName(ocrService, imagePreprocessor) : name.ToLower();
 			if (!string.IsNullOrWhiteSpace(name))
 			{
 				UpdateCharacterName("traveler", name);
@@ -432,17 +432,7 @@ namespace InventoryKamera
 			return r*r + g*g + b*b;
 		}
 
-        internal static Bitmap ConvertToGrayscale(Bitmap bitmap)
-		{
-			return ImageProcessing.ConvertToGrayscale(bitmap);
-		}
-
-		internal static void SetContrast(double contrast, ref Bitmap bitmap)
-		{
-			ImageProcessing.SetContrast(contrast, ref bitmap);
-		}
-
-		internal static void SetGamma(double red, double green, double blue, ref Bitmap bitmap)
+        internal static void SetGamma(double red, double green, double blue, ref Bitmap bitmap)
 		{
 			Bitmap temp = bitmap;
 			Bitmap bmap = (Bitmap)temp.Clone();
@@ -471,11 +461,6 @@ namespace InventoryKamera
 		(int)( ( 255.0 * Math.Pow(i / 255.0, 1.0 / color) ) + 0.5 ));
 			}
 			return gammaArray;
-		}
-
-		internal static void SetInvert(ref Bitmap bitmap)
-		{
-			ImageProcessing.SetInvert(ref bitmap);
 		}
 
 		internal static void SetColor(string colorFilterType, ref Bitmap bitmap)
@@ -555,16 +540,6 @@ namespace InventoryKamera
 				}
 			}
 			bitmap = (Bitmap)bmap.Clone();
-		}
-
-		internal static void SetThreshold(int threshold, ref Bitmap bitmap)
-		{
-			ImageProcessing.SetThreshold(threshold, ref bitmap);
-		}
-
-		internal static void FilterColors(ref Bitmap bm, IntRange red, IntRange green, IntRange blue)
-		{
-			ImageProcessing.FilterColors(ref bm, red, green, blue);
 		}
 
 		internal static bool CompareBitmapsFast(Bitmap bmp1, Bitmap bmp2)

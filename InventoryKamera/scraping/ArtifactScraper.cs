@@ -14,7 +14,7 @@ namespace InventoryKamera
 	{
 		private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-		public ArtifactScraper(IOcrService ocrService) : base(ocrService)
+		public ArtifactScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor) : base(ocrService, imagePreprocessor)
 		{
 			inventoryPage = InventoryPage.Artifacts;
             SortByLevel = Properties.Settings.Default.MinimumArtifactLevel > 0;
@@ -358,9 +358,9 @@ namespace InventoryKamera
 			return new Artifact(setName, rarity, level, gearSlot, mainStat, subStats, unactivatedSubStats, equippedCharacter, id, _lock);
 		}
 
-		private static int GetRarity(Bitmap bm)
+		private int GetRarity(Bitmap bm)
 		{
-			var avg = ImageProcessing.AverageColor(bm);
+			var avg = imagePreprocessor.AverageColor(bm);
 			var averageColor = Color.FromArgb((int)avg.R, (int)avg.G, (int)avg.B);
 
 			Color fiveStar = Color.FromArgb(255, 188, 105, 50);
@@ -392,8 +392,8 @@ namespace InventoryKamera
 		private string ScanEnhancementMaterialName(Bitmap bm)
 		{
 			GenshinProcesor.SetGamma(0.2, 0.2, 0.2, ref bm);
-			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
-			GenshinProcesor.SetInvert(ref n);
+			Bitmap n = imagePreprocessor.ConvertToGrayscale(bm);
+			imagePreprocessor.SetInvert(ref n);
 
 			// Analyze
 			string name = Regex.Replace(ocrService.AnalyzeText(n).ToLower(), @"[\W]", string.Empty);
@@ -408,9 +408,9 @@ namespace InventoryKamera
 		private string ScanArtifactGearSlot(Bitmap bm)
 		{
 			// Process Img
-			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
-			GenshinProcesor.SetContrast(80.0, ref n);
-			GenshinProcesor.SetInvert(ref n);
+			Bitmap n = imagePreprocessor.ConvertToGrayscale(bm);
+			imagePreprocessor.SetContrast(80.0, ref n);
+			imagePreprocessor.SetInvert(ref n);
 
 			string gearSlot = ocrService.AnalyzeText(n).Trim().ToLower();
 			gearSlot = Regex.Replace(gearSlot, @"[\W_]", string.Empty);
@@ -434,11 +434,11 @@ namespace InventoryKamera
 				// Otherwise it's either sands, goblet or circlet.
 				default:
 					Bitmap copy = (Bitmap)bm.Clone();
-					GenshinProcesor.SetContrast(100.0, ref copy);
-					Bitmap n = GenshinProcesor.ConvertToGrayscale(copy);
+					imagePreprocessor.SetContrast(100.0, ref copy);
+					Bitmap n = imagePreprocessor.ConvertToGrayscale(copy);
 					
-					GenshinProcesor.SetThreshold(135, ref n);
-					GenshinProcesor.SetInvert(ref n);
+					imagePreprocessor.SetThreshold(135, ref n);
+					imagePreprocessor.SetInvert(ref n);
 
 					// Get Main Stat
 					string mainStat = ocrService.AnalyzeText(n).ToLower().Trim();
@@ -462,9 +462,9 @@ namespace InventoryKamera
 		private int ScanArtifactLevel(Bitmap bm)
 		{
 			// Process Img
-			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
-			GenshinProcesor.SetContrast(80.0, ref n);
-			GenshinProcesor.SetInvert(ref n);
+			Bitmap n = imagePreprocessor.ConvertToGrayscale(bm);
+			imagePreprocessor.SetContrast(80.0, ref n);
+			imagePreprocessor.SetInvert(ref n);
 
 			// numbersOnly = true => seems to interpret the '+' as a '4'
 			string text = ocrService.AnalyzeText(n, Tesseract.PageSegMode.SingleWord).Trim().ToLower();
@@ -484,9 +484,9 @@ namespace InventoryKamera
 			List<SubStat> unactivated = new List<SubStat>();
 			string text;
             GenshinProcesor.SetBrightness(-30, ref bm);
-            GenshinProcesor.SetContrast(85, ref bm);
+            imagePreprocessor.SetContrast(85, ref bm);
 			bool hasUnactivated = false;
-			using (var n = GenshinProcesor.ConvertToGrayscale(bm))
+			using (var n = imagePreprocessor.ConvertToGrayscale(bm))
 			{
 				text = ocrService.AnalyzeText(n, Tesseract.PageSegMode.Auto).ToLower();
 			}
@@ -569,8 +569,8 @@ namespace InventoryKamera
 
         private string ScanArtifactEquippedCharacter(Bitmap bm)
 		{
-			Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
-			GenshinProcesor.SetContrast(60.0, ref n);
+			Bitmap n = imagePreprocessor.ConvertToGrayscale(bm);
+			imagePreprocessor.SetContrast(60.0, ref n);
 
 			string equippedCharacter = ocrService.AnalyzeText(n).ToLower();
 			n.Dispose();
@@ -592,8 +592,8 @@ namespace InventoryKamera
 		private string ScanArtifactSet(Bitmap itemName)
         {
             GenshinProcesor.SetGamma(0.2, 0.2, 0.2, ref itemName);
-            Bitmap grayscale = GenshinProcesor.ConvertToGrayscale(itemName);
-            GenshinProcesor.SetInvert(ref grayscale);
+            Bitmap grayscale = imagePreprocessor.ConvertToGrayscale(itemName);
+            imagePreprocessor.SetInvert(ref grayscale);
 
             // Analyze
             using (Bitmap padded = new Bitmap((int)(grayscale.Width + grayscale.Width * .1), grayscale.Height + (int)(grayscale.Height * .5)))
