@@ -42,6 +42,7 @@ namespace InventoryKamera
 		private readonly IOcrService ocrService;
 		private readonly IImagePreprocessor imagePreprocessor;
 		private readonly IScanSettings scanSettings;
+		private readonly IScanProgressReporter progressReporter;
 
 		private WeaponScraper weaponScraper;
 		private ArtifactScraper artifactScraper;
@@ -75,11 +76,12 @@ namespace InventoryKamera
 			ocrService = new OcrService();
 			imagePreprocessor = new ImageProcessor();
 			scanSettings = new ScanSettings();
+			progressReporter = new UserInterfaceReporter();
 
-			weaponScraper = new WeaponScraper(ocrService, imagePreprocessor, scanSettings);
-			artifactScraper = new ArtifactScraper(ocrService, imagePreprocessor, scanSettings);
-			characterScraper = new CharacterScraper(ocrService, imagePreprocessor, scanSettings);
-			materialScraper = new MaterialScraper(ocrService, imagePreprocessor, scanSettings);
+			weaponScraper = new WeaponScraper(ocrService, imagePreprocessor, scanSettings, progressReporter);
+			artifactScraper = new ArtifactScraper(ocrService, imagePreprocessor, scanSettings, progressReporter);
+			characterScraper = new CharacterScraper(ocrService, imagePreprocessor, scanSettings, progressReporter);
+			materialScraper = new MaterialScraper(ocrService, imagePreprocessor, scanSettings, progressReporter);
 
 			// Base worker count on available CPU (leaving headroom for the UI/navigation thread) so
 			// small machines don't oversubscribe; the scanner-speed setting further caps it down for
@@ -137,7 +139,7 @@ namespace InventoryKamera
 
 
 			// Assign Traveler's custom name
-			GenshinProcesor.AssignTravelerName(scanSettings.TravelerName, ocrService, imagePreprocessor);
+			GenshinProcesor.AssignTravelerName(scanSettings.TravelerName, ocrService, imagePreprocessor, progressReporter);
 
             // Assign Wanderer's custom name
             GenshinProcesor.UpdateCharacterName("wanderer", scanSettings.WandererName);
@@ -157,10 +159,10 @@ namespace InventoryKamera
 				{
                     weaponScraper.ScanWeapons();
 				}
-				catch (FormatException ex) { UserInterface.AddError(ex.Message); }
+				catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 				catch (Exception ex)
 				{
-					UserInterface.AddError(ex.Message + "\n" + ex.StackTrace);
+					progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
 				}
 				Navigation.MainMenuScreen();
 				Logger.Info("Done scanning weapons");
@@ -177,10 +179,10 @@ namespace InventoryKamera
 				{
 					artifactScraper.ScanArtifacts();
 				}
-				catch (FormatException ex) { UserInterface.AddError(ex.Message); }
+				catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 				catch (Exception ex)
 				{
-					UserInterface.AddError(ex.Message + "\n" + ex.StackTrace);
+					progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
 				}
 				Navigation.MainMenuScreen();
 				Logger.Info("Done scanning artifacts");
@@ -200,7 +202,7 @@ namespace InventoryKamera
 				}
 				catch (Exception ex)
 				{
-					UserInterface.AddError(ex.Message + "\n" + ex.StackTrace);
+					progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
 				}
 				Navigation.MainMenuScreen();
 				Logger.Info("Done scanning characters");
@@ -231,10 +233,10 @@ namespace InventoryKamera
 					materialScraper.SetInventoryPage(InventoryPage.CharacterDevelopmentItems);
 					materialScraper.Scan_Materials(ref Inventory);
 				}
-				catch (FormatException ex) { UserInterface.AddError(ex.Message); }
+				catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 				catch (Exception ex)
 				{
-					UserInterface.AddError(ex.Message + "\n" + ex.StackTrace);
+					progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
 				}
 				Navigation.MainMenuScreen();
 				Logger.Info("Done scanning character development materials");
@@ -253,10 +255,10 @@ namespace InventoryKamera
 					materialScraper.SetInventoryPage(InventoryPage.Materials);
 					materialScraper.Scan_Materials(ref Inventory);
 				}
-				catch (FormatException ex) { UserInterface.AddError(ex.Message); }
+				catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 				catch (Exception ex)
 				{
-					UserInterface.AddError(ex.Message + "\n" + ex.StackTrace);
+					progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
 				}
 				Navigation.MainMenuScreen();
 				Logger.Info("Done scanning materials");
@@ -307,11 +309,11 @@ namespace InventoryKamera
 								break;
 							}
 
-							UserInterface.SetGearPictureBox(imageCollection.Bitmaps.Last());
+							progressReporter.SetGearPictureBox(imageCollection.Bitmaps.Last());
 
 							// Scan as weapon
 							Weapon weapon = await weaponScraper.CatalogueFromBitmapsAsync(imageCollection.Bitmaps, imageCollection.Id);
-							UserInterface.SetGear(imageCollection.Bitmaps.Last(), weapon);
+							progressReporter.SetGear(imageCollection.Bitmaps.Last(), weapon);
 
 							string weaponPath = $"./logging/weapons/weapon{weapon.Id}/";
 
@@ -319,21 +321,21 @@ namespace InventoryKamera
 
 							if (weapon.IsValid())
 							{
-								UserInterface.IncrementWeaponCount();
+								progressReporter.IncrementWeaponCount();
 								Inventory.Add(weapon);
 								if (!string.IsNullOrWhiteSpace(weapon.EquippedCharacter))
 									equippedWeapons.Add(weapon);
 							}
 							else
 							{
-								UserInterface.AddError($"Unable to validate information for weapon ID#{weapon.Id}");
+								progressReporter.AddError($"Unable to validate information for weapon ID#{weapon.Id}");
 								string error = "";
 								if (!weapon.HasValidWeaponName()) error += "Invalid weapon name\n"; 
 								if (!weapon.HasValidRarity()) error += "Invalid weapon rarity\n";
 								if (!weapon.HasValidLevel()) error += "Invalid weapon level\n";
 								if (!weapon.HasValidRefinementLevel()) error += "Invalid refinement level\n";
 								if (!weapon.HasValidEquippedCharacter()) error += "Inavlid equipped character\n";
-								UserInterface.AddError(error + weapon.ToString());
+								progressReporter.AddError(error + weapon.ToString());
 								Directory.CreateDirectory(weaponPath);
 								using (var writer = File.CreateText(weaponPath + "log.txt"))
 								{
@@ -372,10 +374,10 @@ namespace InventoryKamera
 								break;
 							}
 
-							UserInterface.SetGearPictureBox(imageCollection.Bitmaps.Last());
+							progressReporter.SetGearPictureBox(imageCollection.Bitmaps.Last());
 							// Scan as artifact
 							Artifact artifact = await artifactScraper.CatalogueFromBitmapsAsync(imageCollection.Bitmaps, imageCollection.Id);
-							UserInterface.SetGear(imageCollection.Bitmaps.Last(), artifact);
+							progressReporter.SetGear(imageCollection.Bitmaps.Last(), artifact);
 
 							string artifactPath = $"./logging/artifacts/artifact{artifact.Id}/";
 
@@ -383,14 +385,14 @@ namespace InventoryKamera
 
 							if (artifact.IsValid())
 							{
-								UserInterface.IncrementArtifactCount();
+								progressReporter.IncrementArtifactCount();
 								Inventory.Add(artifact);
 								if (!string.IsNullOrWhiteSpace(artifact.EquippedCharacter))
 									equippedArtifacts.Add(artifact);
 							}
 							else
 							{
-								UserInterface.AddError($"Unable to validate information for artifact ID#{artifact.Id}");
+								progressReporter.AddError($"Unable to validate information for artifact ID#{artifact.Id}");
 								string error = "";
 								if (!artifact.HasValidSlot()) error += "Invalid artifact gear slot\n";
 								if (!artifact.HasValidSetName()) error += "Invalid artifact set name\n";
@@ -399,7 +401,7 @@ namespace InventoryKamera
 								if (!artifact.HasValidMainStat()) error += "Invalid artifact main stat\n";
 								if (!artifact.HasValidSubStats()) error += "Invalid artifact sub stats\n";
 								if (!artifact.HasValidEquippedCharacter()) error += "Invalid equipped character\n";
-								UserInterface.AddError(error + artifact.ToString());
+								progressReporter.AddError(error + artifact.ToString());
 								Directory.CreateDirectory(artifactPath);
 								using (var writer = File.CreateText(artifactPath + "log.txt"))
 								{

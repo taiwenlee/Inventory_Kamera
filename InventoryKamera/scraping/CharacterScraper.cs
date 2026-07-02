@@ -17,12 +17,14 @@ namespace InventoryKamera
 		private readonly IOcrService ocrService;
 		private readonly IImagePreprocessor imagePreprocessor;
 		private readonly IScanSettings scanSettings;
+		private readonly IScanProgressReporter progressReporter;
 
-        public CharacterScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings)
+        public CharacterScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, IScanProgressReporter progressReporter)
 		{
 			this.ocrService = ocrService;
 			this.imagePreprocessor = imagePreprocessor;
 			this.scanSettings = scanSettings;
+			this.progressReporter = progressReporter;
 			NumOfCharToScan = scanSettings.NumOfCharToScan;
 		}
 
@@ -33,7 +35,7 @@ namespace InventoryKamera
 			string first = null;
 			HashSet<string> scanned = new HashSet<string>();
 
-			UserInterface.ResetCharacterDisplay();
+			progressReporter.ResetCharacterDisplay();
 
 			while (true)
 			{
@@ -46,7 +48,7 @@ namespace InventoryKamera
                         if (!scanned.Contains(character.NameGOOD))
                         {
                             Characters.Add(character);
-                            UserInterface.IncrementCharacterCount();
+                            progressReporter.IncrementCharacterCount();
                             counter++;
                             Logger.Info("Scanned {0} successfully", character.NameGOOD);
                             if (Characters.Count == 1) first = character.NameGOOD;
@@ -69,7 +71,7 @@ namespace InventoryKamera
                 }
 
                 Navigation.SelectNextCharacter();
-				UserInterface.ResetCharacterDisplay();
+				progressReporter.ResetCharacterDisplay();
 
 				if ((++viewed > 3 && Characters.Count < 1) || (NumOfCharToScan !=0 && counter >= NumOfCharToScan)) break;
 				if (InventoryKamera.CancelRequested)
@@ -123,8 +125,8 @@ namespace InventoryKamera
 
             if (string.IsNullOrWhiteSpace(name))
 			{
-				if (string.IsNullOrWhiteSpace(name)) UserInterface.AddError("Could not determine character's name");
-				if (string.IsNullOrWhiteSpace(element)) UserInterface.AddError("Could not determine character's element");
+				if (string.IsNullOrWhiteSpace(name)) progressReporter.AddError("Could not determine character's name");
+				if (string.IsNullOrWhiteSpace(element)) progressReporter.AddError("Could not determine character's element");
 				return character;
 			}
 
@@ -139,7 +141,7 @@ namespace InventoryKamera
 				int level = ScanLevel(ref ascended);
 				if (level == -1)
 				{
-					UserInterface.AddError($"Could not determine {character.NameGOOD}'s level. Setting to 1.");
+					progressReporter.AddError($"Could not determine {character.NameGOOD}'s level. Setting to 1.");
 					level = 1;
 					ascended = false;
 				}
@@ -201,7 +203,7 @@ namespace InventoryKamera
 			return character;
 		}
 
-		public static string ScanMainCharacterName(IOcrService ocrService, IImagePreprocessor imagePreprocessor)
+		public static string ScanMainCharacterName(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanProgressReporter progressReporter)
 		{
 			var xReference = 1280.0;
 			var yReference = 720.0;
@@ -223,7 +225,7 @@ namespace InventoryKamera
 			imagePreprocessor.SetInvert(ref nameBitmap);
 			Bitmap n = imagePreprocessor.ConvertToGrayscale(nameBitmap);
 
-			UserInterface.SetNavigation_Image(nameBitmap);
+			progressReporter.SetNavigation_Image(nameBitmap);
 
 			string text = ocrService.AnalyzeText(n).Trim();
 			if (text != "")
@@ -237,7 +239,7 @@ namespace InventoryKamera
 			}
 			else
 			{
-				UserInterface.AddError(text);
+				progressReporter.AddError(text);
 			}
 			n.Dispose();
 			nameBitmap.Dispose();
@@ -292,7 +294,7 @@ namespace InventoryKamera
 					if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(element))
 					{
 						Logger.Debug("Scanned character name as {0} with element {1}", name, element);
-                        UserInterface.SetCharacter_NameAndElement(bm, name, element);
+                        progressReporter.SetCharacter_NameAndElement(bm, name, element);
 						return;
 					}
 					else
@@ -346,7 +348,7 @@ namespace InventoryKamera
                     {
                         maxLevel = (int)Math.Round(maxLevel / 10.0, MidpointRounding.AwayFromZero) * 10;
                         ascended = 20 <= level && level < maxLevel;
-                        UserInterface.SetCharacter_Level(bm, level, maxLevel);
+                        progressReporter.SetCharacter_Level(bm, level, maxLevel);
                         n.Dispose();
                         bm.Dispose();
                         Logger.Debug("Parsed character level as {0}", level);
@@ -395,7 +397,7 @@ namespace InventoryKamera
 			else
 			{
 				Debug.Print("Error: Found " + experience + " instead of experience");
-				UserInterface.AddError("Found " + experience + " instead of experience");
+				progressReporter.AddError("Found " + experience + " instead of experience");
 			}
 
 			return experience;
@@ -453,7 +455,7 @@ namespace InventoryKamera
 			}
 
 			Navigation.sim.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.ESCAPE);
-			UserInterface.SetCharacter_Constellation(constellation);
+			progressReporter.SetCharacter_Constellation(constellation);
 			return constellation;
 		}
 
@@ -523,7 +525,7 @@ namespace InventoryKamera
 						if (level >= 1 && level <= 15)
 						{
 							talents[talent] = level;
-							UserInterface.SetCharacter_Talent(talentLevel, level.ToString(), i);
+							progressReporter.SetCharacter_Talent(talentLevel, level.ToString(), i);
 						}
 					}
 

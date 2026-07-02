@@ -37,12 +37,12 @@ namespace InventoryKamera
 		private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
 
-		public MaterialScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings) : base(ocrService, imagePreprocessor, scanSettings)
+		public MaterialScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, IScanProgressReporter progressReporter) : base(ocrService, imagePreprocessor, scanSettings, progressReporter)
 		{
 			inventoryPage = InventoryPage.CharacterDevelopmentItems;
 		}
 
-		public MaterialScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, InventoryPage section) : base(ocrService, imagePreprocessor, scanSettings)
+		public MaterialScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, IScanProgressReporter progressReporter, InventoryPage section) : base(ocrService, imagePreprocessor, scanSettings, progressReporter)
 		{
 			inventoryPage = section;
 		}
@@ -118,7 +118,7 @@ namespace InventoryKamera
 							material.count = ScanMaterialCount(rectangle, out Bitmap quantity);
 							if (material.count == 0)
 							{
-								UserInterface.AddError($"Failed to parse quantity for {material.name}");
+								progressReporter.AddError($"Failed to parse quantity for {material.name}");
 								SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
 							}
 							if (scanSettings.LogScreenshots || material.count == 0)
@@ -126,8 +126,8 @@ namespace InventoryKamera
 								SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
                             }
 							inventory.Materials.Add(material);
-							UserInterface.ResetCharacterDisplay();
-							UserInterface.SetMaterial(nameplate, quantity, material.name, material.count);
+							progressReporter.ResetCharacterDisplay();
+							progressReporter.SetMaterial(nameplate, quantity, material.name, material.count);
 
 							previousMaterial.name = material.name;
 						}
@@ -207,7 +207,7 @@ namespace InventoryKamera
 						material.count = ScanMaterialCount(rectangle, out Bitmap quantity);
 						if (material.count == 0)
 						{
-							UserInterface.AddError($"Failed to parse quantity for {material.name}");
+							progressReporter.AddError($"Failed to parse quantity for {material.name}");
 							SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
 						}
 						else if (scanSettings.LogScreenshots)
@@ -215,8 +215,8 @@ namespace InventoryKamera
 							SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
 						}
 						inventory.Materials.Add(material);
-						UserInterface.ResetCharacterDisplay();
-						UserInterface.SetMaterial(nameplate, quantity, material.name, material.count);
+						progressReporter.ResetCharacterDisplay();
+						progressReporter.SetMaterial(nameplate, quantity, material.name, material.count);
 						passby = false; // New material found so break on next old material
 						quantity.Dispose();
 					}
@@ -250,15 +250,15 @@ namespace InventoryKamera
 
 				if (int.TryParse(mora, out int count))
 				{
-					UserInterface.ResetCharacterDisplay();
-					UserInterface.SetMora(screenshot, count);
+					progressReporter.ResetCharacterDisplay();
+					progressReporter.SetMora(screenshot, count);
                     if (scanSettings.LogScreenshots) 
 						SaveInventoryBitmap(screenshot, "mora.png");
 				}
 				else
 				{
-					UserInterface.SetNavigation_Image(screenshot);
-					UserInterface.AddError("Unable to parse mora count");
+					progressReporter.SetNavigation_Image(screenshot);
+					progressReporter.AddError("Unable to parse mora count");
 					SaveInventoryBitmap(screenshot, "mora.png");
 				}
 				return count;

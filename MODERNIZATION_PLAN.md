@@ -12,7 +12,7 @@
 |---|---|---|
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
-| **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4 investigated and deliberately deferred (remote/variable-shape data + a mutable field make it a real design problem, not a mechanical one). §2.5 not started. |
+| **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4 investigated and deliberately deferred (remote/variable-shape data + a mutable field make it a real design problem, not a mechanical one). §2.5 first slice done: `IScanProgressReporter` seam added over the static `UserInterface`; the actual MVVM redesign (observable view model, `MainForm` as a thin view) is unstarted and substantially bigger. |
 | **3 — UX** | ⬜ not started | §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
 
 **Runtime:** the app now targets **`net8.0-windows7.0`** (was net472 through Phase 0; bumped from bare `net8.0-windows` after live testing surfaced 670+ spurious CA1416 warnings — see below). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
@@ -396,11 +396,32 @@ Split the 957-line static class into injected services:
     resolve both the tolerant-deserialization and the mutable-field questions before this is a clean
     win over `Dictionary<string, JObject>`.
 
-### 2.5 Decouple UI from logic (MVVM-lite) — not started
-- Introduce a `ScanViewModel` exposing observable progress/state. Scrapers report progress via an `IProgress<ScanProgress>` / events — **not** by writing into static `UserInterface` WinForms controls.
-- `MainForm` becomes a thin view bound to the view model. This is the bridge to Phase 3.
+### 2.5 Decouple UI from logic (MVVM-lite) 🔄 first slice done
+- **`IScanProgressReporter` seam** ✅ **done** (this scope) — added `IScanProgressReporter`/
+  `UserInterfaceReporter`, same instance-method-seam shape as `IImagePreprocessor`/`ImageProcessor`
+  and `IScanSettings`/`ScanSettings`. `UserInterfaceReporter` delegates straight to the existing
+  static `UserInterface` (unchanged — still does direct WinForms control manipulation with
+  `Control.Invoke` thread marshaling, wired up once via `UserInterface.Init` from `MainForm`).
+  Constructor-injected into all 5 scrapers and `InventoryKamera` alongside `ocrService`/
+  `imagePreprocessor`/`scanSettings`; replaced the ~48 `UserInterface.*` calls in scraper files and
+  `InventoryKamera.cs` with `progressReporter.*`. Left `GOOD.cs` (1 call, export logic) and
+  `MainForm.cs` (12 calls — `UserInterface.Init` itself plus a few direct status/reset calls issued
+  from UI event handlers, not scan logic) on the static class — same "not scan logic" scoping used in
+  §2.3.
+  - **No test added:** unlike `ImageProcessor`/`ScanSettings`, exercising `UserInterfaceReporter`
+    means calling through to real `Control.Invoke`, which requires a live window handle and pumped
+    message loop — calling it from a headless xUnit test risks a hang rather than a fast, useful
+    assertion. Confirmed correct by compilation + the existing OCR/ImagePreprocessor/ScanSettings test
+    coverage exercising the same scraper code paths that now call through this seam.
+  - **This is only the first, low-risk slice of §2.5** — it decouples scan logic call sites from the
+    concrete static type, same pattern as every other Phase 2 service, but does **not** touch the
+    actual mechanism: progress still reaches the UI via direct `Control.Invoke` calls into WinForms
+    controls, not an observable `ScanViewModel`. The real MVVM redesign — a view model exposing
+    observable progress/state, `MainForm` becoming a thin view bound to it instead of controls being
+    written into directly — is unstarted, substantially bigger, and UI-wide (touches `MainForm.cs`'s
+    ~676 lines and its Designer-generated control wiring) in a way this slice deliberately avoided.
 
-**Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained. **Not yet met** — both genuinely stateful/mutable services (`IOcrService`'s engine pool, `IImagePreprocessor`) are now off statics and constructor-injected (✅) across all 5 scrapers, and scan logic's config reads go through `IScanSettings` instead of `Properties.Settings.Default` directly (✅). `LookupService`/`TextNormalizer` are intentionally stateless static classes (no mutable state to remove — they take the lookup data as parameters each call), but the lookup *dictionaries themselves* still live as mutable static fields on `GenshinProcesor`; moving those into an owned, non-static data store is unstarted follow-up work (likely folds into §2.4's typed models). `Properties.Settings.Default` itself is still the underlying persistence mechanism (by design — see §2.3). MVVM hasn't started.
+**Exit criteria:** no `static` mutable engine/lookup state; services unit-tested in isolation; UI receives progress through an abstraction; behavior parity maintained. **Not yet met** — both genuinely stateful/mutable services (`IOcrService`'s engine pool, `IImagePreprocessor`) are now off statics and constructor-injected (✅) across all 5 scrapers, scan logic's config reads go through `IScanSettings` instead of `Properties.Settings.Default` directly (✅), and scan logic's progress-reporting calls go through `IScanProgressReporter` instead of the static `UserInterface` directly (✅). `LookupService`/`TextNormalizer` are intentionally stateless static classes (no mutable state to remove — they take the lookup data as parameters each call), but the lookup *dictionaries themselves* still live as mutable static fields on `GenshinProcesor`; moving those into an owned, non-static data store is unstarted follow-up work (likely folds into §2.4's typed models). `Properties.Settings.Default` and the static `UserInterface` are both still the underlying mechanisms behind their respective seams (by design — see §2.3/§2.5). The actual "UI receives progress through an abstraction" criterion — an observable view model instead of direct control manipulation — hasn't started.
 
 ---
 

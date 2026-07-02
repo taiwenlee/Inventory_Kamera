@@ -64,12 +64,14 @@ namespace InventoryKamera
         protected readonly IOcrService ocrService;
         protected readonly IImagePreprocessor imagePreprocessor;
         protected readonly IScanSettings scanSettings;
+        protected readonly IScanProgressReporter progressReporter;
 
-        public InventoryScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings)
+        public InventoryScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, IScanProgressReporter progressReporter)
         {
             this.ocrService = ocrService;
             this.imagePreprocessor = imagePreprocessor;
             this.scanSettings = scanSettings;
+            this.progressReporter = progressReporter;
 
             materialPages = new List<InventoryPage>();
 
@@ -142,7 +144,7 @@ namespace InventoryKamera
 
             using (Bitmap countBitmap = Navigation.CaptureRegion(region))
             {
-                UserInterface.SetNavigation_Image(countBitmap);
+                progressReporter.SetNavigation_Image(countBitmap);
 
                 Bitmap n = imagePreprocessor.ConvertToGrayscale(countBitmap);
                 imagePreprocessor.SetContrast(60.0, ref n);

@@ -14,7 +14,7 @@ namespace InventoryKamera
 	{
 		private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-		public ArtifactScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings) : base(ocrService, imagePreprocessor, scanSettings)
+		public ArtifactScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, IScanProgressReporter progressReporter) : base(ocrService, imagePreprocessor, scanSettings, progressReporter)
 		{
 			inventoryPage = InventoryPage.Artifacts;
             SortByLevel = scanSettings.MinimumArtifactLevel > 0;
@@ -37,7 +37,7 @@ namespace InventoryKamera
 			int totalRows = (int)Math.Ceiling(artifactCount / (decimal)cols);
 			int cardsQueued = 0;
 			int rowsQueued = 0;
-			UserInterface.SetArtifact_Max(artifactCount);
+			progressReporter.SetArtifact_Max(artifactCount);
 
 			StopScanning = false;
 

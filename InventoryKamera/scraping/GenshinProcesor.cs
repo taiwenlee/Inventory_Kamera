@@ -163,17 +163,17 @@ namespace InventoryKamera
 			else throw new KeyNotFoundException($"Could not find '{target}' entry in characters.json");
 		}
 
-		internal static void AssignTravelerName(string name, IOcrService ocrService, IImagePreprocessor imagePreprocessor)
+		internal static void AssignTravelerName(string name, IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanProgressReporter progressReporter)
 		{
-			name = string.IsNullOrWhiteSpace(name) ? CharacterScraper.ScanMainCharacterName(ocrService, imagePreprocessor) : name.ToLower();
+			name = string.IsNullOrWhiteSpace(name) ? CharacterScraper.ScanMainCharacterName(ocrService, imagePreprocessor, progressReporter) : name.ToLower();
 			if (!string.IsNullOrWhiteSpace(name))
 			{
 				UpdateCharacterName("traveler", name);
-				UserInterface.SetMainCharacterName(name);
+				progressReporter.SetMainCharacterName(name);
 			}
 			else
 			{
-				UserInterface.AddError("Could not parse Traveler's username");
+				progressReporter.AddError("Could not parse Traveler's username");
 			}
 		}
 

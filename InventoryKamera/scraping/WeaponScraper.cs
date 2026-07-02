@@ -13,7 +13,7 @@ namespace InventoryKamera
     {
 		private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
-		public WeaponScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings) : base(ocrService, imagePreprocessor, scanSettings)
+		public WeaponScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, IScanProgressReporter progressReporter) : base(ocrService, imagePreprocessor, scanSettings, progressReporter)
         {
             inventoryPage = InventoryPage.Weapons;
             SortByLevel = scanSettings.MinimumWeaponLevel > 1;
@@ -30,7 +30,7 @@ namespace InventoryKamera
             int cardsQueued = 0;
             int rowsQueued = 0;
             int offset = 0;
-            UserInterface.SetWeapon_Max(weaponCount);
+            progressReporter.SetWeapon_Max(weaponCount);
 
             // Determine Delay if delay has not been found before
             // Scraper.FindDelay(rectangles);
