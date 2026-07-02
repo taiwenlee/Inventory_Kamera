@@ -89,7 +89,7 @@ namespace InventoryKamera
             genshinData.Inventory.AllMaterials.ToList().ForEach(material => Materials.Add(material.name, material.count));
         }
 
-        internal void WriteToJSON(string outputDirectory)
+        internal void WriteToJSON(string outputDirectory, IScanProgressReporter progressReporter)
         {
             // Creates directory if doesn't exist
             Directory.CreateDirectory(outputDirectory);
@@ -104,7 +104,7 @@ namespace InventoryKamera
 
             if (!File.Exists(outputFile)) // did not make file
             {
-                UserInterface.AddError($"Failed to output at : {outputDirectory}");
+                progressReporter.AddError($"Failed to output at : {outputDirectory}");
             }
         }
 

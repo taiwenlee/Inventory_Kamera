@@ -21,16 +21,10 @@ namespace InventoryKamera
 		private static PictureBox[] cTalent_PictureBoxes = new PictureBox[3];
 		private static TextBox character_TextBox;
 
-		// Status
-		private static Label programStatus_Label;
-
-		// Error box
-		private static TextBox error_TextBox;
-
 		// Current Images
 		private static PictureBox navigation_PictureBox;
 
-		public static void Init(PictureBox _gear_PictureBox, TextBox _a_textbox, PictureBox _c_name, PictureBox _c_level, PictureBox[] _c_talent, TextBox _c_textbox, Label _programStatus, TextBox _error_textBox, PictureBox _navigation_Image)
+		public static void Init(PictureBox _gear_PictureBox, TextBox _a_textbox, PictureBox _c_name, PictureBox _c_level, PictureBox[] _c_talent, TextBox _c_textbox, PictureBox _navigation_Image)
 		{
 			// Artifacts and Weapons
 			gear_PictureBox = _gear_PictureBox;
@@ -41,12 +35,6 @@ namespace InventoryKamera
 			cLevel_PictureBox = _c_level;
 			cTalent_PictureBoxes = _c_talent;
 			character_TextBox = _c_textbox;
-
-			// Status
-			programStatus_Label = _programStatus;
-
-			// Error
-			error_TextBox = _error_textBox;
 
 			// Navigation Image
 			navigation_PictureBox = _navigation_Image;
@@ -181,25 +169,6 @@ namespace InventoryKamera
 			}
 		}
 
-		public static void SetProgramStatus(string status, bool ok = true)
-		{
-			MethodInvoker statusAction = delegate
-			{
-				programStatus_Label.Text = status;
-				programStatus_Label.ForeColor = ok ? Color.Green : Color.Red;
-				programStatus_Label.Font = new Font(programStatus_Label.Font.FontFamily, 15);
-				programStatus_Label.Refresh();
-			};
-
-			programStatus_Label.Invoke(statusAction);
-		}
-
-		public static void AddError(string error)
-		{
-			UpdateTextBox($"{error.Replace("\n", Environment.NewLine)}" + Environment.NewLine, error_TextBox);
-			Logger.Error(error);
-		}
-
 		public static void SetNavigation_Image(Bitmap bm)
 		{
 			UpdatePictureBox(bm, navigation_PictureBox);
@@ -230,13 +199,6 @@ namespace InventoryKamera
 
 			gear_PictureBox.Invoke(gearAction);
 			gear_TextBox.Invoke(textAction);
-		}
-
-		public static void ResetErrors()
-		{
-			MethodInvoker textAction = delegate { error_TextBox.Clear(); };
-
-			error_TextBox.Invoke(textAction);
 		}
 
 	}

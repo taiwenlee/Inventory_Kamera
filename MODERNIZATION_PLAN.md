@@ -396,7 +396,7 @@ Split the 957-line static class into injected services:
     resolve both the tolerant-deserialization and the mutable-field questions before this is a clean
     win over `Dictionary<string, JObject>`.
 
-### 2.5 Decouple UI from logic (MVVM-lite) 🔄 two slices done
+### 2.5 Decouple UI from logic (MVVM-lite) 🔄 three slices done
 - **`IScanProgressReporter` seam** ✅ **done** — added the interface, initially implemented by a
   `UserInterfaceReporter` that delegated every method straight to the existing static `UserInterface`
   (same instance-method-seam shape as `IImagePreprocessor`/`ImageProcessor` and `IScanSettings`/
@@ -425,10 +425,50 @@ Split the 957-line static class into injected services:
     `IScanProgressReporter`, counter state is plain fields + a C# event with no `Control.Invoke`
     dependency, so it doesn't have the WinForms-message-loop testing problem the rest of this seam has.
   - **Everything else in `IScanProgressReporter` still bridges straight to `UserInterface`** — gear
-    display, character display, mora/material display, status, errors, navigation image. Carving those
-    out into more `ScanViewModel` state is the same kind of slice, done one control group at a time
-    with live testing after each, per the sequencing note below. `MainForm.cs`'s Designer-generated
-    control wiring for those groups is untouched.
+    display, character display, mora/material display, navigation image. Carving those out into more
+    `ScanViewModel` state is the same kind of slice, done one control group at a time with live testing
+    after each, per the sequencing note below. `MainForm.cs`'s Designer-generated control wiring for
+    those groups is untouched.
+- **`ScanViewModel` — status/errors group** ✅ **done** — same treatment as the counters slice:
+  `ScanViewModel` now owns `ProgramStatus`/`ProgramStatusOk` state (raising `ProgramStatusChanged`)
+  and error reporting (`ErrorAdded(string)` per error, `ErrorsReset` on clear) instead of
+  `UserInterface` owning `programStatus_Label`/`error_TextBox` directly. `MainForm` subscribes to all
+  three events once at startup and renders/appends into those controls itself. `AddError` is the most
+  exercised method on the whole interface — used from scan logic across every scraper plus
+  `InventoryKamera.cs`'s error handling — so this slice touched real, frequently-hit code, not just
+  edge cases.
+  - `UserInterface.SetProgramStatus`/`AddError`/`ResetErrors`/`ResetAll` and their backing
+    `programStatus_Label`/`error_TextBox` fields are deleted, same as the counters slice's dead-code
+    cleanup. `MainForm.cs`'s own direct status/error calls (10 call sites, e.g. "Scanning" on Start,
+    "Stopping scan..." on the Stop hotkey) now go through `scanViewModel` too, since `MainForm` already
+    holds that instance.
+  - `GOOD.cs`'s single `AddError` call (file-export failure) couldn't stay on the now-deleted static
+    method; `GOOD.WriteToJSON` picked up an `IScanProgressReporter` parameter from its one caller in
+    `MainForm.cs`, rather than reintroducing a static bridge just for one call site.
+  - No new tests for this slice specifically (status/errors still needs `Control.Invoke` in `MainForm`'s
+    handlers, same testing constraint as the rest of the non-counters surface) — verified by
+    compilation plus the existing scraper test coverage exercising the same `AddError` call paths.
+
+**Bugs found during §2.5 live testing (2026-07-01), unrelated to the MVVM changes:**
+- **Negative list index in `ArtifactScraper.ScanArtifacts`/`WeaponScraper.ScanWeapons`:** both compute
+  a queueing loop's start index as `(rows - (totalRows - rowsQueued)) * cols`. When `GetPageOfItems`
+  falls back to a previous page's row count (the `NullReferenceException` fix from earlier in this
+  session), `rows` can legitimately differ from what the caller's `totalRows`/`rowsQueued` bookkeeping
+  assumed, driving this negative — and a negative `List<T>` index throws exactly this error. Same
+  "one crash was masking another" pattern as the cancel-latency bug: this was very likely unreachable
+  before the `GetPageOfItems` fix, since the app crashed earlier in that method first. Fixed by
+  clamping to `Math.Max(0, ...)` in both scrapers.
+- **`CharacterScraper.ScanCharacter` NRE on `character.Element.ToLower()`:** the name/element
+  validation guard only checked `string.IsNullOrWhiteSpace(name)`, so a character whose *name* scan
+  succeeded but *element* scan failed fell through with a null `character.Element`, crashing later.
+  Fixed the guard to check both.
+- **`CharacterScraper.ScanCharacter` NRE on missing `ConstellationOrder`:** a character found in
+  `GenshinProcesor.Characters` but missing its `ConstellationOrder` field crashed instead of failing
+  gracefully. Per the user: every character in the database should have this field, so its absence
+  means the character data failed to fully download/parse — **not** a legitimately-missing field to
+  silently tolerate. Fixed to surface `progressReporter.AddError($"{character.NameGOOD}: missing
+  ConstellationOrder data...")` and skip just the talent-scaling adjustment for that character, rather
+  than either crashing the whole scan or silently proceeding with wrong talent levels.
 
 **Remaining §2.5/Phase 3 sequencing, planned but not started (2026-07-01):** the user wants the UI
 visually modernized eventually (dark mode, better layout/progress display, more guided flow) and

@@ -59,11 +59,12 @@ namespace InventoryKamera
                 CharacterLevel_PictureBox,
                 new[] { CharacterTalent1_PictureBox, CharacterTalent2_PictureBox, CharacterTalent3_PictureBox },
                 CharacterOutput_TextBox,
-                ProgramStatus_Label,
-                ErrorLog_TextBox,
                 Navigation_Image);
 
             scanViewModel.CountersChanged += OnCountersChanged;
+            scanViewModel.ProgramStatusChanged += OnProgramStatusChanged;
+            scanViewModel.ErrorAdded += OnErrorAdded;
+            scanViewModel.ErrorsReset += OnErrorsReset;
         }
 
         // Renders scanViewModel's counter state into the labels MainForm owns directly -- the
@@ -80,6 +81,32 @@ namespace InventoryKamera
                 CharactersScanned_Label.Text = scanViewModel.CharacterCount.ToString();
             };
             WeaponsScannedCount_Label.Invoke(render);
+        }
+
+        private void OnProgramStatusChanged()
+        {
+            System.Windows.Forms.MethodInvoker render = delegate
+            {
+                ProgramStatus_Label.Text = scanViewModel.ProgramStatus;
+                ProgramStatus_Label.ForeColor = scanViewModel.ProgramStatusOk ? Color.Green : Color.Red;
+                ProgramStatus_Label.Font = new Font(ProgramStatus_Label.Font.FontFamily, 15);
+            };
+            ProgramStatus_Label.Invoke(render);
+        }
+
+        private void OnErrorAdded(string error)
+        {
+            System.Windows.Forms.MethodInvoker render = delegate
+            {
+                ErrorLog_TextBox.AppendText(error.Replace("\n", Environment.NewLine) + Environment.NewLine);
+            };
+            ErrorLog_TextBox.Invoke(render);
+        }
+
+        private void OnErrorsReset()
+        {
+            System.Windows.Forms.MethodInvoker render = delegate { ErrorLog_TextBox.Clear(); };
+            ErrorLog_TextBox.Invoke(render);
         }
 
         private double ScannerDelayValue(int value)
@@ -112,7 +139,7 @@ namespace InventoryKamera
                 // phases and between items within a phase (see InventoryKamera.CancelRequested).
                 InventoryKamera.CancelRequested = true;
 
-                UserInterface.SetProgramStatus("Stopping scan...");
+                scanViewModel.SetProgramStatus("Stopping scan...");
             }
         }
 
@@ -134,7 +161,7 @@ namespace InventoryKamera
         {
             if (scannerThread.IsAlive)
             {
-                UserInterface.AddError(error);
+                scanViewModel.AddError(error);
             }
         }
 
@@ -261,7 +288,7 @@ namespace InventoryKamera
 
             scanViewModel.ResetAll();
 
-            UserInterface.SetProgramStatus("Scanning");
+            scanViewModel.SetProgramStatus("Scanning");
             Logger.Info("Starting scan");
 
             if (Directory.Exists(OutputPath_TextBox.Text) || Directory.CreateDirectory(OutputPath_TextBox.Text).Exists)
@@ -331,7 +358,7 @@ namespace InventoryKamera
                             // Thread.Abort behaviour: skip GOOD conversion/export/optimizer dialog.
                             // The user can still use "Export Scanned Data" to export what was collected.
                             data?.StopImageProcessorWorkers();
-                            UserInterface.SetProgramStatus("Scan stopped");
+                            scanViewModel.SetProgramStatus("Scan stopped");
                         }
                         else
                         {
@@ -340,24 +367,24 @@ namespace InventoryKamera
                             Logger.Info("Data converted to GOOD");
 
                             // Make Json File
-                            good.WriteToJSON(OutputPath_TextBox.Text);
+                            good.WriteToJSON(OutputPath_TextBox.Text, scanViewModel);
                             Logger.Info("Exported data");
 
-                            UserInterface.SetProgramStatus("Finished");
+                            scanViewModel.SetProgramStatus("Finished");
                             OpenOptimizerDialog(good);
                         }
                     }
                     catch (NotImplementedException ex)
                     {
-                        UserInterface.AddError(ex.ToString());
+                        scanViewModel.AddError(ex.ToString());
                     }
                     catch (Exception ex)
                     {
                         // Workers can get stuck if the thread is aborted or an exception is raised
                         data?.StopImageProcessorWorkers();
                         while (ex.InnerException != null) ex = ex.InnerException;
-                        UserInterface.AddError(ex.ToString());
-                        UserInterface.SetProgramStatus("Scan aborted", ok: false);
+                        scanViewModel.AddError(ex.ToString());
+                        scanViewModel.SetProgramStatus("Scan aborted", ok: false);
                     }
                     finally
                     {
@@ -378,9 +405,9 @@ namespace InventoryKamera
             else
             {
                 if (string.IsNullOrWhiteSpace(OutputPath_TextBox.Text))
-                    UserInterface.AddError("Please set an output directory");
+                    scanViewModel.AddError("Please set an output directory");
                 else
-                    UserInterface.AddError($"{OutputPath_TextBox.Text} is not a valid directory");
+                    scanViewModel.AddError($"{OutputPath_TextBox.Text} is not a valid directory");
             }
         }
 

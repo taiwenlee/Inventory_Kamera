@@ -5,23 +5,28 @@ using System.Threading;
 namespace InventoryKamera
 {
     /// <summary>
-    /// First real slice of the MVVM redesign sketched in the plan for §2.5: owns genuine observable
-    /// state for exactly one control group (the weapon/artifact/character counters) instead of
-    /// delegating straight to <see cref="UserInterface"/>. <see cref="MainForm"/> owns one long-lived
-    /// instance, subscribes to <see cref="CountersChanged"/> once at startup, and renders the counter
-    /// labels itself from <see cref="WeaponCount"/>/<see cref="WeaponMax"/>/etc. -- instead of a
-    /// shared static facade owning those controls. Everything else still bridges to
-    /// <see cref="UserInterface"/> unchanged; carving out more control groups this way is deliberately
-    /// left as separate, individually live-tested slices (see the plan doc's §2.5 sequencing note)
-    /// rather than one large rewrite.
+    /// MVVM redesign for §2.5, carved out one control group at a time: owns genuine observable state
+    /// for the counters (weapon/artifact/character scanned/max) and the status/errors groups instead
+    /// of delegating straight to <see cref="UserInterface"/>. <see cref="MainForm"/> owns one
+    /// long-lived instance, subscribes to <see cref="CountersChanged"/>/<see cref="ProgramStatusChanged"/>/
+    /// <see cref="ErrorAdded"/>/<see cref="ErrorsReset"/> once at startup, and renders those controls
+    /// itself -- instead of a shared static facade owning them. Gear display, character display, and
+    /// mora/material display still bridge to <see cref="UserInterface"/> unchanged; carving those out
+    /// too is deliberately left as separate, individually live-tested slices (see the plan doc's §2.5
+    /// sequencing note) rather than one large rewrite.
     /// </summary>
     internal sealed class ScanViewModel : IScanProgressReporter
     {
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
         private int weaponCount;
         private int? weaponMax;
         private int artifactCount;
         private int? artifactMax;
         private int characterCount;
+
+        private string programStatus = "";
+        private bool programStatusOk = true;
 
         /// <summary>
         /// Raised after any counter-related state changes. Scan logic calls this from background
@@ -38,6 +43,21 @@ namespace InventoryKamera
         /// <summary>Null until <see cref="SetArtifact_Max"/> runs -- matches the original "?" placeholder.</summary>
         public int? ArtifactMax => artifactMax;
         public int CharacterCount => characterCount;
+
+        /// <summary>Raised after <see cref="SetProgramStatus"/> runs.</summary>
+        public event Action ProgramStatusChanged;
+
+        /// <summary>
+        /// Raised after <see cref="AddError"/> runs, with the newly-added error. Incremental (not a
+        /// full re-render) since errors only ever accumulate until <see cref="ResetErrors"/>.
+        /// </summary>
+        public event Action<string> ErrorAdded;
+
+        /// <summary>Raised after <see cref="ResetErrors"/> runs.</summary>
+        public event Action ErrorsReset;
+
+        public string ProgramStatus => programStatus;
+        public bool ProgramStatusOk => programStatusOk;
 
         public void SetWeapon_Max(int value)
         {
@@ -84,7 +104,25 @@ namespace InventoryKamera
             UserInterface.ResetGearDisplay();
             UserInterface.ResetCharacterDisplay();
             ResetCounters();
-            UserInterface.ResetErrors();
+            ResetErrors();
+        }
+
+        public void SetProgramStatus(string status, bool ok = true)
+        {
+            programStatus = status;
+            programStatusOk = ok;
+            ProgramStatusChanged?.Invoke();
+        }
+
+        public void AddError(string error)
+        {
+            Logger.Error(error);
+            ErrorAdded?.Invoke(error);
+        }
+
+        public void ResetErrors()
+        {
+            ErrorsReset?.Invoke();
         }
 
         public void SetGear(Bitmap bm, Weapon weapon) => UserInterface.SetGear(bm, weapon);
@@ -98,11 +136,8 @@ namespace InventoryKamera
         public void SetMaterial(Bitmap nameplate, Bitmap quantity, string name, int count) => UserInterface.SetMaterial(nameplate, quantity, name, count);
         public void SetMora(Bitmap mora, int count) => UserInterface.SetMora(mora, count);
         public void SetCharacter_Talent(Bitmap bm, string text, int i) => UserInterface.SetCharacter_Talent(bm, text, i);
-        public void SetProgramStatus(string status, bool ok = true) => UserInterface.SetProgramStatus(status, ok);
-        public void AddError(string error) => UserInterface.AddError(error);
         public void SetNavigation_Image(Bitmap bm) => UserInterface.SetNavigation_Image(bm);
         public void ResetCharacterDisplay() => UserInterface.ResetCharacterDisplay();
         public void ResetGearDisplay() => UserInterface.ResetGearDisplay();
-        public void ResetErrors() => UserInterface.ResetErrors();
     }
 }
