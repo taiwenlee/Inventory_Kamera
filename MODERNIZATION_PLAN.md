@@ -17,7 +17,7 @@
 
 **Runtime:** the app now targets **`net8.0-windows7.0`** (was net472 through Phase 0; bumped from bare `net8.0-windows` after live testing surfaced 670+ spurious CA1416 warnings — see below). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
-**Test/CI status:** 110 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService`/`TextNormalizer` tests using fake dictionaries, `ImageProcessor` delegation tests, `ScanSettings` live-forwarding tests, and `ScanViewModel` counter-state tests. GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
+**Test/CI status:** 116 tests green (net8.0), including real Tesseract OCR round-trip tests — previously impossible, since touching `GenshinProcesor` at all used to eagerly load the whole engine pool from disk — `LookupService`/`TextNormalizer` tests using fake dictionaries, `ImageProcessor` delegation tests, `ScanSettings` live-forwarding tests, and `ScanViewModel` counter/gear-state tests (including a concurrency regression test). GitHub Actions build+test on push/PR and a tag-driven release workflow (publishing single-file self-contained) are live.
 
 **Standing gap:** live smoke-testing during Phase 2 (2026-07-01) surfaced two real bugs missed by build/test verification alone — a pre-existing `NullReferenceException` in `GetPageOfItems` when page-item detection exhausts its retries with `LogScreenshots` enabled, and a cancel-latency regression (same method's retry loop had no `CancelRequested` check, so Stop couldn't interrupt it — previously masked by the crash). Both fixed and verified live. A full scan was also run live after the `IScanProgressReporter` seam (§2.5's first slice) landed, confirming progress display, error reporting, and cancel all still behave identically now that scan logic goes through the injected interface instead of the static `UserInterface` directly. This is a reminder that build+test-green doesn't substitute for live verification on a scan-heavy, UI-automation-driven app like this one; keep testing live where practical as Phase 2 continues.
 
@@ -396,7 +396,7 @@ Split the 957-line static class into injected services:
     resolve both the tolerant-deserialization and the mutable-field questions before this is a clean
     win over `Dictionary<string, JObject>`.
 
-### 2.5 Decouple UI from logic (MVVM-lite) 🔄 three slices done
+### 2.5 Decouple UI from logic (MVVM-lite) 🔄 four slices done
 - **`IScanProgressReporter` seam** ✅ **done** — added the interface, initially implemented by a
   `UserInterfaceReporter` that delegated every method straight to the existing static `UserInterface`
   (same instance-method-seam shape as `IImagePreprocessor`/`ImageProcessor` and `IScanSettings`/
@@ -424,11 +424,11 @@ Split the 957-line static class into injected services:
   - **This part is genuinely unit-tested** (`ScanViewModelTests`, 4 tests) — unlike the rest of
     `IScanProgressReporter`, counter state is plain fields + a C# event with no `Control.Invoke`
     dependency, so it doesn't have the WinForms-message-loop testing problem the rest of this seam has.
-  - **Everything else in `IScanProgressReporter` still bridges straight to `UserInterface`** — gear
-    display, character display, mora/material display, navigation image. Carving those out into more
-    `ScanViewModel` state is the same kind of slice, done one control group at a time with live testing
-    after each, per the sequencing note below. `MainForm.cs`'s Designer-generated control wiring for
-    those groups is untouched.
+  - **Everything else in `IScanProgressReporter` still bridges straight to `UserInterface`** at the
+    time this slice landed — character display, mora/material display, navigation image. Carving those
+    out into more `ScanViewModel` state is the same kind of slice, done one control group at a time
+    with live testing after each, per the sequencing note below. `MainForm.cs`'s Designer-generated
+    control wiring for those groups is untouched.
 - **`ScanViewModel` — status/errors group** ✅ **done** — same treatment as the counters slice:
   `ScanViewModel` now owns `ProgramStatus`/`ProgramStatusOk` state (raising `ProgramStatusChanged`)
   and error reporting (`ErrorAdded(string)` per error, `ErrorsReset` on clear) instead of
@@ -448,6 +448,36 @@ Split the 957-line static class into injected services:
   - No new tests for this slice specifically (status/errors still needs `Control.Invoke` in `MainForm`'s
     handlers, same testing constraint as the rest of the non-counters surface) — verified by
     compilation plus the existing scraper test coverage exercising the same `AddError` call paths.
+- **`ScanViewModel` — gear display group** ✅ **done** — same treatment again: `ScanViewModel` now
+  owns `GearImage`/`GearText` state (raising `GearChanged`) instead of `UserInterface` owning
+  `gear_PictureBox`/`gear_TextBox` directly. Unlike the counters/status groups (plain value state),
+  this one holds a `Bitmap`, so ownership/disposal needed explicit handling: `SetGearImage` clones the
+  incoming bitmap (matching the original `UpdatePictureBox`'s defensive clone, so scan logic can freely
+  dispose its own copy) and disposes the *previous* `GearImage` before replacing it, preventing a slow
+  GDI-handle leak across a long scan.
+  - **Found a real concurrency bug via live testing, not caught by build/test:** `InventoryKamera`'s
+    worker pool runs 2-3 background threads concurrently, any of which can call `SetGear`/
+    `SetGearPictureBox` for a different weapon/artifact at the same time. The first version disposed
+    the old image and reassigned the field as two unsynchronized steps; a second thread could read the
+    field in the gap between them and hand `MainForm` an already-disposed `Bitmap`, which WinForms
+    renders as a white box with red X's (its broken-image placeholder) — exactly what the user saw
+    mid-scan. Fixed with a lock around the dispose-and-replace, plus a new `CloneGearImage()` method
+    that `MainForm` calls instead of reading the `GearImage` property directly — it clones under the
+    same lock, so the renderer always owns an independent copy no concurrent thread can dispose out
+    from under it. `MainForm`'s handler also now disposes its *own* previous `PictureBox.Image` before
+    replacing it, since it owns full copies now instead of a shared reference.
+  - **Unlike status/errors, this part is genuinely unit-tested** (6 new `ScanViewModelTests`, including
+    a regression test for the concurrency fix) — the clone-not-reference and dispose-on-replace
+    behavior doesn't need a live `Control`, just a `Bitmap`, so it doesn't have the WinForms-message-loop
+    constraint the render-handler side does.
+  - `UserInterface.SetGear`/`SetGearPictureBox`/`SetGearTextBox`/`ResetGearDisplay` and their backing
+    `gear_PictureBox`/`gear_TextBox` fields are deleted, same dead-code cleanup pattern as the other
+    slices.
+  - **Remaining in `IScanProgressReporter`, still bridging to `UserInterface`:** character display
+    (name/element/level/constellation/talents), mora/material display, navigation image. The user
+    plans to revamp character scanning separately, so that group is being deliberately skipped for now
+    rather than carved into `ScanViewModel` ahead of a redesign that would likely change its shape
+    anyway.
 
 **Bugs found during §2.5 live testing (2026-07-01), unrelated to the MVVM changes:**
 - **Negative list index in `ArtifactScraper.ScanArtifacts`/`WeaponScraper.ScanWeapons`:** both compute

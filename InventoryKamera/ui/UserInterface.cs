@@ -9,11 +9,6 @@ namespace InventoryKamera
 	{
 		private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-		// Artifacts and Weapons
-		private static PictureBox gear_PictureBox;
-
-		private static TextBox gear_TextBox;
-
 		// Character
 		private static PictureBox cName_PictureBox;
 
@@ -24,12 +19,8 @@ namespace InventoryKamera
 		// Current Images
 		private static PictureBox navigation_PictureBox;
 
-		public static void Init(PictureBox _gear_PictureBox, TextBox _a_textbox, PictureBox _c_name, PictureBox _c_level, PictureBox[] _c_talent, TextBox _c_textbox, PictureBox _navigation_Image)
+		public static void Init(PictureBox _c_name, PictureBox _c_level, PictureBox[] _c_talent, TextBox _c_textbox, PictureBox _navigation_Image)
 		{
-			// Artifacts and Weapons
-			gear_PictureBox = _gear_PictureBox;
-			gear_TextBox = _a_textbox;
-
 			// Characters
 			cName_PictureBox = _c_name;
 			cLevel_PictureBox = _c_level;
@@ -104,30 +95,6 @@ namespace InventoryKamera
 			}
 		}
 
-		public static void SetGear(Bitmap bm, Weapon weapon)
-		{
-			ResetGearDisplay();
-			SetGearPictureBox(bm);
-			SetGearTextBox(weapon.ToString());
-		}
-
-		public static void SetGear(Bitmap bm, Artifact artifact)
-		{
-			ResetGearDisplay();
-			SetGearPictureBox(bm);
-			SetGearTextBox(artifact.ToString());
-		}
-
-		public static void SetGearPictureBox(Bitmap bm)
-		{
-			UpdatePictureBox(bm, gear_PictureBox);
-		}
-
-		public static void SetGearTextBox(string text)
-		{
-			UpdateTextBox(text, gear_TextBox);
-		}
-
 		internal static void SetMainCharacterName(string text)
 		{
 			UpdateTextBox($"Traveler name: {text}", character_TextBox);
@@ -189,16 +156,6 @@ namespace InventoryKamera
 			cTalent_PictureBoxes[1].Invoke(talentAction_2);
 			cTalent_PictureBoxes[2].Invoke(talentAction_3);
 			character_TextBox.Invoke(textAction);
-		}
-
-		public static void ResetGearDisplay()
-		{
-			MethodInvoker gearAction = delegate { gear_PictureBox.Image = null; };
-
-			MethodInvoker textAction = delegate { gear_TextBox.Clear(); };
-
-			gear_PictureBox.Invoke(gearAction);
-			gear_TextBox.Invoke(textAction);
 		}
 
 	}

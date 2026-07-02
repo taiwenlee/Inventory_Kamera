@@ -6,13 +6,14 @@ namespace InventoryKamera
 {
     /// <summary>
     /// MVVM redesign for §2.5, carved out one control group at a time: owns genuine observable state
-    /// for the counters (weapon/artifact/character scanned/max) and the status/errors groups instead
-    /// of delegating straight to <see cref="UserInterface"/>. <see cref="MainForm"/> owns one
-    /// long-lived instance, subscribes to <see cref="CountersChanged"/>/<see cref="ProgramStatusChanged"/>/
-    /// <see cref="ErrorAdded"/>/<see cref="ErrorsReset"/> once at startup, and renders those controls
-    /// itself -- instead of a shared static facade owning them. Gear display, character display, and
-    /// mora/material display still bridge to <see cref="UserInterface"/> unchanged; carving those out
-    /// too is deliberately left as separate, individually live-tested slices (see the plan doc's §2.5
+    /// for the counters (weapon/artifact/character scanned/max), status/errors, and gear
+    /// (weapon/artifact picture + text) groups instead of delegating straight to
+    /// <see cref="UserInterface"/>. <see cref="MainForm"/> owns one long-lived instance, subscribes to
+    /// <see cref="CountersChanged"/>/<see cref="ProgramStatusChanged"/>/<see cref="ErrorAdded"/>/
+    /// <see cref="ErrorsReset"/>/<see cref="GearChanged"/> once at startup, and renders those controls
+    /// itself -- instead of a shared static facade owning them. Character display and mora/material
+    /// display still bridge to <see cref="UserInterface"/> unchanged; carving those out too is
+    /// deliberately left as separate, individually live-tested slices (see the plan doc's §2.5
     /// sequencing note) rather than one large rewrite.
     /// </summary>
     internal sealed class ScanViewModel : IScanProgressReporter
@@ -27,6 +28,10 @@ namespace InventoryKamera
 
         private string programStatus = "";
         private bool programStatusOk = true;
+
+        private readonly object gearLock = new object();
+        private Bitmap gearImage;
+        private string gearText = "";
 
         /// <summary>
         /// Raised after any counter-related state changes. Scan logic calls this from background
@@ -58,6 +63,37 @@ namespace InventoryKamera
 
         public string ProgramStatus => programStatus;
         public bool ProgramStatusOk => programStatusOk;
+
+        /// <summary>Raised after the gear (weapon/artifact) image or text changes.</summary>
+        public event Action GearChanged;
+
+        /// <summary>
+        /// Owned by this instance -- cloned from whatever <see cref="Bitmap"/> scan logic passes in
+        /// (matching the original <c>UpdatePictureBox</c>'s defensive clone, so scan logic can dispose
+        /// its own copy freely). <see cref="InventoryKamera"/>'s worker pool runs multiple background
+        /// threads concurrently, any of which can call <see cref="SetGear(Bitmap, Weapon)"/>/
+        /// <see cref="SetGearPictureBox"/> at the same time, so reading this field directly and handing
+        /// it to a <c>PictureBox</c> is unsafe -- a second thread's dispose-and-replace could run between
+        /// the read and the paint, leaving the control holding a disposed image (renders as a white box
+        /// with red X's). Use <see cref="CloneGearImage"/> for rendering instead; this property exists
+        /// for tests that only inspect state on one thread.
+        /// </summary>
+        public Bitmap GearImage { get { lock (gearLock) return gearImage; } }
+        public string GearText => gearText;
+
+        /// <summary>
+        /// Thread-safe snapshot for rendering: clones the current gear image under the same lock the
+        /// writers use, so the returned <see cref="Bitmap"/> is independently owned by the caller and
+        /// can never be disposed out from under it by a concurrent scan-logic thread. Returns null if
+        /// there's no current image.
+        /// </summary>
+        public Bitmap CloneGearImage()
+        {
+            lock (gearLock)
+            {
+                return gearImage == null ? null : CloneBitmap(gearImage);
+            }
+        }
 
         public void SetWeapon_Max(int value)
         {
@@ -101,7 +137,7 @@ namespace InventoryKamera
 
         public void ResetAll()
         {
-            UserInterface.ResetGearDisplay();
+            ResetGearDisplay();
             UserInterface.ResetCharacterDisplay();
             ResetCounters();
             ResetErrors();
@@ -125,10 +161,60 @@ namespace InventoryKamera
             ErrorsReset?.Invoke();
         }
 
-        public void SetGear(Bitmap bm, Weapon weapon) => UserInterface.SetGear(bm, weapon);
-        public void SetGear(Bitmap bm, Artifact artifact) => UserInterface.SetGear(bm, artifact);
-        public void SetGearPictureBox(Bitmap bm) => UserInterface.SetGearPictureBox(bm);
-        public void SetGearTextBox(string text) => UserInterface.SetGearTextBox(text);
+        public void SetGear(Bitmap bm, Weapon weapon)
+        {
+            SetGearImage(bm);
+            gearText = weapon.ToString();
+            GearChanged?.Invoke();
+        }
+
+        public void SetGear(Bitmap bm, Artifact artifact)
+        {
+            SetGearImage(bm);
+            gearText = artifact.ToString();
+            GearChanged?.Invoke();
+        }
+
+        public void SetGearPictureBox(Bitmap bm)
+        {
+            SetGearImage(bm);
+            GearChanged?.Invoke();
+        }
+
+        public void SetGearTextBox(string text)
+        {
+            gearText = text;
+            GearChanged?.Invoke();
+        }
+
+        public void ResetGearDisplay()
+        {
+            lock (gearLock)
+            {
+                gearImage?.Dispose();
+                gearImage = null;
+            }
+            gearText = "";
+            GearChanged?.Invoke();
+        }
+
+        private void SetGearImage(Bitmap bm)
+        {
+            var clone = CloneBitmap(bm);
+            lock (gearLock)
+            {
+                gearImage?.Dispose();
+                gearImage = clone;
+            }
+        }
+
+        private static Bitmap CloneBitmap(Bitmap bm)
+        {
+            var clone = new Bitmap(bm.Width, bm.Height);
+            using (var g = Graphics.FromImage(clone)) g.DrawImage(bm, 0, 0);
+            return clone;
+        }
+
         public void SetMainCharacterName(string text) => UserInterface.SetMainCharacterName(text);
         public void SetCharacter_NameAndElement(Bitmap bm, string name, string element) => UserInterface.SetCharacter_NameAndElement(bm, name, element);
         public void SetCharacter_Level(Bitmap bm, int level, int maxLevel) => UserInterface.SetCharacter_Level(bm, level, maxLevel);
@@ -138,6 +224,5 @@ namespace InventoryKamera
         public void SetCharacter_Talent(Bitmap bm, string text, int i) => UserInterface.SetCharacter_Talent(bm, text, i);
         public void SetNavigation_Image(Bitmap bm) => UserInterface.SetNavigation_Image(bm);
         public void ResetCharacterDisplay() => UserInterface.ResetCharacterDisplay();
-        public void ResetGearDisplay() => UserInterface.ResetGearDisplay();
     }
 }

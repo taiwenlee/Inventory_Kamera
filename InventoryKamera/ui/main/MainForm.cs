@@ -53,8 +53,6 @@ namespace InventoryKamera
             Text = $"Inventory Kamera V{version}";
 
             UserInterface.Init(
-                GearPictureBox,
-                ArtifactOutput_TextBox,
                 CharacterName_PictureBox,
                 CharacterLevel_PictureBox,
                 new[] { CharacterTalent1_PictureBox, CharacterTalent2_PictureBox, CharacterTalent3_PictureBox },
@@ -65,6 +63,7 @@ namespace InventoryKamera
             scanViewModel.ProgramStatusChanged += OnProgramStatusChanged;
             scanViewModel.ErrorAdded += OnErrorAdded;
             scanViewModel.ErrorsReset += OnErrorsReset;
+            scanViewModel.GearChanged += OnGearChanged;
         }
 
         // Renders scanViewModel's counter state into the labels MainForm owns directly -- the
@@ -107,6 +106,22 @@ namespace InventoryKamera
         {
             System.Windows.Forms.MethodInvoker render = delegate { ErrorLog_TextBox.Clear(); };
             ErrorLog_TextBox.Invoke(render);
+        }
+
+        private void OnGearChanged()
+        {
+            // CloneGearImage() (not the GearImage property) so this control owns an independent copy
+            // -- concurrent scan worker threads can dispose-and-replace scanViewModel's image at any
+            // time, and a shared reference here would risk the PictureBox painting a disposed Bitmap.
+            var image = scanViewModel.CloneGearImage();
+            System.Windows.Forms.MethodInvoker render = delegate
+            {
+                var previous = GearPictureBox.Image;
+                GearPictureBox.Image = image;
+                previous?.Dispose();
+                ArtifactOutput_TextBox.Text = scanViewModel.GearText;
+            };
+            GearPictureBox.Invoke(render);
         }
 
         private double ScannerDelayValue(int value)

@@ -1,3 +1,6 @@
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
 using Xunit;
 
 namespace InventoryKamera.Tests
@@ -69,6 +72,94 @@ namespace InventoryKamera.Tests
             Assert.Equal(1, viewModel.WeaponCount);
             Assert.Equal(2, viewModel.ArtifactCount);
             Assert.Equal(3, viewModel.CharacterCount);
+        }
+
+        private static Bitmap MakeSolidColor(int width, int height, Color color)
+        {
+            var bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+            using (var g = Graphics.FromImage(bmp)) g.Clear(color);
+            return bmp;
+        }
+
+        [Fact]
+        public void SetGearTextBox_SetsTextAndRaisesGearChanged()
+        {
+            var viewModel = new ScanViewModel();
+            int raisedCount = 0;
+            viewModel.GearChanged += () => raisedCount++;
+
+            viewModel.SetGearTextBox("Favonius Sword");
+
+            Assert.Equal("Favonius Sword", viewModel.GearText);
+            Assert.Equal(1, raisedCount);
+        }
+
+        [Fact]
+        public void SetGearPictureBox_ClonesTheBitmapRatherThanReferencingIt()
+        {
+            var viewModel = new ScanViewModel();
+            using var source = MakeSolidColor(4, 4, Color.Red);
+
+            viewModel.SetGearPictureBox(source);
+
+            Assert.NotSame(source, viewModel.GearImage);
+            Assert.Equal(source.Size, viewModel.GearImage.Size);
+        }
+
+        [Fact]
+        public void SetGearPictureBox_DisposesThePreviousImageOnReplace()
+        {
+            var viewModel = new ScanViewModel();
+            using var first = MakeSolidColor(4, 4, Color.Red);
+            using var second = MakeSolidColor(4, 4, Color.Blue);
+
+            viewModel.SetGearPictureBox(first);
+            var previousImage = viewModel.GearImage;
+
+            viewModel.SetGearPictureBox(second);
+
+            Assert.Throws<ArgumentException>(() => previousImage.GetPixel(0, 0));
+        }
+
+        [Fact]
+        public void ResetGearDisplay_ClearsImageAndText()
+        {
+            var viewModel = new ScanViewModel();
+            using var bitmap = MakeSolidColor(4, 4, Color.Green);
+            viewModel.SetGearPictureBox(bitmap);
+            viewModel.SetGearTextBox("some text");
+
+            viewModel.ResetGearDisplay();
+
+            Assert.Null(viewModel.GearImage);
+            Assert.Equal("", viewModel.GearText);
+        }
+
+        [Fact]
+        public void CloneGearImage_ReturnsNullWhenNoImageSet()
+        {
+            var viewModel = new ScanViewModel();
+
+            Assert.Null(viewModel.CloneGearImage());
+        }
+
+        [Fact]
+        public void CloneGearImage_ReturnsAnIndependentCopyThatSurvivesReplace()
+        {
+            // Regression test: a live scan's worker pool runs multiple threads concurrently, any of
+            // which can replace scanViewModel's gear image at any time. A renderer holding a shared
+            // reference (instead of its own clone) could end up painting a disposed Bitmap, which
+            // WinForms renders as a white box with red X's -- CloneGearImage() is the fix.
+            var viewModel = new ScanViewModel();
+            using var first = MakeSolidColor(4, 4, Color.Red);
+            using var second = MakeSolidColor(4, 4, Color.Blue);
+            viewModel.SetGearPictureBox(first);
+
+            var clone = viewModel.CloneGearImage();
+            viewModel.SetGearPictureBox(second); // disposes the original gearImage the clone came from
+
+            // Does not throw -- clone is independently owned and still valid after the replace.
+            Assert.Equal(Color.FromArgb(255, 255, 0, 0), clone.GetPixel(0, 0));
         }
     }
 }
