@@ -38,7 +38,7 @@ namespace InventoryKamera
         private readonly string NewVersion = "version.txt";
 
         private const string commitsAPIURL = "https://gitlab.com/api/v4/projects/53216109/repository/commits";
-        private const string repoBaseURL = "https://gitlab.com/Dimbreath/AnimeGameData/-/raw/master/";
+        private const string repoBaseURL = "https://gitlab.com/Dimbreath/AnimeGameData2/-/raw/main/";
         private const string TextMapEnURL = repoBaseURL + "TextMap/TextMapEN.json";
         private const string TextMapMediumEnURL = repoBaseURL + "TextMap/TextMap_MediumEN.json";
         private const string CharactersURL = repoBaseURL + "ExcelBinOutput/AvatarExcelConfigData.json";
@@ -827,7 +827,7 @@ namespace InventoryKamera
             }
 
             // Check that critical weapons exist
-            string[] criticalWeapons = { "dullblade", "silvansword", "beginnerprotector" };
+            string[] criticalWeapons = { "dullblade", "silversword", "beginnersprotector" };
             foreach (var weaponKey in criticalWeapons)
             {
                 if (!data.ContainsKey(weaponKey))
