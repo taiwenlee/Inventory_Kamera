@@ -156,7 +156,7 @@ namespace InventoryKamera
 			GenshinProcesor.UpdateCharacterName("manequin1", scanSettings.Manequin1Name);
 			GenshinProcesor.UpdateCharacterName("manequin2", scanSettings.Manequin2Name);
 
-            if ((scanSettings.ScanWeapons || scanSettings.ScanArtifacts) && !CancelRequested)
+            if ((scanSettings.ScanWeapons || scanSettings.ScanArtifacts || scanSettings.ScanCharDevItems || scanSettings.ScanMaterials) && !CancelRequested)
 			{
 				// Phase 3 §6c: one controller connection and one pause-menu-to-Inventory entry spans
 				// every controller-driven scan phase below. Per user (2026-07-04): switching between
@@ -203,7 +203,7 @@ namespace InventoryKamera
 							Logger.Info("Scanning artifacts...");
 							try
 							{
-								artifactScraper.ScanArtifactsViaController(controller, knownCurrentTab: currentTab);
+								currentTab = artifactScraper.ScanArtifactsViaController(controller, knownCurrentTab: currentTab);
 							}
 							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 							catch (Exception ex)
@@ -211,6 +211,38 @@ namespace InventoryKamera
 								progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
 							}
 							Logger.Info("Done scanning artifacts");
+						}
+
+						if (scanSettings.ScanCharDevItems && !CancelRequested)
+						{
+							Logger.Info("Scanning character development materials...");
+							try
+							{
+								materialScraper.SetInventoryPage(InventoryPage.CharacterDevelopmentItems);
+								currentTab = materialScraper.ScanMaterialsViaController(controller, ref Inventory, knownCurrentTab: currentTab);
+							}
+							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
+							catch (Exception ex)
+							{
+								progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
+							}
+							Logger.Info("Done scanning character development materials");
+						}
+
+						if (scanSettings.ScanMaterials && !CancelRequested)
+						{
+							Logger.Info("Scanning materials...");
+							try
+							{
+								materialScraper.SetInventoryPage(InventoryPage.Materials);
+								currentTab = materialScraper.ScanMaterialsViaController(controller, ref Inventory, knownCurrentTab: currentTab);
+							}
+							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
+							catch (Exception ex)
+							{
+								progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
+							}
+							Logger.Info("Done scanning materials");
 						}
 					}
 				}
@@ -248,49 +280,8 @@ namespace InventoryKamera
 					AssignWeapons();
 			}
 
-			// Scan Character Development Items
-			if (scanSettings.ScanCharDevItems && !CancelRequested)
-			{
-				Logger.Info("Scanning character development materials...");
-				// Get Materials
-				Navigation.InventoryScreen();
-				Navigation.SelectCharacterDevelopmentInventory();
-				HashSet<Material> devItems = new HashSet<Material>();
-				try
-				{
-					materialScraper.SetInventoryPage(InventoryPage.CharacterDevelopmentItems);
-					materialScraper.Scan_Materials(ref Inventory);
-				}
-				catch (FormatException ex) { progressReporter.AddError(ex.Message); }
-				catch (Exception ex)
-				{
-					progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
-				}
-				Navigation.MainMenuScreen();
-				Logger.Info("Done scanning character development materials");
-			}
-
-			// Scan Materials
-			if (scanSettings.ScanMaterials && !CancelRequested)
-			{
-				Logger.Info("Scanning materials...");
-				// Get Materials
-				Navigation.InventoryScreen();
-				Navigation.SelectMaterialInventory();
-				HashSet<Material> materials = new HashSet<Material>();
-				try
-				{
-					materialScraper.SetInventoryPage(InventoryPage.Materials);
-					materialScraper.Scan_Materials(ref Inventory);
-				}
-				catch (FormatException ex) { progressReporter.AddError(ex.Message); }
-				catch (Exception ex)
-				{
-					progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
-				}
-				Navigation.MainMenuScreen();
-				Logger.Info("Done scanning materials");
-			}
+			// Character Development Items and Materials are now scanned via controller above,
+			// in the same GameController session as Weapons/Artifacts (Phase 3 §6c, 2026-07-05).
 		}
 
 		private void AwaitProcessors()

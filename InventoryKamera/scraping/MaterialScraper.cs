@@ -1,4 +1,5 @@
-﻿using System;
+﻿using InventoryKamera.game;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -402,5 +403,284 @@ namespace InventoryKamera
 		{
             return counts.Count == 0 ? null : (KeyValuePair<int, int>?)counts.Aggregate((l, r) => l.Value > r.Value ? l : r);
         }
+
+		/// <summary>
+		/// Controller-mode equivalent of <see cref="ScanMaterialName"/>: reads from the always-visible
+		/// detail card (<see cref="InventoryScraper.GetItemNameBitmapViaController"/>) instead of the
+		/// mouse-hover popup region. Per user (2026-07-05), the card is shared by Materials and
+		/// Character Development Items the same way it already is for Weapons/Artifacts.
+		/// </summary>
+		private string ScanMaterialNameViaController(Bitmap nameBitmap)
+		{
+			// SetGamma/ConvertToGrayscale clone and reassign rather than mutate in place -- plain
+			// locals (not `using`-declared) since C# disallows passing a using variable by ref, and
+			// each stage's bitmap is disposed explicitly once the next stage's copy exists.
+			Bitmap bm = (Bitmap)nameBitmap.Clone();
+			GenshinProcesor.SetGamma(0.2, 0.2, 0.2, ref bm);
+
+			Bitmap n = imagePreprocessor.ConvertToGrayscale(bm);
+			bm.Dispose();
+			imagePreprocessor.SetInvert(ref n);
+
+			string text;
+			using (n)
+			{
+				text = ocrService.AnalyzeText(n, Tesseract.PageSegMode.Auto);
+			}
+			text = Regex.Replace(text, @"[\W\s]", string.Empty).ToLower();
+
+			if (inventoryPage == InventoryPage.CharacterDevelopmentItems)
+				return GenshinProcesor.FindClosestDevelopmentName(text);
+
+			if (inventoryPage == InventoryPage.Materials)
+				return GenshinProcesor.FindClosestMaterialName(text);
+
+			return null;
+		}
+
+		// Controller mode's grid is 10 items per row (confirmed by user, 2026-07-05) -- also used as
+		// ArtifactScraper.ScanArtifactsViaController's per-row page cap.
+		private const int itemsPerRow = 10;
+
+		// 5 rows fit on screen before the grid needs to scroll (confirmed by user, 2026-07-05); once
+		// the selection advances past row index 4 (0-based), Genshin auto-snap-scrolls exactly one row
+		// at a time, always re-pinning the newly-active row to the same fixed on-screen position --
+		// per user: "row 6 and up are all on the same scrolled row near the bottom of the page". That
+		// means only 6 fixed y-positions ever exist (rows 0-4, plus one shared "scrolled" position for
+		// every row from 5 onward), not one per inventory row.
+		private const int rowsVisiblePreScroll = 5;
+
+		// Percentages measured with the coordinate-picker tool against a full-window capture
+		// (2026-07-05, 3837x2158) of three known grid positions: row 0/col 0 (pre-scroll), row 4/col 9
+		// (last pre-scroll row), and row 5/col 0 (first post-scroll row). Column spacing computed from
+		// the first two ((0.6325 - 0.0831) / 9); cross-checked by reapplying it to row 4's x, which
+		// reproduced 0.6325 exactly, confirming both the column formula and that columns don't shift
+		// between rows. Row spacing computed from the same two points across 4 row-steps (0 to 4).
+		// Width/height averaged across all three measurements (~0.0510 x ~0.0206).
+		private const double quantityColStep = 0.061044;
+		private const double quantityBaseX = 0.0831;
+		private const double quantityRow0Y = 0.2150;
+		private const double quantityRowStep = (0.7340 - 0.2150) / (rowsVisiblePreScroll - 1);
+		private const double quantityPostScrollY = 0.7674;
+		private const double quantityWidth = 0.0510;
+		private const double quantityHeight = 0.0206;
+
+		// Widening the crop height to absorb scroll drift (2026-07-05) was tried and reverted --
+		// broke digit OCR entirely once the top-whiteout band (tuned for this tight height, see
+		// ScanQuantityBitmapViaController) started eating into the taller crop's actual digits. Per
+		// user: the real cause is each successive scroll (every row advance past row 4) shifting the
+		// quantity position down by a small, roughly constant amount -- not a one-time offset that a
+		// taller crop could just absorb. Modeled directly below instead via a per-scroll drift.
+		// Per user (2026-07-05): Materials and Character Development Items drift by different amounts
+		// -- plausibly because Genshin's scroll-snap distance is proportional to the tab's total item
+		// count (a longer list scrolling a smaller fraction per snap) rather than a fixed pixel amount,
+		// so the two tabs need separate constants rather than one shared value. Tune directly here.
+		private const double quantityDriftPerScrollRowMaterials = 0.0015;
+		private const double quantityDriftPerScrollRowCharDevItems = 0.001;
+
+		/// <summary>
+		/// Computes the quantity readout's on-screen rectangle for a given inventory row/column via
+		/// fixed percentages instead of per-item blob detection (<see cref="InventoryScraper.GetPageOfItems"/>)
+		/// -- chosen over that approach for scan speed, at the cost of needing the measurements/model
+		/// below to be correct up front. Rows 0-4 use directly measured per-row positions; row 5 onward
+		/// don't land on a single fixed position the way first assumed -- per user (2026-07-05, live
+		/// testing), each successive scroll drifts the quantity position down by a small roughly-
+		/// constant amount (<see cref="quantityDriftPerScrollRow"/>), so this accumulates that drift per
+		/// scroll rather than reusing one constant y for every row past 4.
+		/// STILL UNVERIFIED, not yet confirmed correct live: the drift amount/direction is a first
+		/// estimate (~1% of window height per scroll) from a single round of live testing, not a
+		/// direct measurement the way rows 0/4/5's positions were -- may need retuning, and may not
+		/// stay linear indefinitely for very large inventories.
+		/// </summary>
+		private Rectangle GetQuantityRegionViaController(int globalRow, int column)
+		{
+			double x = quantityBaseX + column * quantityColStep;
+			double y;
+			if (globalRow < rowsVisiblePreScroll)
+			{
+				y = quantityRow0Y + globalRow * quantityRowStep;
+			}
+			else
+			{
+				// Row 5 lands at quantityPostScrollY; every row after that adds one more scroll's
+				// worth of drift on top of it -- rate depends on which tab we're in (see the constants'
+				// own comment).
+				double driftPerScrollRow = inventoryPage == InventoryPage.CharacterDevelopmentItems
+					? quantityDriftPerScrollRowCharDevItems
+					: quantityDriftPerScrollRowMaterials;
+				int scrollsPast = globalRow - rowsVisiblePreScroll;
+				y = quantityPostScrollY + scrollsPast * driftPerScrollRow;
+			}
+
+			return new Rectangle(
+				x: (int)(x * Navigation.GetWidth()),
+				y: (int)(y * Navigation.GetHeight()),
+				width: (int)(quantityWidth * Navigation.GetWidth()),
+				height: (int)(quantityHeight * Navigation.GetHeight()));
+		}
+
+		/// <summary>
+		/// Controller-mode equivalent of <see cref="ScanMaterialCount"/>'s digit-recognition pipeline
+		/// (multi-scale color filter -> grayscale -> invert -> threshold -> OCR, majority-vote fallback
+		/// across scales) -- identical to that method's logic, just fed a bitmap already captured from
+		/// <see cref="GetQuantityRegionViaController"/> instead of re-deriving a grid-cell's bottom
+		/// strip from a mouse-detected rectangle (there is no such rectangle in controller mode).
+		/// </summary>
+		private int ScanQuantityBitmapViaController(Bitmap quantityBitmap)
+		{
+			Dictionary<int, int> counts = new Dictionary<int, int>();
+
+			var rRange = new IntRange(0, 150);
+			var bRange = new IntRange(0, 150);
+			var gRange = new IntRange(0, 150);
+
+			for (var scale = 1.0; scale <= 3; scale += 0.5)
+			{
+				using (Bitmap rescaled = GenshinProcesor.ResizeImage(quantityBitmap, (int)(quantityBitmap.Width * scale), (int)(quantityBitmap.Height * scale)))
+				{
+					Bitmap copy = (Bitmap)rescaled.Clone();
+					imagePreprocessor.FilterColors(ref copy, rRange, bRange, gRange);
+
+					for (int i = 0; i < copy.Width; i++)
+						for (int j = 0; j < copy.Height * 0.25; j++)
+							copy.SetPixel(i, j, Color.White);
+
+					Bitmap n = imagePreprocessor.ConvertToGrayscale(copy);
+
+					imagePreprocessor.SetInvert(ref n);
+					imagePreprocessor.SetThreshold(50, ref n);
+
+					string original = ocrService.AnalyzeText(n).Trim();
+
+					n.Dispose();
+					copy.Dispose();
+
+					if (int.TryParse(original, out int val)) return val;
+
+					var cleaned = original;
+					cleaned = cleaned.Replace("M", "111");
+					cleaned = Regex.Replace(cleaned, @"[^0-9]", string.Empty);
+
+					int.TryParse(cleaned, out val);
+
+					Logger.Debug($"Scanned (controller): {original} -> Regex: {cleaned} -> Parsed: {val}");
+
+					if (counts.TryGetValue(val, out var counter))
+					{
+						if (counter >= 3 && val != 0) return val;
+						counts[val]++;
+					}
+					else
+					{
+						counts.Add(val, 1);
+					}
+				}
+			}
+
+			var nullableMode = SafeExtractMaxCounter(counts);
+			if (nullableMode == null)
+				return 0;
+
+			var mode = nullableMode.Value;
+			if (mode.Key == 0 && counts.Count >= 5)
+				return 0;
+
+			counts.Remove(mode.Key);
+			return SafeExtractMaxCounter(counts)?.Value ?? 0;
+		}
+
+		/// <summary>
+		/// Controller-driven materials/character-development-items scan (Phase 3 §6c). Name is read via
+		/// the same always-visible detail card technique as
+		/// <see cref="WeaponScraper.ScanWeaponsViaController"/>/<see cref="ArtifactScraper.ScanArtifactsViaController"/>.
+		/// Quantity is NOT on that card, though -- a coordinate-picker measurement of three different
+		/// items (2026-07-05) put their quantity readouts at three different on-screen positions,
+		/// confirming quantity is tied to the item's grid slot, not any fixed card region, the same way
+		/// it is in mouse mode. Per user (2026-07-05), computed directly from fixed percentages
+		/// (<see cref="GetQuantityRegionViaController"/>) rather than per-item blob detection
+		/// (<see cref="InventoryScraper.GetPageOfItems"/>, which was tried first and works but re-screenshots
+		/// and re-analyzes the whole window every single item) -- this trades a small one-time
+		/// measurement/maintenance cost for meaningfully faster scanning, matching how Weapons/Artifacts
+		/// already avoid any per-item detection.
+		/// Since this tab has no per-page item-count readout
+		/// (<see cref="InventoryScraper.ScanItemCountViaController"/> only covers Weapons/Artifacts/
+		/// Furnishings), this mirrors mouse-mode <see cref="Scan_Materials"/>'s own stopping condition:
+		/// stop once a scanned name repeats one already recorded in <paramref name="inventory"/>.
+		/// STILL UNVERIFIED, none of this has been live-tested yet: the fixed quantity percentages
+		/// above (only 3 of the 6 possible row positions were directly measured), and whether a single
+		/// right-stick step reliably advances/auto-scrolls through this grid the same way it does for
+		/// Weapons.
+		/// </summary>
+		/// <returns>The tab actually active once this method returns, to hand into the next
+		/// controller-driven phase (see <see cref="InventoryScraper.SwitchToTabViaController"/>).</returns>
+		internal string ScanMaterialsViaController(GameController controller, ref Inventory inventory, string knownCurrentTab = null)
+		{
+			StopScanning = false;
+
+			string targetTab = inventoryPage == InventoryPage.CharacterDevelopmentItems
+				? "Character Development Items"
+				: "Materials";
+
+			string currentTab = SwitchToTabViaController(controller, targetTab, knownCurrentTab);
+
+			int scanned = 0;
+			int column = 0;
+			int globalRow = 0;
+
+			while (!InventoryKamera.CancelRequested && !StopScanning)
+			{
+				progressReporter.WaitIfCorrectionPending();
+
+				using (Bitmap card = GetItemCardViaController())
+				using (Bitmap nameBitmap = GetItemNameBitmapViaController(card))
+				{
+					string name = ScanMaterialNameViaController(nameBitmap);
+					Material material = new Material(name, 0);
+
+					if (!string.IsNullOrEmpty(name) && inventory.Materials.Contains(material))
+					{
+						Logger.Debug("Repeat material found ({0}) -- stopping controller {1} scan.", name, inventoryPage);
+						break;
+					}
+
+					if (!string.IsNullOrEmpty(name))
+					{
+						using (Bitmap quantity = Navigation.CaptureRegion(GetQuantityRegionViaController(globalRow, column)))
+						{
+							int count = ScanQuantityBitmapViaController(quantity);
+							if (count == 0)
+							{
+								progressReporter.AddError($"Failed to parse quantity for {name}");
+							}
+							if (scanSettings.LogScreenshots || count == 0)
+							{
+								SaveInventoryBitmap(quantity, $"{name}_Quantity.png");
+							}
+
+							material.count = count;
+							inventory.Materials.Add(material);
+							progressReporter.ResetCharacterDisplay();
+							progressReporter.SetMaterial(nameBitmap, quantity, name, count);
+							scanned++;
+						}
+					}
+				}
+
+				controller.MoveStep(GameController.MenuDirection.Right,
+					holdMs: ScaledControllerDelay(80), settleMs: ScaledControllerDelay(100));
+
+				column++;
+				if (column >= itemsPerRow)
+				{
+					column = 0;
+					globalRow++;
+				}
+			}
+
+			Logger.Info("Controller {0} scan finished: {1} scanned (cancelled={2}, stopped={3})",
+				inventoryPage, scanned, InventoryKamera.CancelRequested, StopScanning);
+
+			return currentTab;
+		}
     }
 }

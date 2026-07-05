@@ -14,7 +14,7 @@
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
 | **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4 investigated and deliberately deferred (remote/variable-shape data + a mutable field make it a real design problem, not a mechanical one). §2.5 done except character display: `ScanViewModel` now owns real observable state for counters, status/errors, gear, material/mora, and navigation image (six slices, unit-tested where possible). Character display stays on the static `UserInterface` bridge pending the scan-input revamp (§6c). |
 | **3 — UX** | 🔄 **in progress** | §3.0 (declutter/reorganize `MainForm`) substantially done — see §3.0 for the full slice history (GroupBoxes → tabbed layout → dedicated Advanced Settings dialog → flat/warm visual theme). §3.1 (live scan feedback) done. §3.2 (pre-flight validation) mostly done — resolution/aspect-ratio/keybind/game-running checks land before a scan starts; HDR/language detection deferred. §3.3 (inline OCR correction) first slice done — confidence capture + threshold setting + correction dialog, wired into one call site (item count), not yet expanded further or live-verified. §3.4's DPI-awareness bullet done (landed as a side effect of the 4K windowed-capture bugfix); dark mode done (commit e9a60a2 — Options-menu toggle, `UiTheme.ApplyTheme` across MainForm/SettingsForm/OcrCorrectionForm); remaining §3.4 polish (keyboard navigation, status/error surfaces) and §3.5 (onboarding) not started. §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
-| **Scan input revamp** | 🔄 **weapon + artifact scans live-verified working** | Keyboard-only ruled out; controller input confirmed viable. Both `WeaponScraper.ScanWeaponsViaController` and `ArtifactScraper.ScanArtifactsViaController` are live-verified end to end and wired into `GatherData`, replacing their mouse-based equivalents. Weapons: sort-by-level/quality with early-stop, scan speed scales with Fast/Normal/Slow. Artifacts: sanctify-shift handled, sort-by-obtained toggle and filter-reset working via controller, but no sort-MODE (Level/Quality/Type) selection yet, so filtering never early-stops (correct, just slower on aggressive filters). Remaining gaps: weapon locked-status detection (unmeasured, always reports unlocked); Character Development Items not started but shares the same base-class primitives. See §6c. |
+| **Scan input revamp** | 🔄 **weapon + artifact scans live-verified working** | Keyboard-only ruled out; controller input confirmed viable. Both `WeaponScraper.ScanWeaponsViaController` and `ArtifactScraper.ScanArtifactsViaController` are live-verified end to end and wired into `GatherData`, replacing their mouse-based equivalents. Weapons: sort-by-level/quality with early-stop, scan speed scales with Fast/Normal/Slow. Artifacts: sanctify-shift handled, sort-by-obtained toggle and filter-reset working via controller, but no sort-MODE (Level/Quality/Type) selection yet, so filtering never early-stops (correct, just slower on aggressive filters). Remaining gaps: weapon locked-status detection (unmeasured, always reports unlocked). **Three areas confirmed still not started (2026-07-05):** Character screen scanning (`CharacterScraper` — a different UI than the inventory tabs, closer to the pause-menu's own top-level "Character" entry), Character Development Items, and Materials (the latter two share the same base-class primitives as Weapons/Artifacts, but both need per-grid-cell bounding boxes for quantity — see §6c's "New finding" note). See §6c. |
 
 **Runtime:** the app now targets **`net8.0-windows7.0`** (was net472 through Phase 0; bumped from bare `net8.0-windows` after live testing surfaced 670+ spurious CA1416 warnings — see below). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
@@ -785,7 +785,7 @@ dependencies), it was reverted via `git revert` rather than kept as a not-quite-
 
 ---
 
-## 6c. Scan input revamp — controller-driven navigation — 🔄 weapon scan live-verified (started 2026-07-05, weapon scan proven 2026-07-04)
+## 6c. Scan input revamp — controller-driven navigation — 🔄 weapon/artifact/materials/dev-items scans live-verified (started 2026-07-05, weapon scan proven 2026-07-04)
 
 **Motivation:** artifact/weapon grid-item detection (`ProcessScreenshot`/`GetPageOfItems` in
 `InventoryScraper.cs`) reconstructs the item grid from blob-detected column/row coordinates —
@@ -973,6 +973,75 @@ actually running it against the game:
   end of the list, artifact and character-dev-item card layouts (may differ from the weapon card
   tested so far), and how the virtual controller's lifecycle should be managed across a full scan
   (currently each test connects fresh; a real scan should likely connect once at scan start).
+- **New finding (2026-07-05): Materials/Character Development Items need a different approach than
+  Weapons/Artifacts.** Both of those work entirely off the always-visible detail card
+  (`GetItemCardViaController`), which never shows quantity — fine, since weapons/artifacts don't
+  stack. Materials and Dev Items don't have that luxury: a stack's quantity is only shown as a small
+  badge overlaid directly on the inventory grid slot, not anywhere in the detail card. Reading it via
+  controller therefore needs each grid cell's own on-screen bounding box, not just the always-visible
+  card — something the `ScanWeaponsViaController`/`ScanArtifactsViaController` approach has avoided
+  needing entirely so far.
+  Also confirmed by the user: controller mode's grid is **10 items per row** (already used as a fixed
+  constant for the artifact per-row page cap, `ArtifactScraper.ScanArtifactsViaController`'s
+  `artifactsPerRow`), and the viewport **auto-scrolls once the selection advances far enough down**,
+  by a set amount that keeps the row you're currently on fully visible but *not* the next row —
+  exact trigger depth and scroll amount not yet measured.
+  **Potential faster approach for later (not yet built, needs live verification):** controller-mode
+  navigation moves through the grid in known row-major order, unlike mouse mode, which has to
+  *discover* an unknown grid layout fresh via `GetPageOfItems`' blob-detection retry loop on every
+  page. That means the currently-selected cell's approximate on-screen rectangle could instead be
+  *computed* directly from its known row/column index plus a single one-time coordinate-picker
+  measurement of the grid's cell size/spacing, rather than re-detecting a bounding box per item. Open
+  unknowns before this is buildable: the auto-scroll trigger/amount above, whether computed cell
+  positions stay valid across a scroll event or need recalculating, and whether the quantity badge
+  sits in a consistent enough position within a cell to crop reliably regardless of item icon
+  artwork underneath it.
+- **Update (2026-07-05): quantity is grid-slot-based after all, confirmed by live coordinate-picker
+  measurements -- the initial "same card as Weapons/Artifacts" premise was wrong.** Three measured
+  items (row 0/col 0, row 4/col 9, row 5/col 0-after-one-scroll) landed at three different on-screen
+  positions, ruling out a single fixed card region. Per user: the grid shows **5 rows visible before
+  scrolling** (rows 0-4 on a fixed layout); advancing past row 4 triggers an auto-snap-scroll, and
+  every row from index 5 onward re-pins to the *same* fixed on-screen position ("row 6 and up are
+  all on the same scrolled row near the bottom of the page") -- so only 6 distinct y-positions exist
+  total (5 pre-scroll rows + 1 shared post-scroll position), not one per inventory row.
+  **Per user: computed via fixed precomputed percentages rather than per-item blob detection**, for
+  scan speed -- `InventoryScraper.GetPageOfItems` (mouse-mode's blob detector) was tried as a
+  scroll-agnostic alternative first (self-corrects for any scroll state by re-detecting from pixels
+  every call) and does work, but re-screenshots and re-analyzes the whole window per item, which is
+  needless overhead once the fixed-position model above was confirmed. `MaterialScraper` now has:
+  `GetQuantityRegionViaController(globalRow, column)` -- column spacing `(0.6325-0.0831)/9` and row
+  spacing `(0.7340-0.2150)/4` derived from the 3 measured points (cross-checked: reapplying the
+  column formula to row 4 reproduces its measured x exactly), `ScanQuantityBitmapViaController` --
+  same digit-recognition pipeline as mouse-mode's `ScanMaterialCount`, just fed this bitmap instead
+  of a mouse-detected grid-cell crop, `ScanMaterialsViaController` -- reads name via the shared
+  always-visible card technique (`GetItemNameBitmapViaController`, unaffected by this finding, still
+  correct), then quantity via the two methods above, tracking only `column`/`globalRow` itself (its
+  own advance-loop state, not detected). Wired into `InventoryKamera.GatherData` inside the same
+  shared `GameController` session as Weapons/Artifacts, replacing the old mouse-based
+  `Scan_Materials`/`Navigation.SelectCharacterDevelopmentInventory`/`SelectMaterialInventory` calls
+  entirely. Since this tab has no per-page count readout (`ScanItemCountViaController` only covers
+  Weapons/Artifacts/Furnishings), the loop stops the same way mouse-mode did: once a scanned name
+  repeats one already recorded in `inventory.Materials`.
+  **STILL UNVERIFIED, none of this has been live-tested yet:** only 3 of the 6 distinct row
+  y-positions were directly measured (rows 0 and 4, plus the shared post-scroll position) -- rows 1-3
+  are interpolated, assumed evenly spaced; whether a single right-stick step reliably
+  advances/auto-scrolls through this grid the same way it does for Weapons (carried over from
+  `ScanWeaponsViaController`, never confirmed for this tab); and whether the name-repeat stop
+  condition correctly detects end-of-list without an explicit scroll-to-bottom/backwards-pass step
+  (mouse-mode's `Scan_Materials` has one via its `LastPage` block; this controller version does not).
+- **Live-tested and working (2026-07-05), with one tuning round.** The interpolated row spacing
+  (rows 1-3) held up fine. The one real miss: quantity position past row 4 doesn't sit at one fixed
+  post-scroll spot the way first assumed -- per user, each additional scroll drifts it down by a
+  small amount, and Materials vs Character Development Items drift at *different* rates (plausibly
+  because Genshin's scroll-snap distance scales with the tab's total item count rather than being a
+  fixed pixel amount). Widening the crop height to absorb this was tried first and reverted -- it
+  broke digit OCR entirely, since `ScanQuantityBitmapViaController`'s top-whiteout band (tuned for
+  the original tight crop) started eating into the actual digits once the crop got taller. Fixed
+  instead by modeling the drift directly: `quantityDriftPerScrollRowMaterials` /
+  `quantityDriftPerScrollRowCharDevItems` (separate per-tab constants, `MaterialScraper.cs`) added
+  per scroll past row 4, tuned live down to `0.001` (0.1% of window height) each. Result: scans run
+  end-to-end with only occasional "Failed to parse quantity" errors -- good enough to ship, revisit
+  the constants only if a particular save shows a worse failure rate.
 
 ---
 

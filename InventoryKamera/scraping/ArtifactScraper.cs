@@ -665,11 +665,11 @@ namespace InventoryKamera
         /// <param name="knownCurrentTab">See <see cref="InventoryScraper.SwitchToTabViaController"/> --
         /// pass the previous controller-driven phase's returned tab (e.g. "Weapons") to skip
         /// re-detecting via OCR.</param>
-        public void ScanArtifactsViaController(GameController controller, int count = 0, string knownCurrentTab = null)
+        public string ScanArtifactsViaController(GameController controller, int count = 0, string knownCurrentTab = null)
         {
             StopScanning = false;
 
-            SwitchToTabViaController(controller, "Artifacts", knownCurrentTab);
+            string currentTab = SwitchToTabViaController(controller, "Artifacts", knownCurrentTab);
             SetSortByObtainedViaController(controller);
             ClearFiltersViaController(controller);
 
@@ -715,6 +715,8 @@ namespace InventoryKamera
 
             Logger.Info("Controller artifact scan finished: {0} of {1} scanned (cancelled={2}, stopped={3})",
                 scanned, artifactCount, InventoryKamera.CancelRequested, StopScanning);
+
+            return currentTab;
         }
 
         public async Task<Artifact> CatalogueFromBitmapsAsync(List<Bitmap> bm, int id)

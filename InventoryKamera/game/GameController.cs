@@ -112,11 +112,14 @@ namespace InventoryKamera.game
         /// Moves <paramref name="steps"/> grid cells in <paramref name="direction"/> via repeated
         /// <see cref="MoveStep"/> calls -- horizontal and vertical moves are always issued as
         /// separate straight-line legs (never diagonally), matching how a 2D menu grid like Genshin's
-        /// pause-menu tab bar is navigated one axis at a time.
+        /// pause-menu tab bar is navigated one axis at a time. <paramref name="holdMs"/>/
+        /// <paramref name="settleMs"/> default to <see cref="MoveStep"/>'s own defaults so existing
+        /// callers are unaffected; pass explicit values to scale timing (e.g. via
+        /// <c>InventoryScraper.ScaledControllerDelay</c>) without touching every call site.
         /// </summary>
-        public void Move(MenuDirection direction, int steps)
+        public void Move(MenuDirection direction, int steps, int holdMs = 150, int settleMs = 150)
         {
-            for (int i = 0; i < steps; i++) MoveStep(direction);
+            for (int i = 0; i < steps; i++) MoveStep(direction, holdMs, settleMs);
         }
 
         public enum MenuDirection { Up, Down, Left, Right }
