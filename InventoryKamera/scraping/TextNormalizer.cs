@@ -121,7 +121,13 @@ namespace InventoryKamera
             return targets.TryGetValue(source, out value) ? (string)value["GOOD"] : source;
         }
 
-        private static string FindClosestInList(string source, HashSet<string> targets, double minConfidence)
+        /// <summary>
+        /// Fuzzy-matches <paramref name="source"/> against a flat set of candidate strings (not a
+        /// name-to-value lookup dictionary like the other <c>FindClosestX</c> methods) -- exposed
+        /// (rather than the usual <c>private</c>) for ad-hoc matching against small hardcoded lists
+        /// that don't warrant their own lookup dictionary, e.g. Phase 3 §6c's inventory tab names.
+        /// </summary>
+        internal static string FindClosestInList(string source, HashSet<string> targets, double minConfidence = 80)
         {
             if (targets.Contains(source)) return source;
             if (string.IsNullOrWhiteSpace(source)) return null;

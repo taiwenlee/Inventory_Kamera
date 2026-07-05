@@ -71,6 +71,12 @@ namespace InventoryKamera
             UiTheme.RoundCorners(button1, 6);
             DarkModeMenuItem.Checked = Properties.Settings.Default.DarkMode;
             UiTheme.ApplyTheme(this);
+
+            // Phase 3 §6c's controller-navigation debug tools (MODERNIZATION_PLAN.md §6c) are not
+            // meant for end users -- only shown in Debug builds.
+#if !DEBUG
+            menuStrip1.Items.Remove(DebugMenuItem);
+#endif
         }
 
         // Renders scanViewModel's counter state into the labels MainForm owns directly -- the
@@ -502,6 +508,16 @@ namespace InventoryKamera
                         // The Data object of json object
                         data.GatherData();
 
+                        // Tear down the global "Stop" hotkey as soon as the scan itself is done, not
+                        // in the `finally` block below -- that only runs once OpenOptimizerDialog
+                        // returns, which (since it now blocks on Invoke+MessageBox.Show) doesn't
+                        // happen until the completion dialog is dismissed. A registered global hotkey
+                        // (RegisterHotKey) intercepts Enter system-wide, for every application, not
+                        // just this one -- leaving it registered for the dialog's whole lifetime meant
+                        // Enter didn't work in *other* programs either while it was up. ResetUI() is
+                        // still safe to call again in `finally` (e.g. on the cancelled/exception paths).
+                        ResetUI();
+
                         if (InventoryKamera.CancelRequested)
                         {
                             // Scan was stopped cooperatively (Stop hotkey). Matches the previous
@@ -563,20 +579,31 @@ namespace InventoryKamera
 
         private void OpenOptimizerDialog(GOOD data, bool skip = false)
         {
-            if (!skip)
+            // Marshaled onto the UI thread -- this is called from the background scan thread (scan
+            // finishing normally) as well as directly from a button click (Export_Button_Click).
+            // Previously ran unmarshaled MessageBox.Show calls with no owner window when called from
+            // the scan thread: that meant the dialog had no owner to size/foreground itself against
+            // (it wouldn't reliably come to the front over the game/other windows), and it was running
+            // its own message loop on a thread the rest of the UI -- including the global "Stop" hotkey
+            // (Enter) registered via HotkeyManager on this form's handle -- doesn't expect to be
+            // competing with. Passing `this` as owner and running on the UI thread fixes both.
+            Invoke((System.Windows.Forms.MethodInvoker)delegate
             {
-                var message = "Scan complete! Would you like to upload the database to Genshin Optimizer?";
-                var result = MessageBox.Show(message, "Scan Complete", MessageBoxButtons.YesNo);
-                if (result == DialogResult.No)
-                    return;
-            }
-            var t = new Thread(() => Clipboard.SetText(data.ToString()));
-            t.SetApartmentState(ApartmentState.STA);
-            t.Start();
-            t.Join();
-            MessageBox.Show("Content copied to your clipboard! Paste the content into the textbox when prompted.", "Data Copied", MessageBoxButtons.OK);
-            Process.Start(new ProcessStartInfo("https://frzyc.github.io/genshin-optimizer/#/setting") { UseShellExecute = true });
-
+                if (!skip)
+                {
+                    Activate();
+                    var message = "Scan complete! Would you like to upload the database to Genshin Optimizer?";
+                    var result = MessageBox.Show(this, message, "Scan Complete", MessageBoxButtons.YesNo);
+                    if (result == DialogResult.No)
+                        return;
+                }
+                var t = new Thread(() => Clipboard.SetText(data.ToString()));
+                t.SetApartmentState(ApartmentState.STA);
+                t.Start();
+                t.Join();
+                MessageBox.Show(this, "Content copied to your clipboard! Paste the content into the textbox when prompted.", "Data Copied", MessageBoxButtons.OK);
+                Process.Start(new ProcessStartInfo("https://frzyc.github.io/genshin-optimizer/#/setting") { UseShellExecute = true });
+            });
         }
 
         private void Github_Label_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
@@ -770,19 +797,12 @@ namespace InventoryKamera
             OnProgramStatusChanged();
         }
 
-        // Throwaway feasibility spike for Phase 3 §6c -- see game/ControllerSpike.cs.
-        private void TestControllerInputMenuItem_Click(object sender, EventArgs e)
-        {
-            const int alttabSeconds = 4;
-            MessageBox.Show(
-                $"After clicking OK, you have {alttabSeconds} seconds to switch to Genshin (Alt+Tab). " +
-                "The left stick will nudge and the A button will press once the timer runs out.",
-                "Controller Input Spike", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-            string result = game.ControllerSpike.TapAButton(alttabSeconds);
-            MessageBox.Show(result, "Controller Input Spike", MessageBoxButtons.OK,
-                result.StartsWith("Success") ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
-        }
+        // Phase 3 §6c controller-navigation test handlers. Logic lives in
+        // game/ControllerNavigationTests.cs, not here -- keeps this file (and especially
+        // MainForm.Designer.cs) untouched by frequent coordinate/timing tweaks, since editing either
+        // risks tripping the WinForms Designer regeneration bug (see MODERNIZATION_PLAN.md §3.0).
+        private void TestControllerMashBackMenuItem_Click(object sender, EventArgs e) => game.ControllerNavigationTests.RunMashBackTest();
+        private void CoordinatePickerMenuItem_Click(object sender, EventArgs e) => new ui.CoordinatePickerForm().Show(this);
 
         private void MainForm_Shown(object sender, EventArgs e)
         {

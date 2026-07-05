@@ -1,9 +1,13 @@
-﻿using NLog;
+﻿using InventoryKamera.game;
+using Nefarius.ViGEm.Client.Targets.Xbox360;
+using NLog;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace InventoryKamera
 {
@@ -162,6 +166,27 @@ namespace InventoryKamera
                 width: (int)(175 / 1280.0 * Navigation.GetWidth()),
                 height: (int)(25 / 720.0 * Navigation.GetHeight()));
 
+            return ScanItemCountFromRegion(region);
+        }
+
+        /// <summary>
+        /// Controller-mode equivalent of <see cref="ScanItemCount"/> -- the count label sits in a
+        /// different position under controller mode's HUD layout than the mouse-mode one above.
+        /// Measured with the coordinate-picker tool (2026-07-03).
+        /// </summary>
+        internal int ScanItemCountViaController()
+        {
+            Rectangle region = new Rectangle(
+                x: (int)(0.8865 * Navigation.GetWidth()),
+                y: (int)(0.0509 * Navigation.GetHeight()),
+                width: (int)(0.0641 * Navigation.GetWidth()),
+                height: (int)(0.0269 * Navigation.GetHeight()));
+
+            return ScanItemCountFromRegion(region);
+        }
+
+        private int ScanItemCountFromRegion(Rectangle region)
+        {
             using (Bitmap countBitmap = Navigation.CaptureRegion(region))
             {
                 progressReporter.SetNavigation_Image(countBitmap);
@@ -575,6 +600,21 @@ namespace InventoryKamera
         }
 
         /// <summary>
+        /// Controller-mode equivalent of <see cref="GetItemNameBitmap"/> -- distinct percentage since
+        /// controller mode's always-visible card has a different layout than the mouse-hover popup.
+        /// Measured with the coordinate-picker tool (2026-07-03).
+        /// </summary>
+        internal static Bitmap GetItemNameBitmapViaController(Bitmap card)
+        {
+            return GenshinProcesor.CopyBitmap(card,
+                new Rectangle(
+                    x: 0,
+                    y: 0,
+                    width: card.Width,
+                    height: (int)(card.Height * 0.0574)));
+        }
+
+        /// <summary>
         /// Extracts a bitmap copy of an item card's lock status icon
         /// </summary>
         /// <param name="card">Bitmap of the item card</param>
@@ -607,6 +647,236 @@ namespace InventoryKamera
                     y: (int)(double)(card.Height * (double)(Navigation.IsNormal ? 0.938 : 0.943)),
                     width: card.Width,
                     height: card.Height));
+        }
+
+        /// <summary>
+        /// Controller-mode equivalent of <see cref="GetEquippedBitmap"/>. Measured with the
+        /// coordinate-picker tool (2026-07-03) -- the left edge matters here: an earlier guess that
+        /// started far enough left to include the character portrait icon made Tesseract hallucinate
+        /// stray characters even though the text itself was clean.
+        /// </summary>
+        internal static Bitmap GetEquippedBitmapViaController(Bitmap card)
+        {
+            return GenshinProcesor.CopyBitmap(card,
+                new Rectangle(
+                    x: (int)(card.Width * 0.1527),
+                    y: (int)(card.Height * 0.9444),
+                    width: (int)(card.Width * 0.8309),
+                    height: (int)(card.Height * 0.0519)));
+        }
+
+        // Genshin's inventory remembers whichever tab was last open, so tab-switching can't assume a
+        // known starting tab -- the tab name label gets OCR'd and fuzzy-matched against this list.
+        // Shared across Weapons/Artifacts/Character Development Items (Phase 3 §6c).
+        internal static readonly string[] ControllerInventoryTabNames =
+        {
+            "Weapons", "Artifacts", "Character Development Items", "Food", "Materials",
+            "Gadget", "Quest", "Precious Items", "Furnishings",
+        };
+
+        /// <summary>
+        /// Captures the selected item's always-visible detail card in controller mode -- confirmed by
+        /// the user to be the same region for Weapons, Artifacts, and Character Development Items.
+        /// Percentages measured with the coordinate-picker tool from a full-window capture
+        /// (2026-07-03, 1920x1080). Distinct from <see cref="GetItemCard"/> (the mouse-hover popup) --
+        /// controller mode's panel sits at a different position, confirmed via live testing.
+        /// </summary>
+        internal Bitmap GetItemCardViaController()
+        {
+            return Navigation.CaptureRegion(
+                x: (int)(0.7031 * Navigation.GetWidth()),
+                y: (int)(0.1231 * Navigation.GetHeight()),
+                width: (int)(0.2167 * Navigation.GetWidth()),
+                height: (int)(0.7556 * Navigation.GetHeight()));
+        }
+
+        /// <summary>
+        /// Opens the pause menu and navigates into Inventory via controller -- ported from the
+        /// live-verified sequence in <c>ControllerNavigationTests</c> (2026-07-05): open menu, move
+        /// down twice (Inventory is at grid position [0,2]), confirm with B (Genshin's confirm button
+        /// -- swapped from standard Xbox convention, A is back/cancel).
+        /// </summary>
+        internal void EnterInventoryViaController(GameController controller)
+        {
+            // The mouse-based scan's Navigation.InventoryScreen() started every phase with a real
+            // Escape press to guarantee a known baseline (unpaused, no menu open) before doing
+            // anything else -- controller-mode ad-hoc tests never needed this because the user
+            // manually alt-tabbed into that same baseline state before clicking a test. A real scan
+            // can't assume that: Genshin might already be sitting in a menu (paused, or left open by
+            // a previous phase) when this runs, and EnterControllerMode()'s stick-nudge+A sequence
+            // only reliably flips the input scheme from the free-roam state, not from inside a menu.
+            Navigation.sim.Keyboard.KeyPress(Navigation.escapeKey);
+            Navigation.SystemWait(Navigation.Speed.UI);
+
+            // Per user (2026-07-04): "make sure the speed is hooked up" -- these were still fixed
+            // regardless of the Fast/Normal/Slow setting, unlike every per-item timing elsewhere. This
+            // is one-time setup (runs once per scan phase, not per item), so it's a much smaller share
+            // of a full scan's total time than the per-item loop -- being generous here is nearly free.
+            // Doubled again (2026-07-05) after a live tab-detection miss right after this sequence
+            // ("Weapons" misread as "eepons |") -- the menu navigation itself was too fast and
+            // occasionally not fully settled before the next step read the screen.
+            controller.EnterControllerMode();
+            Thread.Sleep(ScaledControllerDelay(2000));
+            controller.OpenMenu();
+            Thread.Sleep(ScaledControllerDelay(2000));
+            controller.Move(GameController.MenuDirection.Down, 2, holdMs: ScaledControllerDelay(300), settleMs: ScaledControllerDelay(300));
+            Thread.Sleep(ScaledControllerDelay(600));
+            controller.TapButton(Xbox360Button.B, holdMs: ScaledControllerDelay(300));
+            // Per user (2026-07-04): confirming into Inventory plays a screen-transition animation
+            // that outlasts the plain-scaled wait -- unlike input-registration timing, an animation's
+            // real duration doesn't shrink just because Fast wants quicker input pacing. Floored flat
+            // regardless of speed setting (doubled 2026-07-05, same reasoning as above); this is a
+            // one-time per-scan cost, so being generous here is nearly free even though the same floor
+            // was rejected for the per-item advance wait.
+            Thread.Sleep(Math.Max(3000, ScaledControllerDelay(2000)));
+        }
+
+        /// <summary>
+        /// Captures the tab-name label (top-left of the inventory screen), OCRs it, and fuzzy-matches
+        /// it against <see cref="ControllerInventoryTabNames"/>. Returns the matched index (-1 if no
+        /// confident match). Must be called while already inside Inventory (see
+        /// <see cref="EnterInventoryViaController"/>) and before the owning <c>GameController</c> is
+        /// disposed -- disposal mashes back out of the menu as a safety net.
+        /// </summary>
+        internal int DetectCurrentTabIndexViaController(out string rawText)
+        {
+            using (var region = Navigation.CaptureRegion(
+                x: (int)(0.09 * Navigation.GetWidth()),
+                y: (int)(0.035 * Navigation.GetHeight()),
+                width: (int)(0.20 * Navigation.GetWidth()),
+                height: (int)(0.08 * Navigation.GetHeight())))
+            {
+                var preprocessor = new ImageProcessor();
+                Bitmap processed = preprocessor.ConvertToGrayscale(region);
+                preprocessor.SetContrast(60.0, ref processed);
+                preprocessor.SetInvert(ref processed);
+
+                using (processed)
+                using (var ocr = new OcrService())
+                {
+                    rawText = ocr.AnalyzeText(processed, Tesseract.PageSegMode.SingleLine).Trim();
+                }
+            }
+
+            var normalizedTabs = ControllerInventoryTabNames.Select(t => t.ToLower().Replace(" ", "")).ToArray();
+            string normalizedText = Regex.Replace(rawText.ToLower(), @"[\W]", string.Empty);
+            string matchedNormalized = TextNormalizer.FindClosestInList(normalizedText, new HashSet<string>(normalizedTabs));
+            return Array.IndexOf(normalizedTabs, matchedNormalized);
+        }
+
+        /// <summary>
+        /// Switches to <paramref name="targetTab"/> from wherever the cursor currently is, cycling
+        /// LB/RB (the inventory sub-tab row's own input, distinct from the pause menu's stick-driven
+        /// grid). Tabs wrap around (circular) -- takes whichever direction is fewer presses. Must run
+        /// inside Inventory already (see <see cref="EnterInventoryViaController"/>).
+        /// </summary>
+        /// <param name="knownCurrentTab">
+        /// If the caller already knows which tab is active (e.g. the previous scan phase just
+        /// finished switching to and scanning that exact tab, and nothing changes tabs mid-scan), pass
+        /// it here to skip OCR detection entirely. Per user (2026-07-05): re-detecting via OCR for
+        /// every phase transition is both slower and less reliable than just remembering where the
+        /// last phase left off -- a live miss ("Weapons" misread as "eepons J"/"eepons |") persisted
+        /// even after a settle-wait and 3 retry attempts, pointing at an OCR/rendering issue with this
+        /// specific capture rather than a timing one; skipping the read avoids it outright.
+        /// </param>
+        /// <returns>The tab actually active after this call (<paramref name="targetTab"/> on success,
+        /// or the original tab if detection failed and the switch was skipped) -- pass this into the
+        /// next phase's <paramref name="knownCurrentTab"/> to keep the chain going without OCR.</returns>
+        internal string SwitchToTabViaController(GameController controller, string targetTab, string knownCurrentTab = null)
+        {
+            int currentIndex;
+            string rawText = null;
+
+            if (knownCurrentTab != null)
+            {
+                currentIndex = Array.IndexOf(ControllerInventoryTabNames, knownCurrentTab);
+                Logger.Info("Tab switch: using known current tab \"{0}\" (skipping OCR detection).", knownCurrentTab);
+            }
+            else
+            {
+                // Per user (2026-07-05): no settle wait existed between one scan phase's last
+                // per-item advance and the next phase's tab-detection capture -- contributed to the
+                // "Weapons" -> "eepons |" misread below, since detection fired immediately with zero
+                // margin for whatever the previous action's animation/UI was still doing.
+                Thread.Sleep(ScaledControllerDelay(500));
+
+                // Detection can also flake even with the settle above -- retry a few times before
+                // giving up, rather than treating a -1 "undetected" index as a valid array index in
+                // the step-count math below. That silently produced a plausible-but-wrong step count
+                // once (2 presses instead of 1), which would land on the wrong tab entirely and scan
+                // garbage data with no visible error.
+                currentIndex = -1;
+                const int maxDetectAttempts = 3;
+                for (int attempt = 1; attempt <= maxDetectAttempts && currentIndex < 0; attempt++)
+                {
+                    currentIndex = DetectCurrentTabIndexViaController(out rawText);
+                    if (currentIndex < 0 && attempt < maxDetectAttempts)
+                    {
+                        Logger.Warn("Tab detection attempt {0} failed (raw=\"{1}\") -- retrying.", attempt, rawText);
+                        Thread.Sleep(ScaledControllerDelay(300));
+                    }
+                }
+            }
+
+            int targetIndex = Array.IndexOf(ControllerInventoryTabNames, targetTab);
+
+            if (currentIndex < 0)
+            {
+                string warning = $"Could not confidently detect the current inventory tab (last OCR: \"{rawText}\") -- " +
+                    $"skipped switching to {targetTab}. The scan may now run against whatever tab is actually active.";
+                Logger.Warn(warning);
+                progressReporter.AddError(warning);
+                return knownCurrentTab; // unknown tab either way; nothing better to report back
+            }
+
+            string currentTabName = ControllerInventoryTabNames[currentIndex];
+
+            if (currentIndex == targetIndex)
+            {
+                Logger.Info("Tab switch: scanned in on \"{0}\", already the target -- 0 shoulder presses needed.", currentTabName);
+                return targetTab;
+            }
+
+            int tabCount = ControllerInventoryTabNames.Length;
+            int forwardSteps = ((targetIndex - currentIndex) % tabCount + tabCount) % tabCount;
+            int backwardSteps = tabCount - forwardSteps;
+            bool goForward = forwardSteps <= backwardSteps;
+            int steps = Math.Min(forwardSteps, backwardSteps);
+            Xbox360Button shoulderButton = goForward ? Xbox360Button.RightShoulder : Xbox360Button.LeftShoulder;
+
+            Logger.Info("Tab switch: scanned in on \"{0}\", target \"{1}\" -- {2} {3} ({4}) presses.",
+                currentTabName, targetTab, steps, shoulderButton, goForward ? "forward/right" : "backward/left");
+
+            // Per user (2026-07-04): base tab-switch timing doubled to 200/800/1000 (through several
+            // rounds: 80/100/300 -> 120/150/400 -> 240/300/800 -> 100/400/500 -> this) -- still
+            // scaled by ScaledControllerDelay, just a higher starting point.
+            for (int i = 0; i < steps; i++)
+            {
+                controller.TapButton(shoulderButton, holdMs: ScaledControllerDelay(200));
+                Thread.Sleep(ScaledControllerDelay(800));
+            }
+            Thread.Sleep(ScaledControllerDelay(1000));
+
+            return targetTab;
+        }
+
+        /// <summary>
+        /// Scales a base controller-timing duration by the app's existing scan-speed setting
+        /// (<see cref="Navigation.GetDelay"/> -- the same 0.5x/Fast, 1x/Normal, 1.5x/Slow multiplier
+        /// already applied to every mouse-path scan timing via <see cref="Navigation.SystemWait(Speed)"/>),
+        /// so per-item controller-scan timing speeds up/slows down consistently with the rest of the
+        /// app instead of being hardcoded. Below 1x (Fast), the multiplier is squared rather than
+        /// applied once -- per direct user feedback (2026-07-04), a plain 0.5x scale of an
+        /// already-tuned-fast base wasn't fast enough. A 20ms floor guards against a degenerate
+        /// near-zero hold if the underlying setting is ever extended below 0.5x. UNVERIFIED how low
+        /// Fast's resulting values can go and still register reliably against the game -- this is new,
+        /// live-testing-only territory, not something a build/compile check can confirm.
+        /// </summary>
+        internal static int ScaledControllerDelay(int baseMs)
+        {
+            double delay = Navigation.GetDelay();
+            if (delay < 1) delay *= delay;
+            return Math.Max(20, (int)(baseMs * delay));
         }
 
         internal void SaveInventoryBitmap(Bitmap image, string filename)

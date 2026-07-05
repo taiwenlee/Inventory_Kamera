@@ -1,10 +1,14 @@
-﻿using System;
+﻿using InventoryKamera.game;
+using Nefarius.ViGEm.Client.Targets.Xbox360;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using static InventoryKamera.Artifact;
 
@@ -193,7 +197,7 @@ namespace InventoryKamera
                 width: (int)( 0.0375 * Navigation.GetWidth()),
                 height: (int)(0.0347 * Navigation.GetHeight())))
             {
-				//Navigation.DisplayBitmap(x);	
+				//Navigation.DisplayBitmap(x);
                 Color sortObtainedTrue = Color.FromArgb(255, 224, 198, 147);
                 Color sortObtainedStatus = x.GetPixel((int)x.Width / 2,(int) x.Height / 2);
                 var sortObtained = GenshinProcesor.CompareColors(sortObtainedTrue, sortObtainedStatus);
@@ -202,6 +206,87 @@ namespace InventoryKamera
 					Navigation.ChangeArtifactSortObtained();
 				}
                 Navigation.SystemWait(Navigation.Speed.Slow);
+            }
+        }
+
+        /// <summary>
+        /// Controller-mode equivalent of <see cref="SetSort"/> -- same pixel-color detection concept
+        /// as the mouse path (screen-reading doesn't depend on input method), but with the user's
+        /// own controller-mode region measurement (2026-07-04) rather than reusing the mouse-mode
+        /// region -- the mouse-mode position doesn't hold under controller mode's HUD, same lesson as
+        /// the item-count region. Toggle action per user: left stick Up moves to the sort-by-obtained
+        /// control, B confirms (the established confirm button everywhere else in this codebase --
+        /// not independently confirmed for this specific control), left stick Down returns to the grid.
+        /// </summary>
+        private void SetSortByObtainedViaController(GameController controller)
+        {
+            using (var x = Navigation.CaptureRegion(
+                x: (int)(0.6563 * Navigation.GetWidth()),
+                y: (int)(0.1247 * Navigation.GetHeight()),
+                width: (int)(0.0112 * Navigation.GetWidth()),
+                height: (int)(0.0218 * Navigation.GetHeight())))
+            {
+                x.Save("./logging/ArtifactSortByObtainedRegion.png");
+
+                // Reference color measured directly from controller mode's HUD (2026-07-04),
+                // replacing mouse-mode's (224, 198, 147) -- that value failed CompareColors' <10-per-
+                // channel tolerance against a live sample (212, 188, 142; R diff 12, G diff 10), which
+                // is why the toggle wasn't firing: an actually-"on" state was being misread as "off".
+                Color sortObtainedTrue = Color.FromArgb(255, 212, 188, 142);
+                Color sortObtainedStatus = x.GetPixel(x.Width / 2, x.Height / 2);
+                var sortObtained = GenshinProcesor.CompareColors(sortObtainedTrue, sortObtainedStatus);
+                Logger.Debug("Sort-by-obtained pixel check: sampled={0} reference={1} matched={2} wantObtained={3}",
+                    sortObtainedStatus, sortObtainedTrue, sortObtained, SortByObtained > 0);
+                // Per user (2026-07-04): base timing set explicitly to 100/200/100/500/100/200.
+                if (SortByObtained > 0 ^ sortObtained)
+                {
+                    controller.MoveStep(GameController.MenuDirection.Up, holdMs: ScaledControllerDelay(100), settleMs: ScaledControllerDelay(200));
+                    controller.TapButton(Xbox360Button.B, holdMs: ScaledControllerDelay(100));
+                    Thread.Sleep(ScaledControllerDelay(500));
+                    controller.MoveStep(GameController.MenuDirection.Down, holdMs: ScaledControllerDelay(100), settleMs: ScaledControllerDelay(200));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Controller-mode equivalent of <see cref="ClearFilters"/> -- filter-active detection reused
+        /// unchanged (screen-reading, not input-method-dependent), region re-measured by the user
+        /// (2026-07-04) for controller mode's HUD. Reset action per user: D-pad Left, then L3 (left
+        /// stick click), then A to close the panel -- confirmed live (2026-07-04) that the physical
+        /// Xbox Back/View button does nothing in Genshin's UI; this game's own back/cancel action is
+        /// A, not Back (established convention throughout this codebase: "A backs out, B confirms,
+        /// everywhere").
+        /// </summary>
+        private void ClearFiltersViaController(GameController controller)
+        {
+            using (var x = Navigation.CaptureRegion(
+                x: (int)(0.0740 * Navigation.GetWidth()),
+                y: (int)(0.8499 * Navigation.GetHeight()),
+                width: (int)(0.2032 * Navigation.GetWidth()),
+                height: (int)(0.0306 * Navigation.GetHeight())))
+            {
+                x.Save("./logging/ArtifactFilterIndicatorRegion.png");
+                var t = ocrService.AnalyzeText(x).Trim().ToLower();
+                Logger.Debug("Filter-active OCR: rawText=\"{0}\" containsFilter={1}", t, t != null && t.Contains("filter"));
+
+                if (t != null && t.Contains("filter"))
+                {
+                    Directory.CreateDirectory("./logging");
+                    using (var before = Navigation.CaptureWindow()) before.Save("./logging/ArtifactFilterReset_0_Before.png");
+
+                    // Per user (2026-07-04): base timing set explicitly to 100/200/100/500/100/200.
+                    controller.TapButton(Xbox360Button.Left, holdMs: ScaledControllerDelay(100));
+                    Thread.Sleep(ScaledControllerDelay(200));
+                    using (var afterLeft = Navigation.CaptureWindow()) afterLeft.Save("./logging/ArtifactFilterReset_1_AfterLeft.png");
+
+                    controller.TapButton(Xbox360Button.LeftThumb, holdMs: ScaledControllerDelay(100));
+                    Thread.Sleep(ScaledControllerDelay(500));
+                    using (var afterLS = Navigation.CaptureWindow()) afterLS.Save("./logging/ArtifactFilterReset_2_AfterLS.png");
+
+                    controller.TapButton(Xbox360Button.A, holdMs: ScaledControllerDelay(100));
+                    Thread.Sleep(ScaledControllerDelay(200));
+                    using (var afterBack = Navigation.CaptureWindow()) afterBack.Save("./logging/ArtifactFilterReset_3_AfterBack.png");
+                }
             }
         }
 
@@ -313,6 +398,323 @@ namespace InventoryKamera
                 y: (int)(card.Height * (Navigation.IsNormal ? 0.07720 : 0.0663)),
                 width: (int)(card.Width * 0.4757),
                 height: (int)(card.Height * (Navigation.IsNormal ? 0.0475 : 0.0809))));
+        }
+
+        /// <summary>Controller-mode equivalent of <see cref="GetGearSlotBitmap"/>, measured with the
+        /// coordinate-picker tool (2026-07-04).</summary>
+        private Bitmap GetGearSlotBitmapViaController(Bitmap card)
+        {
+            return GenshinProcesor.CopyBitmap(card, new Rectangle(
+                x: (int)(card.Width * 0.0492),
+                y: (int)(card.Height * 0.0676),
+                width: (int)(card.Width * 0.5009),
+                height: (int)(card.Height * 0.0333)));
+        }
+
+        /// <summary>Controller-mode equivalent of <see cref="GetMainStatBitmap"/>, measured with the
+        /// coordinate-picker tool (2026-07-04).</summary>
+        private Bitmap GetMainStatBitmapViaController(Bitmap card)
+        {
+            return GenshinProcesor.CopyBitmap(card, new Rectangle(
+                x: (int)(card.Width * 0.0528),
+                y: (int)(card.Height * 0.1500),
+                width: (int)(card.Width * 0.4663),
+                height: (int)(card.Height * 0.0306)));
+        }
+
+        // Per user (2026-07-04): the sanctify shift equals the sanctify banner's own height, since a
+        // sanctified card simply inserts the banner above Level/Substats/Locked, pushing them all
+        // down by exactly that much. Shared by GetLevelBitmapViaController/GetSubstatsBitmapViaController/
+        // GetLockedBitmapViaController and DetectSanctifiedViaController's own region height.
+        // Re-measured 2026-07-04 (0.0491 -> 0.0426): the first pass over-estimated the banner height,
+        // which pushed Substats' crop far enough to catch the set-bonus description line below the
+        // real stat list -- tighter measurement here fixes that overshoot.
+        private const double SanctifyShift = 0.0426;
+
+        /// <summary>Controller-mode equivalent of <see cref="GetLevelBitmap"/>, measured with the
+        /// coordinate-picker tool (2026-07-04). <paramref name="isSanctified"/> shifts the crop down
+        /// by the sanctify banner's own height (see <see cref="SanctifyShift"/>), mirroring mouse
+        /// mode's <c>isSanctified</c>/<c>sanctifiedShift</c> logic.</summary>
+        private Bitmap GetLevelBitmapViaController(Bitmap card, bool isSanctified = false)
+        {
+            double yShift = isSanctified ? SanctifyShift : 0.0;
+            return GenshinProcesor.CopyBitmap(card, new Rectangle(
+                x: (int)(card.Width * 0.0565),
+                y: (int)(card.Height * (0.3120 + yShift)),
+                width: (int)(card.Width * 0.1184),
+                height: (int)(card.Height * 0.0306)));
+        }
+
+        /// <summary>Controller-mode equivalent of <see cref="GetSubstatsBitmap"/>, measured with the
+        /// coordinate-picker tool (2026-07-04). Same sanctify-shift handling as
+        /// <see cref="GetLevelBitmapViaController"/>.</summary>
+        private Bitmap GetSubstatsBitmapViaController(Bitmap card, bool isSanctified = false)
+        {
+            double yShift = isSanctified ? SanctifyShift : 0.0;
+            return GenshinProcesor.CopyBitmap(card, new Rectangle(
+                x: (int)(card.Width * 0.0437),
+                y: (int)(card.Height * (0.3611 + yShift)),
+                width: (int)(card.Width * 0.8397),
+                height: (int)(card.Height * 0.1991)));
+        }
+
+        /// <summary>Controller-mode equivalent of <see cref="GetLockedBitmap"/>, measured with the
+        /// coordinate-picker tool (2026-07-04). Same sanctify-shift handling as
+        /// <see cref="GetLevelBitmapViaController"/>. Reuses the same lock-color pixel check as the
+        /// mouse path (same in-game badge asset).</summary>
+        private Bitmap GetLockedBitmapViaController(Bitmap card, bool isSanctified = false)
+        {
+            double yShift = isSanctified ? SanctifyShift : 0.0;
+            return GenshinProcesor.CopyBitmap(card, new Rectangle(
+                x: (int)(card.Width * 0.6321),
+                y: (int)(card.Height * (0.3056 + yShift)),
+                width: (int)(card.Width * 0.0893),
+                height: (int)(card.Height * 0.0435)));
+        }
+
+        /// <summary>
+        /// Tight crop of just the sanctify icon/sigil (2026-07-04, replacing the earlier wide banner
+        /// span) -- measured with the coordinate-picker tool, matching <see cref="GetLockedBitmap"/>'s
+        /// tightly-cropped-icon pattern rather than the wide-banner OCR approach this superseded.
+        /// </summary>
+        private Bitmap GetSanctifyIconBitmapViaController(Bitmap card)
+        {
+            return GenshinProcesor.CopyBitmap(card, new Rectangle(
+                x: (int)(card.Width * 0.0055),
+                y: (int)(card.Height * 0.2907),
+                width: (int)(card.Width * 0.0473),
+                height: (int)(card.Height * 0.0398)));
+        }
+
+        /// <summary>
+        /// Detects sanctify status from an already-captured <see cref="GetSanctifyIconBitmapViaController"/>
+        /// crop via a single-pixel color sample (2026-07-04) -- replaces the earlier full-text OCR
+        /// check, which was the single most expensive per-item operation in the artifact scan loop
+        /// (OCR is much slower than a pixel sample, and it ran on every single item). Reuses the
+        /// mouse path's own sanctify reference color (<see cref="QueueScan"/>'s <c>sanctifiedColor</c>,
+        /// (220, 192, 255)) since it's the same in-game icon asset, just captured from a different
+        /// on-screen position -- the same reasoning already confirmed correct for the lock-icon reuse.
+        /// Logs the sampled color in case this reference doesn't hold under controller mode's
+        /// rendering, same lesson as sort-by-obtained's reference color needing remeasurement.
+        /// </summary>
+        private bool DetectSanctifiedFromBitmap(Bitmap sanctifyIcon)
+        {
+            Color sanctifiedColor = Color.FromArgb(255, 220, 192, 255);
+            Color sampled = sanctifyIcon.GetPixel(sanctifyIcon.Width / 2, sanctifyIcon.Height / 2);
+            bool sanctified = GenshinProcesor.CompareColors(sanctifiedColor, sampled);
+            Logger.Debug("Sanctify icon pixel check: sampled={0} reference={1} matched={2}", sampled, sanctifiedColor, sanctified);
+            return sanctified;
+        }
+
+        /// <summary>Captures and detects sanctify status in one step, disposing the capture
+        /// afterward -- for callers (like the single-item debug read) that don't need to keep the
+        /// bitmap around. <see cref="QueueScanViaController"/> instead keeps the bitmap alive since it
+        /// needs to hand it into the worker queue.</summary>
+        private bool DetectSanctifiedViaController(Bitmap card)
+        {
+            using (var region = GetSanctifyIconBitmapViaController(card))
+            {
+                region.Save("./logging/SelectedArtifactDetailsSanctifyIcon.png");
+                return DetectSanctifiedFromBitmap(region);
+            }
+        }
+
+        /// <summary>
+        /// Ad-hoc single-item read for Phase 3 §6c artifact controller-scan development -- reads every
+        /// field the mouse path's <see cref="QueueScan"/> captures for whichever artifact is currently
+        /// selected, without any mouse clicking. Not yet wired into a full scan loop (see
+        /// <c>WeaponScraper.ScanWeaponsViaController</c> for the pattern once this is proven). Caller
+        /// must already be on the Artifacts tab. Detects sanctify status first and passes it to
+        /// Level/Substats/Locked so their shifted positions (see <see cref="SanctifyShift"/>) are used
+        /// automatically -- live-verify this actually lands correctly on a sanctified artifact.
+        /// </summary>
+        public (string SetName, string GearSlot, string MainStat, int Level, bool Sanctified, string Equipped, bool Locked, string SubStatsSummary) ReadSelectedArtifactDetailsViaController()
+        {
+            using (var card = GetItemCardViaController())
+            {
+                card.Save("./logging/SelectedArtifactDetailsCard.png");
+
+                string setName;
+                using (var nameBitmap = GetItemNameBitmapViaController(card))
+                {
+                    nameBitmap.Save("./logging/SelectedArtifactDetailsName.png");
+                    setName = ScanArtifactSet(nameBitmap);
+                }
+
+                string gearSlot;
+                using (var gearSlotBitmap = GetGearSlotBitmapViaController(card))
+                {
+                    gearSlotBitmap.Save("./logging/SelectedArtifactDetailsGearSlot.png");
+                    gearSlot = ScanArtifactGearSlot(gearSlotBitmap);
+                }
+
+                string mainStat;
+                using (var mainStatBitmap = GetMainStatBitmapViaController(card))
+                {
+                    mainStatBitmap.Save("./logging/SelectedArtifactDetailsMainStat.png");
+                    mainStat = ScanArtifactMainStat(mainStatBitmap, gearSlot);
+                }
+
+                bool sanctified = DetectSanctifiedViaController(card);
+
+                int level;
+                using (var levelBitmap = GetLevelBitmapViaController(card, sanctified))
+                {
+                    levelBitmap.Save("./logging/SelectedArtifactDetailsLevel.png");
+                    level = ScanArtifactLevel(levelBitmap);
+                }
+
+                string subStatsSummary;
+                using (var subStatsBitmap = GetSubstatsBitmapViaController(card, sanctified))
+                {
+                    subStatsBitmap.Save("./logging/SelectedArtifactDetailsSubstats.png");
+                    var (active, unactivated) = ScanArtifactSubStats(subStatsBitmap);
+                    subStatsSummary = string.Join(", ", active.Select(s => $"{s.stat}:{s.value}"));
+                    if (unactivated.Count > 0)
+                        subStatsSummary += $" (unactivated: {string.Join(", ", unactivated.Select(s => $"{s.stat}:{s.value}"))})";
+                }
+
+                string equipped;
+                using (var equippedBitmap = GetEquippedBitmapViaController(card))
+                {
+                    equippedBitmap.Save("./logging/SelectedArtifactDetailsEquipped.png");
+                    equipped = ScanArtifactEquippedCharacter(equippedBitmap);
+                }
+
+                bool locked;
+                using (var lockedBitmap = GetLockedBitmapViaController(card, sanctified))
+                {
+                    lockedBitmap.Save("./logging/SelectedArtifactDetailsLocked.png");
+                    Color lockedColor = Color.FromArgb(255, 70, 80, 100);
+                    Color lockStatus = lockedBitmap.GetPixel(10, 10);
+                    locked = GenshinProcesor.CompareColors(lockedColor, lockStatus);
+                }
+
+                return (setName, gearSlot, mainStat, level, sanctified, equipped, locked, subStatsSummary);
+            }
+        }
+
+        /// <summary>
+        /// Controller-mode equivalent of <see cref="QueueScan"/>: takes an already-captured card
+        /// (from <see cref="ScanArtifactsViaController"/>'s navigation loop) instead of re-capturing
+        /// via the mouse-hover-popup region. Same field set, index order, filtering, and queue
+        /// dispatch as the mouse path so both feed the identical worker/cataloguing pipeline.
+        /// </summary>
+        private void QueueScanViaController(Bitmap card, int id)
+        {
+            Bitmap name = GetItemNameBitmapViaController(card);
+            Bitmap gearSlot = GetGearSlotBitmapViaController(card);
+            Bitmap mainStat = GetMainStatBitmapViaController(card);
+            Bitmap sanctify = GetSanctifyIconBitmapViaController(card);
+            bool sanctified = DetectSanctifiedFromBitmap(sanctify);
+
+            Bitmap level = GetLevelBitmapViaController(card, sanctified);
+            Bitmap subStats = GetSubstatsBitmapViaController(card, sanctified);
+            Bitmap equipped = GetEquippedBitmapViaController(card);
+            Bitmap locked = GetLockedBitmapViaController(card, sanctified);
+
+            List<Bitmap> artifactImages = new List<Bitmap>
+            {
+                name, //0
+                gearSlot,
+                mainStat,
+                level,
+                subStats,
+                equipped, //5
+                locked,
+                sanctify,
+                card
+            };
+
+            bool belowRarity = GetRarity(name) < scanSettings.MinimumArtifactRarity;
+            bool belowLevel = ScanArtifactLevel(level) < scanSettings.MinimumArtifactLevel;
+
+            // Never sets StopScanning here -- unlike WeaponScraper's controller path, artifact
+            // sort-mode selection hasn't been ported (mouse mode's artifact sort, SetSort/
+            // SortByObtained, is a different mechanism than weapons' Level/Quality/Type dropdown, and
+            // hasn't been confirmed reachable via controller at all). Filtering (not queuing) a
+            // disqualified item is still safe on an unsorted grid; stopping the whole scan early is
+            // not, since it'd risk silently skipping later qualifying artifacts.
+            if (belowRarity || belowLevel)
+            {
+                artifactImages.ForEach(i => i.Dispose());
+                return;
+            }
+
+            InventoryKamera.workerChannel.Writer.TryWrite(new OCRImageCollection(artifactImages, "artifact", id));
+        }
+
+        /// <summary>
+        /// Controller-driven artifact scan (Phase 3 §6c) -- real replacement for <see cref="ScanArtifacts"/>'s
+        /// mouse click/scroll loop, wired into <c>InventoryKamera.GatherData</c>. Takes an
+        /// already-connected <paramref name="controller"/> that's already inside Inventory (per user,
+        /// 2026-07-04: switching between Weapons/Artifacts tabs shouldn't back all the way out to the
+        /// unpaused game state and re-enter -- see <c>WeaponScraper.ScanWeaponsViaController</c>'s doc
+        /// comment for the full reasoning; <c>GatherData</c> now owns the single controller/entry
+        /// spanning both phases). Switches to Artifacts, sets sort-by-obtained and clears filters
+        /// (<see cref="SetSortByObtainedViaController"/>/<see cref="ClearFiltersViaController"/>, both
+        /// live-verified 2026-07-04), then repeatedly reads the selected item's card and advances with
+        /// a single left-stick push to the Right (per user, confirmed to work the same way as weapons).
+        /// UNVERIFIED assumptions carried over from weapons without being independently reconfirmed for
+        /// Artifacts: end-of-list behavior, and that <see cref="InventoryScraper.ScanItemCountViaController"/>'s
+        /// weapon-measured region also correctly reads the Artifacts count label (plausible since it's
+        /// a shared HUD element, but not directly confirmed). No sort-MODE selection, i.e. Level/
+        /// Quality/Type (see <see cref="QueueScanViaController"/>'s own comment) -- scans in whatever
+        /// order the grid is currently in, filtering without early-stop.
+        /// </summary>
+        /// <param name="knownCurrentTab">See <see cref="InventoryScraper.SwitchToTabViaController"/> --
+        /// pass the previous controller-driven phase's returned tab (e.g. "Weapons") to skip
+        /// re-detecting via OCR.</param>
+        public void ScanArtifactsViaController(GameController controller, int count = 0, string knownCurrentTab = null)
+        {
+            StopScanning = false;
+
+            SwitchToTabViaController(controller, "Artifacts", knownCurrentTab);
+            SetSortByObtainedViaController(controller);
+            ClearFiltersViaController(controller);
+
+            int artifactCount = count == 0 ? ScanItemCountViaController() : count;
+
+            // Mouse-mode's ScanArtifacts() caps the scan to SortByObtained * fullPage items when
+            // that setting is active (fullPage = cols*rows from GetPageOfItems' blob detection,
+            // "only scan the N most-recently-obtained pages"). Controller mode doesn't do that
+            // grid detection, so per user (2026-07-04): fullPage is replaced with a fixed 10
+            // (controller mode's per-row artifact count), i.e. SortByObtained now means "N rows of
+            // most-recently-obtained artifacts" rather than "N full multi-row screens".
+            const int artifactsPerRow = 10;
+            if (SortByObtained > 0 && SortByObtained * artifactsPerRow <= artifactCount)
+            {
+                artifactCount = SortByObtained * artifactsPerRow;
+            }
+
+            progressReporter.SetArtifact_Max(artifactCount);
+
+            int scanned = 0;
+
+            while (scanned < artifactCount && !InventoryKamera.CancelRequested && !StopScanning)
+            {
+                progressReporter.WaitIfCorrectionPending();
+
+                // Not wrapped in `using` -- QueueScanViaController hands `card` into
+                // artifactImages, which either gets disposed immediately (filtered out) or flows
+                // into the worker channel for async cataloguing/disposal, matching QueueScan's
+                // mouse-path pattern. Disposing it here would race the worker thread.
+                Bitmap card = GetItemCardViaController();
+                QueueScanViaController(card, scanned);
+                scanned++;
+
+                if (scanned >= artifactCount) break;
+
+                // Per user (2026-07-04): bumped from 80/100 -> 100/150 -- after the sanctify
+                // check switched from OCR to a pixel sample, the removed OCR time turned out to
+                // have been accidentally giving Genshin's selection-change animation enough room
+                // to finish, and items started getting skipped without it.
+                controller.MoveStep(GameController.MenuDirection.Right,
+                    holdMs: ScaledControllerDelay(100), settleMs: ScaledControllerDelay(150));
+            }
+
+            Logger.Info("Controller artifact scan finished: {0} of {1} scanned (cancelled={2}, stopped={3})",
+                scanned, artifactCount, InventoryKamera.CancelRequested, StopScanning);
         }
 
         public async Task<Artifact> CatalogueFromBitmapsAsync(List<Bitmap> bm, int id)
@@ -558,7 +960,13 @@ namespace InventoryKamera
 						Logger.Debug("Failed to parse stat from: {0}", line);
 					}
 
-					substats.Insert(i, substat);
+					// Was substats.Insert(i, substat) -- i is the outer loop's index into *all* lines,
+					// but substats only grows for lines that contain a digit (see the `if` above), so
+					// i drifts past substats.Count as soon as any earlier line gets skipped, throwing
+					// ArgumentOutOfRangeException on Insert. The intent is clearly to append parsed
+					// substats in encountered order, which Add does correctly regardless of how many
+					// lines were skipped.
+					substats.Add(substat);
 				}
 			}
 

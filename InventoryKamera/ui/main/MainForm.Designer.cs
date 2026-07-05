@@ -85,7 +85,9 @@ namespace InventoryKamera
             updateExecutablesToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             AdvancedSettingsMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             DarkModeMenuItem = new System.Windows.Forms.ToolStripMenuItem();
-            TestControllerInputMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            DebugMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            TestControllerMashBackMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            CoordinatePickerMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             label2 = new System.Windows.Forms.Label();
             label3 = new System.Windows.Forms.Label();
             folderBrowserDialog1 = new System.Windows.Forms.FolderBrowserDialog();
@@ -563,7 +565,7 @@ namespace InventoryKamera
             // menuStrip1
             // 
             menuStrip1.ImageScalingSize = new System.Drawing.Size(20, 20);
-            menuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] { fileToolStripMenuItem, keysToolStripMenuItem });
+            menuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] { fileToolStripMenuItem, keysToolStripMenuItem, DebugMenuItem });
             menuStrip1.Location = new System.Drawing.Point(0, 0);
             menuStrip1.Name = "menuStrip1";
             menuStrip1.Padding = new System.Windows.Forms.Padding(8, 3, 0, 3);
@@ -587,11 +589,18 @@ namespace InventoryKamera
             // 
             // keysToolStripMenuItem
             // 
-            keysToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { inventoryToolStripMenuItem, characterScreenToolStripMenuItem, characterSlot1KeyToolStripMenuItem, DatabaseUpdateMenuItem, toolStripMenuItem1, updateExecutablesToolStripMenuItem, AdvancedSettingsMenuItem, DarkModeMenuItem, TestControllerInputMenuItem });
+            keysToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { inventoryToolStripMenuItem, characterScreenToolStripMenuItem, characterSlot1KeyToolStripMenuItem, DatabaseUpdateMenuItem, toolStripMenuItem1, updateExecutablesToolStripMenuItem, AdvancedSettingsMenuItem, DarkModeMenuItem });
             keysToolStripMenuItem.Name = "keysToolStripMenuItem";
             keysToolStripMenuItem.Size = new System.Drawing.Size(92, 29);
             keysToolStripMenuItem.Text = "Options";
-            // 
+            //
+            // DebugMenuItem
+            //
+            DebugMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { TestControllerMashBackMenuItem, CoordinatePickerMenuItem });
+            DebugMenuItem.Name = "DebugMenuItem";
+            DebugMenuItem.Size = new System.Drawing.Size(66, 29);
+            DebugMenuItem.Text = "Debug";
+            //
             // inventoryToolStripMenuItem
             // 
             inventoryToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { inventoryToolStripTextBox });
@@ -682,15 +691,22 @@ namespace InventoryKamera
             DarkModeMenuItem.Text = "Dark Mode";
             DarkModeMenuItem.Click += DarkModeMenuItem_Click;
             //
-            // TestControllerInputMenuItem
-            // 
-            TestControllerInputMenuItem.Name = "TestControllerInputMenuItem";
-            TestControllerInputMenuItem.Size = new System.Drawing.Size(332, 34);
-            TestControllerInputMenuItem.Text = "Test Controller Input (Spike)";
-            TestControllerInputMenuItem.Click += TestControllerInputMenuItem_Click;
-            // 
+            // TestControllerMashBackMenuItem
+            //
+            TestControllerMashBackMenuItem.Name = "TestControllerMashBackMenuItem";
+            TestControllerMashBackMenuItem.Size = new System.Drawing.Size(332, 34);
+            TestControllerMashBackMenuItem.Text = "Panic Button: Mash Back to Exit Menus";
+            TestControllerMashBackMenuItem.Click += TestControllerMashBackMenuItem_Click;
+            //
+            // CoordinatePickerMenuItem
+            //
+            CoordinatePickerMenuItem.Name = "CoordinatePickerMenuItem";
+            CoordinatePickerMenuItem.Size = new System.Drawing.Size(309, 34);
+            CoordinatePickerMenuItem.Text = "Tool: Coordinate Picker for Captures";
+            CoordinatePickerMenuItem.Click += CoordinatePickerMenuItem_Click;
+            //
             // label2
-            // 
+            //
             label2.AutoSize = true;
             label2.Location = new System.Drawing.Point(15, 22);
             label2.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
@@ -1026,7 +1042,7 @@ namespace InventoryKamera
             // 
             // MainForm
             // 
-            AutoScaleDimensions = new System.Drawing.SizeF(144F, 144F);
+            AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
             BackColor = System.Drawing.Color.FromArgb(245, 244, 237);
             ClientSize = new System.Drawing.Size(892, 760);
@@ -1177,6 +1193,8 @@ namespace InventoryKamera
         private System.Windows.Forms.CheckBox ScanAllCharacters_CheckBox;
         private System.Windows.Forms.ToolStripMenuItem AdvancedSettingsMenuItem;
         private System.Windows.Forms.ToolStripMenuItem DarkModeMenuItem;
-        private System.Windows.Forms.ToolStripMenuItem TestControllerInputMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem DebugMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem TestControllerMashBackMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem CoordinatePickerMenuItem;
     }
 }

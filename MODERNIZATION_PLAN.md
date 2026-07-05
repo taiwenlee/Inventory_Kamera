@@ -13,8 +13,8 @@
 | **0 — Foundation** | ✅ **complete** | SDK-style project, xUnit tests, CI. |
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
 | **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4 investigated and deliberately deferred (remote/variable-shape data + a mutable field make it a real design problem, not a mechanical one). §2.5 done except character display: `ScanViewModel` now owns real observable state for counters, status/errors, gear, material/mora, and navigation image (six slices, unit-tested where possible). Character display stays on the static `UserInterface` bridge pending the scan-input revamp (§6c). |
-| **3 — UX** | 🔄 **in progress** | §3.0 (declutter/reorganize `MainForm`) substantially done — see §3.0 for the full slice history (GroupBoxes → tabbed layout → dedicated Advanced Settings dialog → flat/warm visual theme). §3.1 (live scan feedback) done. §3.2 (pre-flight validation) mostly done — resolution/aspect-ratio/keybind/game-running checks land before a scan starts; HDR/language detection deferred. §3.3 (inline OCR correction) first slice done — confidence capture + threshold setting + correction dialog, wired into one call site (item count), not yet expanded further or live-verified. §3.4's DPI-awareness bullet done (landed as a side effect of the 4K windowed-capture bugfix); dark mode/remaining polish and §3.5 (onboarding) not started. §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
-| **Scan input revamp** | 🔄 **feasibility confirmed** | Keyboard-only ruled out (Genshin's UI doesn't have full keyboard coverage); controller input confirmed viable instead — a ViGEmBus feasibility spike got Genshin to switch to controller UI scheme. Real design/implementation not yet started — see §6c. |
+| **3 — UX** | 🔄 **in progress** | §3.0 (declutter/reorganize `MainForm`) substantially done — see §3.0 for the full slice history (GroupBoxes → tabbed layout → dedicated Advanced Settings dialog → flat/warm visual theme). §3.1 (live scan feedback) done. §3.2 (pre-flight validation) mostly done — resolution/aspect-ratio/keybind/game-running checks land before a scan starts; HDR/language detection deferred. §3.3 (inline OCR correction) first slice done — confidence capture + threshold setting + correction dialog, wired into one call site (item count), not yet expanded further or live-verified. §3.4's DPI-awareness bullet done (landed as a side effect of the 4K windowed-capture bugfix); dark mode done (commit e9a60a2 — Options-menu toggle, `UiTheme.ApplyTheme` across MainForm/SettingsForm/OcrCorrectionForm); remaining §3.4 polish (keyboard navigation, status/error surfaces) and §3.5 (onboarding) not started. §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
+| **Scan input revamp** | 🔄 **weapon + artifact scans live-verified working** | Keyboard-only ruled out; controller input confirmed viable. Both `WeaponScraper.ScanWeaponsViaController` and `ArtifactScraper.ScanArtifactsViaController` are live-verified end to end and wired into `GatherData`, replacing their mouse-based equivalents. Weapons: sort-by-level/quality with early-stop, scan speed scales with Fast/Normal/Slow. Artifacts: sanctify-shift handled, sort-by-obtained toggle and filter-reset working via controller, but no sort-MODE (Level/Quality/Type) selection yet, so filtering never early-stops (correct, just slower on aggressive filters). Remaining gaps: weapon locked-status detection (unmeasured, always reports unlocked); Character Development Items not started but shares the same base-class primitives. See §6c. |
 
 **Runtime:** the app now targets **`net8.0-windows7.0`** (was net472 through Phase 0; bumped from bare `net8.0-windows` after live testing surfaced 670+ spurious CA1416 warnings — see below). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
@@ -707,7 +707,11 @@ access to the running app in this environment — the user pasted screenshots ea
   `Program.cs` + `<ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>` in the csproj (the
   manifest-based declaration doesn't work for .NET 5+ WinForms, per the SDK's own `WFAC010` warning).
   Live-verified: app UI renders correctly, no layout regressions observed.
-- Dark mode + consistent theming. Keyboard navigation and clear status/error surfaces.
+- ~~Dark mode + consistent theming.~~ **Done (commit e9a60a2)** — Options-menu Dark Mode toggle backed
+  by a new `DarkMode` setting; `UiTheme.ApplyTheme` recursively themes MainForm/SettingsForm/
+  OcrCorrectionForm with an exclusion list for deliberately-colored controls, plus a custom
+  `ToolStripProfessionalRenderer` color table for menus.
+- Keyboard navigation and clear status/error surfaces — still open.
 
 ### 3.5 Onboarding & errors
 - First-run guided setup wizard (resolution/language/keybinds).
@@ -781,7 +785,7 @@ dependencies), it was reverted via `git revert` rather than kept as a not-quite-
 
 ---
 
-## 6c. Scan input revamp — controller-driven navigation — 🔄 feasibility confirmed (2026-07-05)
+## 6c. Scan input revamp — controller-driven navigation — 🔄 weapon scan live-verified (started 2026-07-05, weapon scan proven 2026-07-04)
 
 **Motivation:** artifact/weapon grid-item detection (`ProcessScreenshot`/`GetPageOfItems` in
 `InventoryScraper.cs`) reconstructs the item grid from blob-detected column/row coordinates —
@@ -827,13 +831,148 @@ full keyboard-only UI navigation in a future update, which would remove the need
 dependency entirely. Revisit distribution UX (option 2) only if/when this graduates from experimental
 to a default-on feature.
 
-**Not yet done:** the feasibility spike is throwaway/standalone — it doesn't drive any real
-navigation yet. Real design work still needed on `Navigation.cs` (currently percentage-of-window
-mouse coordinates + `sim.Keyboard.KeyPress` for a few menu shortcuts) and the scrapers that call into
-it: mapping which D-pad/stick/button sequences move the cursor through the artifact/weapon/character
-grids, how to read back the current cursor position/selection (still likely needs a screenshot-based
-check, just a much simpler one than full blob detection), and how the virtual controller's lifecycle
-should be managed across a full scan (connect once at scan start vs. per-navigation-action).
+**Real implementation started (2026-07-05):** `InventoryKamera/game/GameController.cs` — a real (not
+throwaway) service holding the virtual Xbox 360 controller connected for its lifetime, unlike
+`ControllerSpike`'s connect-per-call pattern. `ControllerSpike.TapAButton` now delegates to it rather
+than duplicating ViGEm calls. Live-tested and fixed through several real issues, each only found by
+actually running it against the game:
+- **200ms wasn't enough settle time** between the stick-nudge scheme switch and a subsequent Start
+  press — Start didn't register. A stick nudge alone also weakly flips the visible prompt icons but
+  isn't reliably enough to make the game start routing controller input for a button press; tapping A
+  right after (matching the original spike's known-working sequence) is now part of
+  `EnterControllerMode()`. Also added a 500ms settle delay right after `Connect()` in the constructor
+  and a 1000ms delay before the first button press in test call sites — Windows/the game need a
+  moment to actually enumerate the new virtual device.
+- **Disconnecting the virtual controller while Genshin still expected controller input (e.g. a
+  controller-driven menu was open) surfaced a blocking "controller disconnected, reconnect or exit"
+  prompt.** Fixed with `GameController.ExitControllerMode()` — a net-zero real mouse nudge that
+  makes Genshin switch back to keyboard/mouse control *before* the virtual device disconnects;
+  `Dispose()` calls it automatically.
+- **Grid navigation confirmed working**: the pause menu's tab bar is a 4-wide x 5-tall grid, cursor
+  starts at `[0,0]` (top-left, column-row) when the menu opens. `GameController.MoveStep`/`Move`
+  (discrete left-stick full-deflection taps, 150ms hold + 150ms settle each, horizontal/vertical legs
+  never diagonal) live-verified moving `[0,0]` → `[0,2]` (Inventory, pure vertical) then confirming
+  with A actually opened Inventory.
+- **Combined horizontal+vertical movement confirmed working (2026-07-05)**: Character menu at `[2,1]`
+  reached via `Move(Right, 2)` then `Move(Down, 1)` (two separate straight-line legs, not diagonal)
+  and landed correctly. Between this and the `[0,2]` Inventory test, the core navigation primitives
+  (`EnterControllerMode`, `OpenMenu`, `MoveStep`/`Move`, `TapButton`, `ExitControllerMode`) are now all
+  live-verified for the pause-menu tab bar specifically.
+- **Not yet tested**: navigation *within* a submenu once opened (Inventory/Character's own internal
+  grids, not just the top-level tab bar — these may have different dimensions/behavior than the
+  4x5 tab bar), reading back cursor position/selection state (still likely needs a screenshot-based
+  check, much simpler than full blob detection), constellation/talent panels' confirmed mouse-only
+  requirement, and how the virtual controller's lifecycle should be managed across a full scan
+  (connect once at scan start vs. per-navigation-action — currently each test connects fresh per
+  test-menu click). No general `NavigateTo(col, row)` helper yet — each test hand-codes its own
+  Right/Down call sequence from the known `[0,0]` start; worth extracting once a couple more grids
+  are confirmed to behave the same way.
+- **A/B are swapped from standard Xbox convention (2026-07-05, corrected same day):** confirmed via
+  direct user correction: **A is Genshin's back/cancel button, B is confirm/select** — the opposite of
+  the usual Xbox mapping. Initial testing suggested Character's tab (`[2,1]`) opened fine with A while
+  only Inventory (`[0,2]`) needed B, which looked like a per-tab inconsistency; that was wrong —
+  Character opening with an A press was a red herring (likely landing on the tab was enough on its
+  own, or something else coincidentally happened), not evidence A confirms. `MashBack` (previously B)
+  and the Character-menu test (previously A) both corrected to match the real global mapping: A backs
+  out, B confirms, everywhere. No more per-tab inconsistency once the mapping itself was fixed.
+- **Safety net added: `GameController.MashBack(times, delayMs)`** repeatedly taps B to back out of
+  however many menus deep a bad navigation sequence left the game in; over-pressing past the top
+  level is harmless. `ExitControllerMode()` (and therefore `Dispose()`) now calls it automatically
+  before the graceful KBM-switch mouse nudge, so every existing test's cleanup benefits for free.
+  Also exposed as a standalone "Panic Button: Mash Back to Exit Menus" Options-menu item for manual
+  recovery without needing to alt-tab and clean up by hand.
+- **Inventory tab detection, live-verified end to end (2026-07-05):** Genshin remembers whichever
+  inventory tab was last open, so navigation can't assume a known starting tab once inside Inventory.
+  `ControllerNavigationTests.DetectCurrentTabIndex` captures a top-left region, OCRs it, and
+  fuzzy-matches against the known tab order (`Weapons, Artifacts, Character Development Items, Food,
+  Materials, Gadget, Quest, Precious Items, Furnishings`) via `TextNormalizer.FindClosestInList`
+  (widened from `private` to `internal` to reuse it here). Two real bugs found and fixed via live
+  screenshots: (1) the capture region's bottom edge clipped the Quest tab's text (Furnishings
+  happened to sit more centered in the same band, masking the bug) — fixed by widening the height and
+  shifting y down slightly; (2) the OCR call was skipping preprocessing entirely, unlike every real
+  scraper call site — added the standard grayscale/contrast/invert pipeline, matching
+  `InventoryScraper.ScanItemCount`.
+- **Tab switching, live-verified working (2026-07-05):** `RunSwitchToTab(targetTab)` detects the
+  current tab, then cycles LB/RB (the inventory sub-tab row's own input — distinct from the pause
+  menu's stick-driven grid) to reach the target. Tabs wrap around (circular), so it compares
+  forward vs. backward distance and takes whichever is fewer presses; also sped up from 300ms/tap to
+  100ms since faster presses still register reliably. Wired up for Weapons, Artifacts, and Character
+  Development Items (`RunSwitchToWeaponsTabTest`/`RunSwitchToArtifactsTabTest`/
+  `RunSwitchToCharacterDevItemsTabTest`), all sharing the same generic implementation.
+- **All controller-test logic extracted to `InventoryKamera/game/ControllerNavigationTests.cs`
+  (2026-07-05).** Previously lived directly in `MainForm.cs`, which meant every coordinate/timing
+  tweak risked tripping the WinForms Designer regeneration bug (see §3.0) whenever `MainForm` got
+  touched in Visual Studio — happened twice more this session even after the extraction (each time
+  fixed by restoring stripped `global::` qualifiers). `MainForm.cs`/`MainForm.Designer.cs` now only
+  contain menu-item declarations and one-line passthrough handlers; zero navigation/OCR logic.
+- **First real slice toward replacing the mouse-based scan: reading a selected item's name via
+  controller, live-verified working (2026-07-05).** `RunReadSelectedWeaponNameTest` reuses
+  `InventoryScraper.GetItemCard()`'s existing card-region percentages (the mouse-hover detail popup)
+  as its first guess for controller mode's always-visible detail panel — confirmed by the user to be
+  the right region, just needing the OCR preprocessing fixed (see below). Per explicit user direction,
+  this is a **separate, independently-tuned region living in `ControllerNavigationTests.cs`**, not a
+  modification to `InventoryScraper`'s mouse-mode percentages — keeps the PC/mouse path fully intact
+  for if Genshin ever ships full keyboard-only navigation. **Root cause of the first failed
+  attempt:** a generic grayscale+contrast(60)+invert pipeline produced total garbage
+  (`"RS\nT fT% TF Tf =&& Ff Rt TT 8"`) despite the crop itself being clean and legible to the eye —
+  contrast boosting doesn't suit this card's orange/brown gradient background. Fixed by matching
+  `InventoryScraper.ScanItemName`'s already-proven pipeline for this exact visual pattern (white
+  embossed text on a gradient nameplate) instead of inventing a new one: gamma correction
+  (`GenshinProcesor.SetGamma(0.2, 0.2, 0.2, ...)`) then grayscale + invert, no contrast step.
+- **Advance-to-next-item test added (2026-07-05), verification caveat found:** `RunAdvanceToNextWeaponTest`
+  reads the selected weapon's name, sends one `MoveStep(Right)`, reads again, and reports both side
+  by side. Per user: comparing matched names alone is **not a reliable pass/fail signal** — duplicate
+  weapons commonly sit next to each other in the grid, so identical before/after names don't
+  necessarily mean the stick nudge failed to advance. The test now just reports both results plus
+  saved before/after screenshots for visual comparison instead of asserting a warning from name
+  equality alone.
+- **Full scan replacement will need more than just the name.** Per user: the real weapon scan must
+  also read refinement, level, and equipped character for each item — matching what
+  `WeaponScraper.ScanWeapons()`'s existing mouse-based path already captures (`ScanLevel`,
+  `ScanRefinement`, `ScanEquippedCharacter`). `ReadSelectedWeaponName`'s card-region capture already
+  grabs the *whole* detail card (not just the name strip), so these should be extractable as
+  additional sub-region crops within the same already-proven card capture, likely needing their own
+  gamma/grayscale/invert pipeline tuning per field the same way the name did — not yet built.
+- **Region-calibration tool added (2026-07-03, not yet live-verified):** `ui/CoordinatePickerForm.cs`
+  (Options → "Tool: Coordinate Picker for Captures") — loads a saved capture from `logging/`
+  (open/reload/drag-drop, no file lock so test reruns can overwrite it while open), drag a rectangle,
+  get the region as a copy-ready C# snippet in both the window-relative (`Navigation.GetWidth()`) and
+  card-relative (`card.Width`) percentage formats. Replaces the guess → run test → send screenshot →
+  adjust loop that every §6c sub-region crop (level/refinement/equipped) has needed so far.
+  First real use (2026-07-03): the user measured the selected-item detail card off a full-window
+  capture (x 0.7031, y 0.1231, w 0.2167, h 0.7556 — shared by the Weapons/Artifacts/Character
+  Development Items tabs), replacing the initial guess borrowed from `InventoryScraper.GetItemCard()`'s
+  mouse-popup percentages; now a single `CaptureSelectedItemCard()` helper used by both read tests.
+  The within-card sub-crops (name strip 0–0.0574h, level, refinement, equipped) were then also all
+  user-measured with the picker against the new card frame (2026-07-03) and applied, replacing the
+  per-field guesses and their leftover `Navigation.IsNormal` variants.
+- **Real replacement scan wired up and live-verified working (2026-07-03):** `WeaponScraper.ScanWeaponsViaController`
+  (`InventoryKamera/scraping/WeaponScraper.cs`) is a full controller-driven scan loop -- enters
+  Inventory, switches to Weapons, then repeatedly reads the selected item's card and advances one
+  grid cell right, wrapping to the next row (`Down` + `Left×(cols-1)`, cols from
+  `InventoryScraper.GetPageOfItems`'s existing blob detection, reused only for the column count).
+  Shared navigation/capture primitives (`GetItemCardViaController`, `EnterInventoryViaController`,
+  `DetectCurrentTabIndexViaController`, `SwitchToTabViaController`, plus name/equipped sub-crops)
+  moved onto the `InventoryScraper` base class so Artifacts/Character Development Items scans can
+  reuse them later. First live test (`RunControllerWeaponScanTest`, Options → Debug menu, 3 items)
+  passed. **Not yet done:** locked-status detection (no measured region, always reports false --
+  needs a coordinate-picker pass), sort-by-level/quality isn't ported, and it's still not wired
+  into `InventoryKamera.GatherData`'s real scan (deliberately deferred pending a full-size live
+  test, not just 3 items). Dead-end test methods and the throwaway `ControllerSpike` feasibility
+  spike were removed once this real path proved out; all remaining `§6c` debug/test menu items
+  moved from Options into a new **Debug** top-level menu, hidden outside Debug builds
+  (`MainForm.cs`'s constructor, `#if !DEBUG`).
+- **Not yet done:** verifying the left stick actually advances the grid selection to the next item
+  with a verification method that isn't confused by duplicate adjacent weapons (e.g. comparing level/
+  refinement/equipped-character too, or a raw pixel diff of the card capture, once those fields are
+  read) — the last primitive needed before wiring a real replacement scan loop into
+  `WeaponScraper`/`ArtifactScraper`. Per explicit user decision, this will be a **full replacement** of
+  the mouse-based scan (no opt-in toggle) once proven, not a parallel path. Still unverified: whether
+  the grid auto-scrolls into view as the selection moves past the visible area (user's understanding
+  is yes, not yet directly tested), reading back "which item is currently selected" / detecting the
+  end of the list, artifact and character-dev-item card layouts (may differ from the weapon card
+  tested so far), and how the virtual controller's lifecycle should be managed across a full scan
+  (currently each test connects fresh; a real scan should likely connect once at scan start).
 
 ---
 

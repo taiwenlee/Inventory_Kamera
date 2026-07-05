@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using InventoryKamera.game;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -155,43 +156,64 @@ namespace InventoryKamera
 			GenshinProcesor.UpdateCharacterName("manequin1", scanSettings.Manequin1Name);
 			GenshinProcesor.UpdateCharacterName("manequin2", scanSettings.Manequin2Name);
 
-            if (scanSettings.ScanWeapons && !CancelRequested)
+            if ((scanSettings.ScanWeapons || scanSettings.ScanArtifacts) && !CancelRequested)
 			{
-				Logger.Info("Scanning weapons...");
-				// Get Weapons
-				Navigation.InventoryScreen();
-				Navigation.SelectWeaponInventory();
-				try
+				// Phase 3 §6c: one controller connection and one pause-menu-to-Inventory entry spans
+				// every controller-driven scan phase below. Per user (2026-07-04): switching between
+				// Weapons/Artifacts tabs shouldn't back all the way out to the unpaused game state and
+				// re-enter via the full pause-menu sequence just to immediately go back into Inventory
+				// -- each phase now just calls SwitchToTabViaController internally. Only when this
+				// `using` block ends (both phases done) does GameController.Dispose() back out of
+				// every menu and switch Genshin back to keyboard/mouse mode -- so no
+				// Navigation.InventoryScreen()/SelectWeaponInventory()/SelectArtifactInventory()/
+				// MainMenuScreen() (the mouse path's own entry/exit) are needed here.
+				using (var controller = new GameController())
 				{
-                    weaponScraper.ScanWeapons();
-				}
-				catch (FormatException ex) { progressReporter.AddError(ex.Message); }
-				catch (Exception ex)
-				{
-					progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
-				}
-				Navigation.MainMenuScreen();
-				Logger.Info("Done scanning weapons");
-			}
+					if (!controller.IsAvailable)
+					{
+						progressReporter.AddError($"Controller scan unavailable: {controller.FailureReason}");
+					}
+					else
+					{
+						weaponScraper.EnterInventoryViaController(controller);
 
-			if (scanSettings.ScanArtifacts && !CancelRequested)
-			{
-				Logger.Info("Scanning artifacts...");
+						// Per user (2026-07-05): once a phase has switched to and scanned a tab, the
+						// next phase already knows where it left off -- no need to re-detect the
+						// current tab via OCR (which had been flaking) just to compute the next
+						// switch. Threaded through explicitly rather than re-derived.
+						string currentTab = null;
 
-				// Get Artifacts
-				Navigation.InventoryScreen();
-				Navigation.SelectArtifactInventory();
-				try
-				{
-					artifactScraper.ScanArtifacts();
+						if (scanSettings.ScanWeapons && !CancelRequested)
+						{
+							Logger.Info("Scanning weapons...");
+							try
+							{
+								currentTab = weaponScraper.ScanWeaponsViaController(controller, knownCurrentTab: currentTab);
+							}
+							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
+							catch (Exception ex)
+							{
+								progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
+							}
+							Logger.Info("Done scanning weapons");
+						}
+
+						if (scanSettings.ScanArtifacts && !CancelRequested)
+						{
+							Logger.Info("Scanning artifacts...");
+							try
+							{
+								artifactScraper.ScanArtifactsViaController(controller, knownCurrentTab: currentTab);
+							}
+							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
+							catch (Exception ex)
+							{
+								progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
+							}
+							Logger.Info("Done scanning artifacts");
+						}
+					}
 				}
-				catch (FormatException ex) { progressReporter.AddError(ex.Message); }
-				catch (Exception ex)
-				{
-					progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
-				}
-				Navigation.MainMenuScreen();
-				Logger.Info("Done scanning artifacts");
 			}
 
 			// No more weapon/artifact items will be queued; workers drain whatever's left, then finish.
