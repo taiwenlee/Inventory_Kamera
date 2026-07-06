@@ -31,70 +31,11 @@ namespace InventoryKamera
 			NumOfCharToScan = scanSettings.NumOfCharToScan;
 		}
 
-		public void ScanCharacters(ref List<Character> Characters)
-		{
-			int viewed = 0;
-			int counter = 0;
-			string first = null;
-			HashSet<string> scanned = new HashSet<string>();
-
-			if (NumOfCharToScan != 0) progressReporter.SetCharacter_Max(NumOfCharToScan);
-
-			progressReporter.ResetCharacterDisplay();
-
-			while (true)
-			{
-				var character = ScanCharacter(first);
-				if(character.NameGOOD != "manequin")
-				{
-                    if (Characters.Count > 0 && character.NameGOOD == Characters.ElementAt(0).NameGOOD) break;
-                    if (character.IsValid())
-                    {
-                        if (!scanned.Contains(character.NameGOOD))
-                        {
-                            Characters.Add(character);
-                            progressReporter.IncrementCharacterCount();
-                            counter++;
-                            Logger.Info("Scanned {0} successfully", character.NameGOOD);
-                            if (Characters.Count == 1) first = character.NameGOOD;
-                        }
-                        else
-                        {
-                            Logger.Info("Prevented {0} duplicate scan", character.NameGOOD);
-                        }
-                    }
-                    else
-                    {
-                        string error = "";
-                        if (!character.HasValidName()) error += "Invalid character name\n";
-                        if (!character.HasValidLevel()) error += "Invalid level\n";
-                        if (!character.HasValidElement()) error += "Invalid element\n";
-                        if (!character.HasValidConstellation()) error += "Invalid constellation\n";
-                        if (!character.HasValidTalents()) error += "Invalid talents\n";
-                        Logger.Error("Failed to scan character\n" + error + character);
-                    }
-                }
-
-                Navigation.SelectNextCharacter();
-				progressReporter.ResetCharacterDisplay();
-
-				if ((++viewed > 3 && Characters.Count < 1) || (NumOfCharToScan !=0 && counter >= NumOfCharToScan)) break;
-				if (InventoryKamera.CancelRequested)
-				{
-					Logger.Info("Stopping character scan: cancel requested");
-					break;
-				}
-			}
-
-			ApplyTartagliaFix(Characters);
-		}
-
 		/// <summary>
 		/// Childe (Tartaglia) passive buff fix -- his kit grants +1 auto-attack talent level to the
 		/// first 4 party members once he's Ascension 4+, which the raw scanned talent level doesn't
-		/// reflect. Shared by the mouse path (<see cref="ScanCharacters"/>) and the controller-driven
-		/// batched path (<see cref="ScanCharactersViaController"/>) since it only needs the final
-		/// assembled roster, not how it was scanned.
+		/// reflect. Used by the controller-driven batched path (<see cref="ScanCharactersViaController"/>)
+		/// since it only needs the final assembled roster, not how it was scanned.
 		/// </summary>
 		private void ApplyTartagliaFix(List<Character> Characters)
 		{
@@ -120,7 +61,37 @@ namespace InventoryKamera
 					}
 				}
 				else if (Characters[i].NameGOOD.ToLower() == "tartaglia") break;
-            }
+			}
+		}
+
+		/// <summary>
+		/// Skirk passive buff fix -- per user (2026-07-05), her kit grants +1 Skill talent level to
+		/// the whole active team whenever that team (the first 4 scanned characters, matching
+		/// <see cref="ApplyTartagliaFix"/>'s own team-position convention) is composed entirely of
+		/// Hydro and Cryo characters, which the raw scanned talent level doesn't reflect. Unlike
+		/// Tartaglia's fix, there's no ascension requirement, and there's no self-only fallback for an
+		/// off-team Skirk -- her buff simply doesn't apply if she isn't one of the first 4. Stacks
+		/// additively with any other active team buff on the same talent (only Tartaglia's exists
+		/// today, and it targets a different talent, "auto", so there's no actual overlap yet).
+		/// </summary>
+		private void ApplySkirkFix(List<Character> Characters)
+		{
+			if (Characters.Count < 4) return;
+
+			int skirkIndex = Characters.FindIndex(c => c.NameGOOD.ToLower() == "skirk");
+			if (skirkIndex < 0 || skirkIndex >= 4) return;
+
+			bool wholeTeamHydroOrCryo = Characters.Take(4).All(c =>
+				c.Element != null && (c.Element.ToLower() == "hydro" || c.Element.ToLower() == "cryo"));
+
+			if (!wholeTeamHydroOrCryo) return;
+
+			Logger.Info("Skirk found on an all-Hydro/Cryo team -- applying team Skill buff correction.");
+			for (int j = 0; j < 4; j++)
+			{
+				Characters[j].Talents["skill"] -= 1;
+				Logger.Info("Applied Skirk skill fix to {0} at position {1}.", Characters[j].NameGOOD, j);
+			}
 		}
 
 		/// <summary>
@@ -152,9 +123,7 @@ namespace InventoryKamera
 		/// method (<see cref="ScanConstellationsViaController"/>/<see cref="ScanTalentsViaController"/>)
 		/// rather than reusing the mouse path's per-node click loop.
 		/// <paramref name="Characters"/> is scanned up to <see cref="NumOfCharToScan"/> entries (0 =
-		/// whole roster), same partial-scan behavior as <see cref="ScanCharacters"/>.
-		/// NOT YET LIVE-VERIFIED: <see cref="EnterCharacterMenuViaController"/>'s pause-menu tab
-		/// position/timing, and whether the sub-tab step counts above are exactly right.
+		/// whole roster).
 		/// </summary>
 		public void ScanCharactersViaController(GameController controller, ref List<Character> Characters)
 		{
@@ -274,6 +243,7 @@ namespace InventoryKamera
 			if (InventoryKamera.CancelRequested)
 			{
 				ApplyTartagliaFix(Characters);
+				ApplySkirkFix(Characters);
 				return;
 			}
 
@@ -316,6 +286,7 @@ namespace InventoryKamera
 			if (InventoryKamera.CancelRequested)
 			{
 				ApplyTartagliaFix(Characters);
+				ApplySkirkFix(Characters);
 				return;
 			}
 
@@ -337,6 +308,7 @@ namespace InventoryKamera
 			});
 
 			ApplyTartagliaFix(Characters);
+			ApplySkirkFix(Characters);
 		}
 
 		/// <summary>
@@ -414,17 +386,28 @@ namespace InventoryKamera
 
 		/// <summary>
 		/// Opens Genshin's pause menu and navigates the controller-mode tab bar to the Character
-		/// screen (grid position [2,1], live-verified reachable via Move(Right,2)+Move(Down,1) per
-		/// MODERNIZATION_PLAN.md §6c, 2026-07-05), then confirms with B (Genshin's confirm/select
-		/// button -- A backs out/cancels, confirmed 2026-07-05). Mirrors
-		/// <see cref="InventoryScraper.EnterInventoryViaController"/>'s structure/timing reasoning for
-		/// the same pause-menu tab bar, just a different destination tab.
-		/// NOT YET LIVE-VERIFIED.
+		/// screen (grid position [2,1] in the 4-wide x 5-tall tab grid, per MODERNIZATION_PLAN.md §6c,
+		/// 2026-07-05), then confirms with B (Genshin's confirm/select button -- A backs out/cancels,
+		/// confirmed 2026-07-05).
+		/// Unlike the Inventory sub-tab row (which does remember its last-viewed tab, see
+		/// <see cref="InventoryScraper.SwitchToTabViaController"/>), the pause menu's own top-level tab
+		/// bar resets to [0,0] every time it's opened fresh from gameplay -- confirmed by the user
+		/// (2026-07-06): a prior controller session's teardown (<see cref="GameController.Dispose"/>)
+		/// always exits all the way back out to play mode, not just closes Inventory, so the next
+		/// pause-menu open always cold-starts at [0,0] regardless of what ran before. Move(Right,2)
+		/// then Move(Down,1) from [0,0] is therefore always correct here.
 		/// </summary>
 		private void EnterCharacterMenuViaController(GameController controller)
 		{
 			Navigation.sim.Keyboard.KeyPress(Navigation.escapeKey);
 			Navigation.SystemWait(Navigation.Speed.UI);
+
+			// Safety net (same idiom as GameController.ExitControllerMode): the previous
+			// controller-driven phase's teardown already backs out of any nested menu, but
+			// EnterControllerMode()'s A-press below assumes a clean free-roam state to avoid
+			// triggering an unwanted in-game action instead of a scheme-switch nudge. Over-pressing
+			// A here is harmless once already at the root (per MashBack's own doc comment).
+			controller.MashBack();
 
 			controller.EnterControllerMode();
 			Thread.Sleep(InventoryScraper.ScaledControllerDelay(2000));
@@ -437,75 +420,6 @@ namespace InventoryKamera
 			Thread.Sleep(InventoryScraper.ScaledControllerDelay(600));
 			controller.TapButton(Xbox360Button.B, holdMs: InventoryScraper.ScaledControllerDelay(300));
 			Thread.Sleep(Math.Max(3000, InventoryScraper.ScaledControllerDelay(2000)));
-		}
-
-		private Character ScanCharacter(string firstCharacter)
-		{
-			var character = new Character();
-			Navigation.SelectCharacterAttributes();
-			string name = null;
-			string element = null;
-
-			// Scan the Name and element of Character. Attempt 75 times max.
-			ScanNameAndElement(ref name, ref element);
-
-			if(name == "Manequin1" || name == "Manequin2")
-			{
-                character.NameGOOD = name;
-				return character;
-            }
-
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(element))
-			{
-				if (string.IsNullOrWhiteSpace(name)) progressReporter.AddError("Could not determine character's name");
-				if (string.IsNullOrWhiteSpace(element)) progressReporter.AddError("Could not determine character's element");
-				return character;
-			}
-
-			character.NameGOOD = name;
-			character.Element = element;
-
-			// Check if character was first scanned
-			if (character.NameGOOD != firstCharacter)
-			{
-				bool ascended = false;
-				// Scan Level and ascension
-				int level = ScanLevel(ref ascended);
-				if (level == -1)
-				{
-					progressReporter.AddError($"Could not determine {character.NameGOOD}'s level. Setting to 1.");
-					level = 1;
-					ascended = false;
-				}
-				character.Level = level;
-				character.Ascended = ascended;
-
-				Logger.Info("{0} Level: {1}", character.NameGOOD, character.Level);
-				Logger.Info("{0} Ascended: {1}", character.NameGOOD, character.Ascended);
-
-				// Scan Experience
-				//experience = ScanExperience();
-				//Navigation.SystemRandomWait(Navigation.Speed.Normal);
-
-				// Scan Constellation
-				Navigation.SelectCharacterConstellation();
-				character.Constellation = ScanConstellations(character);
-				Logger.Info("{0} Constellation: {1}", character.NameGOOD, character.Constellation);
-				Navigation.SystemWait(Navigation.Speed.Normal);
-
-				// Scan Talents
-				Navigation.SelectCharacterTalents();
-				character.Talents = ScanTalents(character);
-				Logger.Info("{0} Talents: {1}", character.NameGOOD, "{" + string.Join(", ", character.Talents.Select(kv => kv.Key + "=" + kv.Value).ToArray()) + "}");
-				Navigation.SystemWait(Navigation.Speed.Normal);
-
-				// Scale down talents due to constellations
-				ApplyConstellationTalentScaling(character);
-
-				return character;
-			}
-			Logger.Info("Repeat character {0} detected. Finishing character scan...", name);
-			return character;
 		}
 
 		/// <summary>
@@ -527,13 +441,47 @@ namespace InventoryKamera
 
 		/// <summary>
 		/// Applies the constellation-3/5 talent-level discount (Genshin auto-grants a talent level
-		/// via certain constellations, which the raw scanned talent level doesn't reflect). Shared by
-		/// the mouse path (<see cref="ScanCharacter"/>) and the controller-driven batched path
-		/// (<see cref="ScanCharactersViaController"/>), since it only needs the assembled
-		/// name/element/constellation/talents, not how they were scanned.
+		/// via certain constellations, which the raw scanned talent level doesn't reflect). Used by
+		/// the controller-driven batched path (<see cref="ScanCharactersViaController"/>), since it
+		/// only needs the assembled name/element/constellation/talents, not how they were scanned.
 		/// </summary>
 		private void ApplyConstellationTalentScaling(Character character)
 		{
+			// Pyro Traveler's own constellation scan can't be trusted (per user, 2026-07-05): the
+			// secondary constellations that grant +3 to a talent are visually embedded in the same 6
+			// nodes as the base unlocks, so ScanConstellationsViaController can misreport a
+			// lower-constellation Pyro Traveler as C6. Per user: default to assuming C0 and infer the
+			// real constellation instead from the raw scanned talent levels -- a Skill level of 11+
+			// is only reachable if the C3-equivalent +3 Skill bonus is active, and a Burst level of
+			// 11+ only if the C5-equivalent +3 Burst bonus is active (unlocks are sequential, so
+			// Burst>=11 implies the Skill bonus is active too). This replaces, rather than
+			// supplements, the generic scanned-Constellation-based discount below for this character.
+			if (character.NameGOOD.Contains("Traveler") && character.Element?.ToLower() == "pyro")
+			{
+				int constellation = 0;
+
+				if (character.Talents.TryGetValue("skill", out int skillLevel) && skillLevel >= 11)
+				{
+					constellation = 3;
+					character.Talents["skill"] -= 3;
+					Logger.Info("{0}: scanned Skill level {1} implies at least C3 -- adjusted to {2}.",
+						character.NameGOOD, skillLevel, character.Talents["skill"]);
+				}
+
+				if (character.Talents.TryGetValue("burst", out int burstLevel) && burstLevel >= 11)
+				{
+					constellation = 5;
+					character.Talents["burst"] -= 3;
+					Logger.Info("{0}: scanned Burst level {1} implies at least C5 -- adjusted to {2}.",
+						character.NameGOOD, burstLevel, character.Talents["burst"]);
+				}
+
+				Logger.Info("{0} (Pyro): constellation corrected from scanned {1} to inferred {2}.",
+					character.NameGOOD, character.Constellation, constellation);
+				character.Constellation = constellation;
+				return;
+			}
+
 			if (character.Constellation < 3) return;
 
 			string lookupKey = character.NameGOOD.Contains("Traveler") ? "traveler" : character.NameGOOD.ToLower();

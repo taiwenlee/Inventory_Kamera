@@ -53,185 +53,6 @@ namespace InventoryKamera
 			if (materialPages.Contains(page)) inventoryPage = page;
 		}
 
-		public void Scan_Materials(ref Inventory inventory)
-		{
-			if (!inventory.Materials.Contains(new Material("Mora", 0)))
-			{
-				inventory.Materials.Add(new Material("Mora", ScanMora()));
-			}
-
-			int scrollCount = 0;
-
-			Material material = new Material(null, 0);
-			Material previousMaterial = new Material(null, -1);
-
-			List<Rectangle> rectangles;
-			int page = 1;
-
-			// Keep scanning while not repeating any items names
-			while (true)
-			{
-				if (InventoryKamera.CancelRequested)
-				{
-					Logger.Info("Stopping material scan: cancel requested");
-					return;
-				}
-
-				int rows, cols;
-				// Find all items on the screen
-				(rectangles, cols, rows) = GetPageOfItems(page, acceptLess: true);
-
-				// Remove last row. Sometimes the bottom of a page of items is caught which results
-				// in a faded quantity that can't be parsed. Removing slightly increases the number of pages that
-				// need to be scrolled but it's fine.
-				var r = rectangles.Take(rectangles.Count() - cols).ToList();
-
-				Logger.Debug("Scanning material page {0}", page);
-				Logger.Debug("Located {0} possible item locations on page.", rectangles.Count);
-
-				foreach (var rectangle in r)
-				{
-					if (InventoryKamera.CancelRequested)
-					{
-						Logger.Info("Stopping material scan: cancel requested");
-						return;
-					}
-
-					// Select Material
-					Navigation.SetCursor(rectangle.Center().X, rectangle.Center().Y);
-					Navigation.Click();
-					Navigation.SystemWait(Navigation.Speed.SelectNextInventoryItem);
-
-					material.name = ScanMaterialName(out Bitmap nameplate);
-					material.count = 0;
-
-					// Check if new material has been found
-					if (inventory.Materials.Contains(material))
-					{
-						Logger.Debug("Repeat material found. Scrolling until end");
-						goto LastPage;
-					}
-					else
-					{
-						if (!string.IsNullOrEmpty(material.name))
-						{
-							// Scan Material Quantity
-							material.count = ScanMaterialCount(rectangle, out Bitmap quantity);
-							if (material.count == 0)
-							{
-								progressReporter.AddError($"Failed to parse quantity for {material.name}");
-								SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
-							}
-							if (scanSettings.LogScreenshots || material.count == 0)
-                            {
-								SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
-                            }
-							inventory.Materials.Add(material);
-							progressReporter.ResetCharacterDisplay();
-							progressReporter.SetMaterial(nameplate, quantity, material.name, material.count);
-
-							previousMaterial.name = material.name;
-						}
-					}
-					nameplate.Dispose();
-					Navigation.Wait(150);
-				}
-
-				Navigation.SetCursor(r.Last().Center().X, r.Last().Center().Y);
-				Navigation.Click();
-				Navigation.Wait(150);
-
-				Logger.Debug("Finished page of materials. Scrolling...");
-
-				// Scroll to next page
-				for (int i = 0; i < rows - 1; i++)
-				{
-					scrollCount++;
-
-					// scroll down
-					for (int k = 0; k < 10; k++)
-					{
-						Navigation.sim.Mouse.VerticalScroll(-1);
-						// skip a scroll
-						if (( k == 7 ) && ( ( scrollCount % 3 ) == 0 ))
-						{
-							k++;
-							if (scrollCount % 9 == 0)
-							{
-								if (scrollCount == 18)
-								{
-									scrollCount = 0;
-								}
-								else
-								{
-									Navigation.sim.Mouse.VerticalScroll(-1);
-								}
-							}
-						}
-						Navigation.SystemWait(Navigation.Speed.InventoryScroll);
-					}
-				}
-				Navigation.SystemWait(Navigation.Speed.Normal);
-				++page;
-			}
-
-		LastPage:
-			// scroll down as much as possible
-			for (int i = 0; i < 20; i++)
-			{
-				Navigation.sim.Mouse.VerticalScroll(-1);
-				Navigation.SystemWait(Navigation.Speed.InventoryScroll);
-			}
-
-			Navigation.Wait(500);
-
-			(rectangles, _, _) = GetPageOfItems(page, acceptLess: true);
-			bool passby = true;
-			for (int i = rectangles.Count - 1; i >= 0; i--) // Click through but backwards to short-circuit after new materials
-			{
-				// Select Material
-				Rectangle rectangle = rectangles[i];
-				Navigation.SetCursor(rectangle.Center().X, rectangle.Center().Y);
-				Navigation.Click();
-				Navigation.SystemWait(Navigation.Speed.SelectNextInventoryItem);
-
-				material.name = ScanMaterialName(out Bitmap nameplate);
-				material.count = 0;
-
-				if (inventory.Materials.Contains(material) && passby) continue;
-
-				if (!inventory.Materials.Contains(material))
-				{
-					if (!string.IsNullOrEmpty(material.name))
-					{
-						// Scan Material Number
-						material.count = ScanMaterialCount(rectangle, out Bitmap quantity);
-						if (material.count == 0)
-						{
-							progressReporter.AddError($"Failed to parse quantity for {material.name}");
-							SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
-						}
-						else if (scanSettings.LogScreenshots)
-						{
-							SaveInventoryBitmap(quantity, $"{material.name}_Quantity.png");
-						}
-						inventory.Materials.Add(material);
-						progressReporter.ResetCharacterDisplay();
-						progressReporter.SetMaterial(nameplate, quantity, material.name, material.count);
-						passby = false; // New material found so break on next old material
-						quantity.Dispose();
-					}
-				}
-				else
-				{
-					Logger.Debug("Last material scanned, {0}.", inventory.Materials.Last().name);
-					nameplate.Dispose();
-					break;
-				}
-				Navigation.Wait(150);
-			}
-		}
-
 		private int ScanMora()
 		{
 			var region = new Rectangle(
@@ -626,6 +447,8 @@ namespace InventoryKamera
 			int scanned = 0;
 			int column = 0;
 			int globalRow = 0;
+			int consecutiveEmptyReads = 0;
+			const int maxConsecutiveEmptyReads = 3;
 
 			while (!InventoryKamera.CancelRequested && !StopScanning)
 			{
@@ -636,6 +459,21 @@ namespace InventoryKamera
 				{
 					string name = ScanMaterialNameViaController(nameBitmap);
 					Material material = new Material(name, 0);
+
+					if (string.IsNullOrEmpty(name))
+					{
+						consecutiveEmptyReads++;
+						if (consecutiveEmptyReads >= maxConsecutiveEmptyReads)
+						{
+							Logger.Debug("{0} consecutive unreadable item names -- assuming end of {1} list, stopping controller scan.",
+								consecutiveEmptyReads, inventoryPage);
+							break;
+						}
+					}
+					else
+					{
+						consecutiveEmptyReads = 0;
+					}
 
 					if (!string.IsNullOrEmpty(name) && inventory.Materials.Contains(material))
 					{
@@ -680,7 +518,11 @@ namespace InventoryKamera
 			Logger.Info("Controller {0} scan finished: {1} scanned (cancelled={2}, stopped={3})",
 				inventoryPage, scanned, InventoryKamera.CancelRequested, StopScanning);
 
-			return currentTab;
+			// Always report targetTab here, not whatever SwitchToTabViaController returned -- see
+			// WeaponScraper.ScanWeaponsViaController's matching comment: by the time we get here the
+			// inventory is on targetTab regardless of whether the pre-switch OCR detection succeeded,
+			// and reporting the real value lets the next phase skip re-running that same flaky OCR.
+			return targetTab;
 		}
     }
 }

@@ -224,42 +224,6 @@ namespace InventoryKamera
 
 		#region Game Menu Navigation
 
-		public static void SelectWeaponInventory()
-		{
-			int buttonX = (int)(385 / 1280.0 * GetWidth());
-			int buttonY = (int)(35  / 720.0 * GetHeight());
-			SetCursor(buttonX, buttonY);
-			Click();
-			SystemWait(Speed.UI);
-		}
-
-		public static void SelectArtifactInventory()
-		{
-			int buttonX = (int)(448 / 1280.0 * GetWidth());
-			int buttonY = (int)(31 / 720.0 * GetHeight());
-			SetCursor(buttonX, buttonY);
-			Click();
-			SystemWait(Speed.UI);
-		}
-
-		public static void SelectCharacterDevelopmentInventory()
-		{
-			int buttonX = (int)(512 / 1280.0 * GetWidth());
-			int buttonY = (int)(40  / 720.0 * GetHeight());
-			SetCursor(buttonX, buttonY);
-			Click();
-			SystemWait(Speed.UI);
-		}
-
-		public static void SelectMaterialInventory()
-		{
-			int buttonX = (int)(636 / 1280.0 * GetWidth());
-			int buttonY = (int)(30  / 720.0 * GetHeight());
-			SetCursor(buttonX, buttonY);
-			Click();
-			SystemWait(Speed.UI);
-		}
-
 		public static void SelectCharacterAttributes()
 		{
 			int xOffset = (int)(170 / 1280.0 * GetWidth());
@@ -318,32 +282,6 @@ namespace InventoryKamera
 			SetCursor(xOffset, yOffset);
 			Click();
 			SystemWait(Speed.SelectNextCharacter);
-		}
-
-		public static void CharacterScreen()
-		{
-			sim.Keyboard.KeyPress(escapeKey);
-			SystemWait(Speed.UI);
-			sim.Keyboard.KeyPress(slotOneKey);
-			SystemWait(Speed.UI);
-			sim.Keyboard.KeyPress(characterKey);
-			SystemWait(Speed.UI);
-		}
-
-		public static void InventoryScreen()
-		{
-			sim.Keyboard.KeyPress(escapeKey);
-			SystemWait(Speed.UI);
-			sim.Keyboard.KeyPress(inventoryKey);
-			SystemWait(Speed.UI);
-		}
-
-		public static void MainMenuScreen()
-		{
-			sim.Keyboard.KeyPress(escapeKey);
-			SystemWait(Speed.UI);
-			sim.Keyboard.KeyPress(escapeKey);
-			SystemWait(Speed.UI);
 		}
 
 		#endregion Game Menu Navigation

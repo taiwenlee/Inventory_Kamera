@@ -820,6 +820,14 @@ namespace InventoryKamera
 
             int targetIndex = Array.IndexOf(ControllerInventoryTabNames, targetTab);
 
+            if (targetIndex < 0)
+            {
+                string warning = $"\"{targetTab}\" is not a recognized inventory tab name -- skipped tab switch.";
+                Logger.Warn(warning);
+                progressReporter.AddError(warning);
+                return knownCurrentTab;
+            }
+
             if (currentIndex < 0)
             {
                 string warning = $"Could not confidently detect the current inventory tab (last OCR: \"{rawText}\") -- " +

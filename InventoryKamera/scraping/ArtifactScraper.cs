@@ -18,6 +18,14 @@ namespace InventoryKamera
 	{
 		private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
+		private void SaveDebugScreenshot(Bitmap bitmap, string fileName)
+		{
+			if (!scanSettings.LogScreenshots) return;
+
+			Directory.CreateDirectory("./logging");
+			bitmap.Save($"./logging/{fileName}.png");
+		}
+
 		public ArtifactScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, IScanProgressReporter progressReporter) : base(ocrService, imagePreprocessor, scanSettings, progressReporter)
 		{
 			inventoryPage = InventoryPage.Artifacts;
@@ -25,192 +33,8 @@ namespace InventoryKamera
             SortByObtained = scanSettings.SortByObtained;
         }
 
-        public void ScanArtifacts(int count = 0)
-		{
-			// Get Max artifacts from screen
-			int artifactCount = count == 0 ? ScanItemCount() : count;
-			int page = 1;
-
-            SetSort();
-            ClearFilters();
-
-            var (rectangles, cols, rows) = GetPageOfItems(page);
-			int fullPage = cols * rows;
-			// lowers the artifact count if user is scanning in recently obtained pages
-			artifactCount = (SortByObtained * fullPage <= artifactCount && SortByObtained > 0) ? SortByObtained * fullPage : artifactCount;
-			int totalRows = (int)Math.Ceiling(artifactCount / (decimal)cols);
-			int cardsQueued = 0;
-			int rowsQueued = 0;
-			progressReporter.SetArtifact_Max(artifactCount);
-
-			StopScanning = false;
-
-			Logger.Info("Found {0} for artifact count.", artifactCount);
-
-
-
-			//if (SortByLevel)
-			//{
-			//	Logger.Debug("Sorting by level to optimize total scan time");
-			//	// Check if sorted by level
-			//	// If not, sort by level
-			//	if (CurrentSortingMethod() != "level")
-			//	{
-			//		Logger.Debug("Not already sorting by level...");
-			//		Navigation.SetCursor(
-			//			X: (int)(230 / 1280.0 * Navigation.GetWidth()),
-			//			Y: (int)(680 / 720.0 * Navigation.GetHeight()));
-			//		Navigation.Click();
-			//		Navigation.Wait();
-			//		Navigation.SetCursor(
-			//			X: (int)(250 / 1280.0 * Navigation.GetWidth()),
-			//			Y: (int)(615 / 720.0 * Navigation.GetHeight()));
-			//		Navigation.Click();
-			//		Navigation.Wait();
-			//	}
-			//	Logger.Debug("Inventory is sorted by level.");
-			//}
-			//else
-			//{
-			//	Logger.Debug("Sorting by quality to scan all artifacts matching quality filter.");
-			//	// Check if sorted by quality
-			//	if (CurrentSortingMethod() != "quality")
-			//	{
-			//		Logger.Debug("Not already sorting by quality...");
-			//		// If not, sort by quality
-			//		Navigation.SetCursor(
-			//			X: (int)(230 / 1280.0 * Navigation.GetWidth()),
-			//			Y: (int)(680 / 720.0 * Navigation.GetHeight()));
-			//		Navigation.Click();
-			//		Navigation.Wait();
-			//		Navigation.SetCursor(
-			//			X: (int)(250 / 1280.0 * Navigation.GetWidth()),
-			//			Y: (int)(645 / 720.0 * Navigation.GetHeight()));
-			//		Navigation.Click();
-			//		Navigation.Wait();
-			//	}
-			//	Logger.Debug("Inventory is sorted by quality");
-			//}
-
-			// Go through artifact list
-			while (cardsQueued < artifactCount && !InventoryKamera.CancelRequested)
-			{
-				Logger.Debug("Scanning artifact page {0}", page);
-				Logger.Debug("Located {0} possible item locations on page.", rectangles.Count);
-
-				int cardsRemaining = artifactCount - cardsQueued;
-				// Go through each "page" of items and queue. In the event that not a full page of
-				// items are scrolled to, offset the index of rectangle to start clicking from.
-				// Clamped to 0: GetPageOfItems can fall back to a previous page's row count when
-				// detection fails, which can make this arithmetic go negative and throw.
-				for (int i = cardsRemaining < fullPage ? Math.Max(0, ( rows - ( totalRows - rowsQueued ) ) * cols) : 0; i < rectangles.Count; i++)
-				{
-					// Blocks here (not just once at loop entry) if a previously-queued item's
-					// recognition is still awaiting an inline correction -- keeps the game from being
-					// clicked/scrolled further ahead of what the user is currently looking at.
-					progressReporter.WaitIfCorrectionPending();
-
-					Rectangle item = rectangles[i];
-					Navigation.SetCursor(item.Center().X, item.Center().Y);
-					Navigation.Click();
-					Navigation.SystemWait(Navigation.Speed.SelectNextInventoryItem);
-
-					// Queue card for scanning
-					QueueScan(cardsQueued);
-					cardsQueued++;
-					if (cardsQueued >= artifactCount || StopScanning || InventoryKamera.CancelRequested)
-					{
-						if (InventoryKamera.CancelRequested) Logger.Info("Stopping artifact scan: cancel requested");
-						else if (StopScanning) Logger.Info("Stopping artifact scan based on filtering");
-						else Logger.Info("Stopping artifact scan based on scans queued ({0} of {1})", cardsQueued, artifactCount);
-						return;
-					}
-				}
-
-				Logger.Debug("Finished queuing page of artifacts. Scrolling...");
-
-				// The last item(s) queued this page may still be awaiting correction on a worker
-				// thread -- wait before scrolling the game past what's currently displayed.
-				progressReporter.WaitIfCorrectionPending();
-
-				rowsQueued += rows;
-
-				// Page done, now scroll
-				// If the number of remaining scans is shorter than a full page then
-				// only scroll a few rows
-				if (totalRows - rowsQueued <= rows)
-				{
-					for (int i = 0; i < 10 * ( totalRows - rowsQueued ) - 1; i++)
-					{
-						Navigation.sim.Mouse.VerticalScroll(-1);
-						Navigation.Wait(1);
-					}
-					Navigation.SystemWait(Navigation.Speed.Fast);
-				}
-				else
-				{
-                    
-                    for (int i = 0; i < 10 * rows - 1; i++)
-					{
-						Navigation.sim.Mouse.VerticalScroll(-1);
-						Navigation.Wait(1);
-					}
-					// Scroll back one to keep it from getting too crazy
-					var rollbackPeriod = Navigation.IsNormal ? 9 : 3;
-                    if (page % rollbackPeriod == 0)
-                    {
-						Logger.Debug("Scrolled back one");
-						Navigation.sim.Mouse.VerticalScroll(1);
-						Navigation.Wait(1);
-                    }
-                    Navigation.SystemWait(Navigation.Speed.Fast);
-				}
-				++page;
-				(rectangles, cols, rows) = GetPageOfItems(page, acceptLess: totalRows - rowsQueued <= fullPage);
-			}
-		}
-
-        private void ClearFilters()
-        {
-
-            using (var x = Navigation.CaptureRegion(
-                x: (int)((Navigation.IsNormal ? 0.0750 : 0.0757) * Navigation.GetWidth()),
-                y: (int)((Navigation.IsNormal ? 0.8522 : 0.8678) * Navigation.GetHeight()),
-                width: (int)((Navigation.IsNormal ? 0.2244 : 0.2236) * Navigation.GetWidth()),
-                height: (int)((Navigation.IsNormal ? 0.0422 : 0.0367) * Navigation.GetHeight())))
-            {
-                //Navigation.DisplayBitmap(x);
-				var t = ocrService.AnalyzeText(x).Trim().ToLower();
-				if (t != null && t.Contains("filter"))
-				{
-					Navigation.ClearArtifactFilters();
-				}
-                Navigation.SystemWait(Navigation.Speed.Slow);
-            }
-        }
-
-		private void SetSort()
-		{
-			using (var x = Navigation.CaptureRegion(
-                x: (int)( 0.6250 * Navigation.GetWidth()),
-                y: (int)((Navigation.IsNormal ? 0.1111 : 0.1000) * Navigation.GetHeight()),
-                width: (int)( 0.0375 * Navigation.GetWidth()),
-                height: (int)(0.0347 * Navigation.GetHeight())))
-            {
-				//Navigation.DisplayBitmap(x);
-                Color sortObtainedTrue = Color.FromArgb(255, 224, 198, 147);
-                Color sortObtainedStatus = x.GetPixel((int)x.Width / 2,(int) x.Height / 2);
-                var sortObtained = GenshinProcesor.CompareColors(sortObtainedTrue, sortObtainedStatus);
-				if( SortByObtained > 0 ^ sortObtained)
-				{
-					Navigation.ChangeArtifactSortObtained();
-				}
-                Navigation.SystemWait(Navigation.Speed.Slow);
-            }
-        }
-
         /// <summary>
-        /// Controller-mode equivalent of <see cref="SetSort"/> -- same pixel-color detection concept
+        /// Sets the sort-by-obtained toggle via controller -- same pixel-color detection concept
         /// as the mouse path (screen-reading doesn't depend on input method), but with the user's
         /// own controller-mode region measurement (2026-07-04) rather than reusing the mouse-mode
         /// region -- the mouse-mode position doesn't hold under controller mode's HUD, same lesson as
@@ -226,7 +50,7 @@ namespace InventoryKamera
                 width: (int)(0.0112 * Navigation.GetWidth()),
                 height: (int)(0.0218 * Navigation.GetHeight())))
             {
-                x.Save("./logging/ArtifactSortByObtainedRegion.png");
+                SaveDebugScreenshot(x, "ArtifactSortByObtainedRegion");
 
                 // Reference color measured directly from controller mode's HUD (2026-07-04),
                 // replacing mouse-mode's (224, 198, 147) -- that value failed CompareColors' <10-per-
@@ -249,7 +73,7 @@ namespace InventoryKamera
         }
 
         /// <summary>
-        /// Controller-mode equivalent of <see cref="ClearFilters"/> -- filter-active detection reused
+        /// Clears active artifact filters via controller -- filter-active detection reused
         /// unchanged (screen-reading, not input-method-dependent), region re-measured by the user
         /// (2026-07-04) for controller mode's HUD. Reset action per user: D-pad Left, then L3 (left
         /// stick click), then A to close the panel -- confirmed live (2026-07-04) that the physical
@@ -265,86 +89,28 @@ namespace InventoryKamera
                 width: (int)(0.2032 * Navigation.GetWidth()),
                 height: (int)(0.0306 * Navigation.GetHeight())))
             {
-                x.Save("./logging/ArtifactFilterIndicatorRegion.png");
+                SaveDebugScreenshot(x, "ArtifactFilterIndicatorRegion");
                 var t = ocrService.AnalyzeText(x).Trim().ToLower();
                 Logger.Debug("Filter-active OCR: rawText=\"{0}\" containsFilter={1}", t, t != null && t.Contains("filter"));
 
                 if (t != null && t.Contains("filter"))
                 {
-                    Directory.CreateDirectory("./logging");
-                    using (var before = Navigation.CaptureWindow()) before.Save("./logging/ArtifactFilterReset_0_Before.png");
+                    using (var before = Navigation.CaptureWindow()) SaveDebugScreenshot(before, "ArtifactFilterReset_0_Before");
 
                     // Per user (2026-07-04): base timing set explicitly to 100/200/100/500/100/200.
                     controller.TapButton(Xbox360Button.Left, holdMs: ScaledControllerDelay(100));
                     Thread.Sleep(ScaledControllerDelay(200));
-                    using (var afterLeft = Navigation.CaptureWindow()) afterLeft.Save("./logging/ArtifactFilterReset_1_AfterLeft.png");
+                    using (var afterLeft = Navigation.CaptureWindow()) SaveDebugScreenshot(afterLeft, "ArtifactFilterReset_1_AfterLeft");
 
                     controller.TapButton(Xbox360Button.LeftThumb, holdMs: ScaledControllerDelay(100));
                     Thread.Sleep(ScaledControllerDelay(500));
-                    using (var afterLS = Navigation.CaptureWindow()) afterLS.Save("./logging/ArtifactFilterReset_2_AfterLS.png");
+                    using (var afterLS = Navigation.CaptureWindow()) SaveDebugScreenshot(afterLS, "ArtifactFilterReset_2_AfterLS");
 
                     controller.TapButton(Xbox360Button.A, holdMs: ScaledControllerDelay(100));
                     Thread.Sleep(ScaledControllerDelay(200));
-                    using (var afterBack = Navigation.CaptureWindow()) afterBack.Save("./logging/ArtifactFilterReset_3_AfterBack.png");
+                    using (var afterBack = Navigation.CaptureWindow()) SaveDebugScreenshot(afterBack, "ArtifactFilterReset_3_AfterBack");
                 }
             }
-        }
-
-        public void QueueScan(int id)
-		{
-			var card = GetItemCard();
-            Bitmap name, gearSlot, mainStat, subStats, level, equipped, locked, sanctify;
-			bool _sanctify;
-
-			name = GetItemNameBitmap(card);
-			equipped = GetEquippedBitmap(card);
-			gearSlot = GetGearSlotBitmap(card);
-			mainStat = GetMainStatBitmap(card);
-
-			sanctify = GetSanctifyBitmap(card);
-            // Check for lock color
-            Color sanctifiedColor = Color.FromArgb(255, 220, 192, 255); // Dark area around red lock
-            Color sanctifyStatus = sanctify.GetPixel(10, 10);
-            _sanctify = GenshinProcesor.CompareColors(sanctifiedColor, sanctifyStatus);
-
-            // may change because of sanctifying
-            locked = GetLockedBitmap(card, _sanctify);
-            level = GetLevelBitmap(card, _sanctify);
-            subStats = GetSubstatsBitmap(card, _sanctify);
-
-			//Navigation.DisplayBitmap(name);
-			//Navigation.DisplayBitmap(locked);
-			//Navigation.DisplayBitmap(equipped);
-			//Navigation.DisplayBitmap(mainStat);
-			//Navigation.DisplayBitmap(subStats);
-			//Navigation.DisplayBitmap(level);
-			//Navigation.DisplayBitmap(sanctify);
-
-            // Separate to all pieces of artifact and add to pics
-            List<Bitmap> artifactImages = new List<Bitmap>
-			{
-				name, //0
-				gearSlot,
-				mainStat,
-				level,
-				subStats,
-				equipped, //5
-				locked,
-                sanctify,
-                card
-			};
-
-            bool belowRarity = GetRarity(name) < scanSettings.MinimumArtifactRarity;
-            bool belowLevel = ScanArtifactLevel(level) < scanSettings.MinimumArtifactLevel;
-            StopScanning = (SortByLevel && belowLevel) || (!SortByLevel && belowRarity);
-
-			if (StopScanning || belowRarity || belowLevel)
-            {
-				artifactImages.ForEach(i => i.Dispose());
-				return;
-            }
-            // Send images to Worker Queue
-            InventoryKamera.workerChannel.Writer.TryWrite(new OCRImageCollection(artifactImages, "artifact", id));
         }
 
         private Bitmap GetSubstatsBitmap(Bitmap card, bool isSanctified = false)
@@ -514,7 +280,7 @@ namespace InventoryKamera
         {
             using (var region = GetSanctifyIconBitmapViaController(card))
             {
-                region.Save("./logging/SelectedArtifactDetailsSanctifyIcon.png");
+                SaveDebugScreenshot(region, "SelectedArtifactDetailsSanctifyIcon");
                 return DetectSanctifiedFromBitmap(region);
             }
         }
@@ -532,26 +298,26 @@ namespace InventoryKamera
         {
             using (var card = GetItemCardViaController())
             {
-                card.Save("./logging/SelectedArtifactDetailsCard.png");
+                SaveDebugScreenshot(card, "SelectedArtifactDetailsCard");
 
                 string setName;
                 using (var nameBitmap = GetItemNameBitmapViaController(card))
                 {
-                    nameBitmap.Save("./logging/SelectedArtifactDetailsName.png");
+                    SaveDebugScreenshot(nameBitmap, "SelectedArtifactDetailsName");
                     setName = ScanArtifactSet(nameBitmap);
                 }
 
                 string gearSlot;
                 using (var gearSlotBitmap = GetGearSlotBitmapViaController(card))
                 {
-                    gearSlotBitmap.Save("./logging/SelectedArtifactDetailsGearSlot.png");
+                    SaveDebugScreenshot(gearSlotBitmap, "SelectedArtifactDetailsGearSlot");
                     gearSlot = ScanArtifactGearSlot(gearSlotBitmap);
                 }
 
                 string mainStat;
                 using (var mainStatBitmap = GetMainStatBitmapViaController(card))
                 {
-                    mainStatBitmap.Save("./logging/SelectedArtifactDetailsMainStat.png");
+                    SaveDebugScreenshot(mainStatBitmap, "SelectedArtifactDetailsMainStat");
                     mainStat = ScanArtifactMainStat(mainStatBitmap, gearSlot);
                 }
 
@@ -560,14 +326,14 @@ namespace InventoryKamera
                 int level;
                 using (var levelBitmap = GetLevelBitmapViaController(card, sanctified))
                 {
-                    levelBitmap.Save("./logging/SelectedArtifactDetailsLevel.png");
+                    SaveDebugScreenshot(levelBitmap, "SelectedArtifactDetailsLevel");
                     level = ScanArtifactLevel(levelBitmap);
                 }
 
                 string subStatsSummary;
                 using (var subStatsBitmap = GetSubstatsBitmapViaController(card, sanctified))
                 {
-                    subStatsBitmap.Save("./logging/SelectedArtifactDetailsSubstats.png");
+                    SaveDebugScreenshot(subStatsBitmap, "SelectedArtifactDetailsSubstats");
                     var (active, unactivated) = ScanArtifactSubStats(subStatsBitmap);
                     subStatsSummary = string.Join(", ", active.Select(s => $"{s.stat}:{s.value}"));
                     if (unactivated.Count > 0)
@@ -577,14 +343,14 @@ namespace InventoryKamera
                 string equipped;
                 using (var equippedBitmap = GetEquippedBitmapViaController(card))
                 {
-                    equippedBitmap.Save("./logging/SelectedArtifactDetailsEquipped.png");
+                    SaveDebugScreenshot(equippedBitmap, "SelectedArtifactDetailsEquipped");
                     equipped = ScanArtifactEquippedCharacter(equippedBitmap);
                 }
 
                 bool locked;
                 using (var lockedBitmap = GetLockedBitmapViaController(card, sanctified))
                 {
-                    lockedBitmap.Save("./logging/SelectedArtifactDetailsLocked.png");
+                    SaveDebugScreenshot(lockedBitmap, "SelectedArtifactDetailsLocked");
                     Color lockedColor = Color.FromArgb(255, 70, 80, 100);
                     Color lockStatus = lockedBitmap.GetPixel(10, 10);
                     locked = GenshinProcesor.CompareColors(lockedColor, lockStatus);
@@ -716,7 +482,11 @@ namespace InventoryKamera
             Logger.Info("Controller artifact scan finished: {0} of {1} scanned (cancelled={2}, stopped={3})",
                 scanned, artifactCount, InventoryKamera.CancelRequested, StopScanning);
 
-            return currentTab;
+            // Always report "Artifacts" here, not whatever SwitchToTabViaController returned -- see
+            // WeaponScraper.ScanWeaponsViaController's matching comment: by the time we get here the
+            // inventory is on Artifacts regardless of whether the pre-switch OCR detection succeeded,
+            // and reporting the real value lets the next phase skip re-running that same flaky OCR.
+            return "Artifacts";
         }
 
         public async Task<Artifact> CatalogueFromBitmapsAsync(List<Bitmap> bm, int id)

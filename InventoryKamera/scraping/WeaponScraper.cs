@@ -16,209 +16,14 @@ namespace InventoryKamera
     {
 		private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
+		// Set by ScanWeaponsViaController from SetSortModeViaController's result; QueueScanViaController
+		// only trusts the sorted-order early-stop optimization when this is true.
+		private bool sortModeConfirmed;
+
 		public WeaponScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, IScanProgressReporter progressReporter) : base(ocrService, imagePreprocessor, scanSettings, progressReporter)
         {
             inventoryPage = InventoryPage.Weapons;
             SortByLevel = scanSettings.MinimumWeaponLevel > 1;
-        }
-
-        public void ScanWeapons(int count = 0)
-        {
-            // Determine maximum number of weapons to scan
-            int weaponCount = count == 0 ? ScanItemCount() : count;
-            int page = 0;
-            var (rectangles, cols, rows) = GetPageOfItems(page);
-            int fullPage = cols * rows;
-            int totalRows = (int)Math.Ceiling(weaponCount / (decimal)cols);
-            int cardsQueued = 0;
-            int rowsQueued = 0;
-            int offset = 0;
-            progressReporter.SetWeapon_Max(weaponCount);
-
-            // Determine Delay if delay has not been found before
-            // Scraper.FindDelay(rectangles);
-
-            StopScanning = false;
-
-            Logger.Info("Found {0} for weapon count.", weaponCount);
-
-            SelectSortingMethod();
-
-            // Go through weapon list
-            while (cardsQueued < weaponCount && !InventoryKamera.CancelRequested)
-            {
-                Logger.Debug("Scanning weapon page {0}", page);
-                Logger.Debug("Located {0} possible item locations on page.", rectangles.Count);
-
-                int cardsRemaining = weaponCount - cardsQueued;
-                // Go through each "page" of items and queue. In the event that not a full page of
-                // items are scrolled to, offset the index of rectangle to start clicking from.
-                // Clamped to 0: GetPageOfItems can fall back to a previous page's row count when
-                // detection fails, which can make this arithmetic go negative and throw.
-                for (int i = cardsRemaining < fullPage ? Math.Max(0, (rows - (totalRows - rowsQueued)) * cols) : 0; i < rectangles.Count; i++)
-                {
-                    // Blocks here (not just once at loop entry) if a previously-queued item's
-                    // recognition is still awaiting an inline correction -- keeps the game from being
-                    // clicked/scrolled further ahead of what the user is currently looking at.
-                    progressReporter.WaitIfCorrectionPending();
-
-                    Rectangle item = rectangles[i];
-                    Navigation.SetCursor(item.Center().X, item.Center().Y + offset);
-                    Navigation.Click();
-                    Navigation.SystemWait(Navigation.Speed.SelectNextInventoryItem);
-
-                    // Queue card for scanning
-                    QueueScan(cardsQueued);
-                    cardsQueued++;
-                    if (cardsQueued >= weaponCount || this.StopScanning || InventoryKamera.CancelRequested)
-                    {
-                        if (InventoryKamera.CancelRequested) Logger.Info("Stopping weapon scan: cancel requested");
-                        else if (StopScanning) Logger.Info("Stopping weapon scan based on filtering");
-                        else Logger.Info("Stopping weapon scan based on scans queued ({0} of {1})", cardsQueued, weaponCount);
-                        return;
-                    }
-                }
-                Logger.Debug("Finished queuing page of weapons. Scrolling...");
-
-                // The last item(s) queued this page may still be awaiting correction on a worker
-                // thread -- wait before scrolling the game past what's currently displayed.
-                progressReporter.WaitIfCorrectionPending();
-
-                rowsQueued += rows;
-
-                // Page done, now scroll
-                // If the number of remaining scans is shorter than a full page then
-                // only scroll a few rows
-                if (totalRows - rowsQueued <= rows)
-                {
-                    if (Navigation.GetAspectRatio() == new Size(8, 5))
-                    {
-                        offset = 35; // Lazy fix
-                    }
-                    for (int i = 0; i < 10 * (totalRows - rowsQueued) - 1; i++)
-                    {
-                        Navigation.sim.Mouse.VerticalScroll(-1);
-                        Navigation.Wait(1);
-                    }
-                    Navigation.SystemWait(Navigation.Speed.Fast);
-                }
-                else
-                {
-                    // Scroll back one to keep it from getting too crazy
-                    if (rowsQueued % 15 == 0)
-                    {
-                        Navigation.sim.Mouse.VerticalScroll(1);
-                    }
-                    for (int i = 0; i < 10 * rows - 1; i++)
-                    {
-                        Navigation.sim.Mouse.VerticalScroll(-1);
-                        Navigation.Wait(1);
-                    }
-                    Navigation.SystemWait(Navigation.Speed.Fast);
-                }
-                ++page;
-                (rectangles, cols, rows) = GetPageOfItems(page, acceptLess: totalRows - rowsQueued <= fullPage);
-            }
-
-            void SelectLevelSorting()
-            {
-                Navigation.SetCursor(
-                    X: (int)(230 / 1280.0 * Navigation.GetWidth()),
-                    Y: (int)(680 / 720.0 * Navigation.GetHeight()));
-                Navigation.Click();
-                Navigation.Wait();
-                Navigation.SetCursor(
-                    X: (int)(250 / 1280.0 * Navigation.GetWidth()),
-                    Y: (int)(575 / 720.0 * Navigation.GetHeight()));
-                Navigation.Click();
-                Navigation.Wait();
-            }
-
-            void SelectQualitySorting()
-            {
-                Navigation.SetCursor(
-                                        X: (int)(230 / 1280.0 * Navigation.GetWidth()),
-                                        Y: (int)(680 / 720.0 * Navigation.GetHeight()));
-                Navigation.Click();
-                Navigation.Wait();
-                Navigation.SetCursor(
-                    X: (int)(250 / 1280.0 * Navigation.GetWidth()),
-                    Y: (int)(615 / 720.0 * Navigation.GetHeight()));
-                Navigation.Click();
-                Navigation.Wait();
-            }
-
-            void SelectSortingMethod()
-            {
-                if (SortByLevel)
-                {
-                    Logger.Debug("Sorting by level to optimize scan time.");
-                    // Check if sorted by level
-                    if (CurrentSortingMethod() != "level")
-                    {
-                        Logger.Debug("Not already sorting by level...");
-                        // If not, sort by level
-                        SelectLevelSorting();
-                    }
-                    Logger.Debug("Inventory is sorted by level.");
-                }
-                else
-                {
-                    Logger.Debug("Sorting by quality to optimize scan time.");
-                    // Check if sorted by quality
-                    if (CurrentSortingMethod() != "quality")
-                    {
-                        Logger.Debug("Not already sorting by quality...");
-                        // If not, sort by quality
-                        SelectQualitySorting();
-                    }
-                    Logger.Debug("Inventory is sorted by quality");
-                }
-            }
-        }
-
-        private void QueueScan(int id)
-        {
-			var card = GetItemCard();
-
-            Bitmap name, level, refinement, equipped, locked;
-            name = GetItemNameBitmap(card);
-            locked = GetLockedBitmap(card);
-            equipped = GetEquippedBitmap(card);
-            level = GetLevelBitmap(card);
-            refinement = GetRefinementBitmap(card);
-
-            //Navigation.DisplayBitmap(name);
-            //Navigation.DisplayBitmap(locked);
-            //Navigation.DisplayBitmap(equipped);
-            //Navigation.DisplayBitmap(level);
-            //Navigation.DisplayBitmap(refinement);
-
-            // Separate to all pieces of card
-            List<Bitmap> weaponImages = new List<Bitmap>
-            {
-                name, //0
-                level,
-                refinement,
-                locked,
-                equipped,
-                card //5
-            };
-
-            bool a = false;
-
-            bool belowRarity = GetQuality(name) < scanSettings.MinimumWeaponRarity;
-            bool belowLevel = ScanLevel(level, ref a) < scanSettings.MinimumWeaponLevel;
-            StopScanning = (SortByLevel && belowLevel) || (!SortByLevel && belowRarity);
-
-            if (StopScanning || belowRarity || belowLevel)
-            {
-                weaponImages.ForEach(i => i.Dispose());
-                return;
-            }
-
-            // Send images to worker queue
-            InventoryKamera.workerChannel.Writer.TryWrite(new OCRImageCollection(weaponImages, "weapon", id));
         }
 
         /// <summary>
@@ -252,8 +57,12 @@ namespace InventoryKamera
 
             // Safe as of 2026-07-04: ScanWeaponsViaController sorts by level/quality before scanning
             // (SetSortModeViaController, confirmed live-working), so a below-threshold item guarantees
-            // every later item is too, matching QueueScan's (mouse path) own precondition.
-            StopScanning = (SortByLevel && belowLevel) || (!SortByLevel && belowRarity);
+            // every later item is too, matching QueueScan's (mouse path) own precondition. Only trust
+            // that guarantee -- and stop the whole scan on the first below-threshold item -- when
+            // SetSortModeViaController actually confirmed the sort; otherwise (e.g. the sort-mode OCR
+            // read failed) still filter this one item out below, but keep scanning the rest of the
+            // (potentially unsorted) grid instead of assuming everything after it is also below threshold.
+            StopScanning = sortModeConfirmed && ((SortByLevel && belowLevel) || (!SortByLevel && belowRarity));
 
             if (StopScanning || belowRarity || belowLevel)
             {
@@ -315,17 +124,20 @@ namespace InventoryKamera
         /// rather than just assumed. If detection fails (no confident OCR match), skips sorting
         /// entirely rather than guessing a direction.
         /// </summary>
-        private void SetSortModeViaController(GameController controller, string targetMode)
+        /// <returns>True if the sort mode is confirmed to already match or was successfully changed to
+        /// <paramref name="targetMode"/>; false if detection failed and no sort selection was made, in
+        /// which case callers must not assume the weapon grid is sorted.</returns>
+        private bool SetSortModeViaController(GameController controller, string targetMode)
         {
             string currentMode = DetectCurrentSortModeViaController();
-            if (currentMode == targetMode) return;
+            if (currentMode == targetMode) return true;
 
             int currentIndex = Array.IndexOf(SortModeNames, currentMode);
             int targetIndex = Array.IndexOf(SortModeNames, targetMode);
             if (currentIndex < 0)
             {
                 Logger.Warn("Could not confidently detect current weapon sort mode -- skipping sort selection.");
-                return;
+                return false;
             }
 
             controller.TapButton(Xbox360Button.Down, holdMs: ScaledControllerDelay(80));
@@ -340,6 +152,7 @@ namespace InventoryKamera
             Thread.Sleep(ScaledControllerDelay(300));
 
             Logger.Info("Controller weapon sort: {0} -> {1} ({2} steps {3})", currentMode, targetMode, steps, direction);
+            return true;
         }
 
         /// <summary>
@@ -371,7 +184,7 @@ namespace InventoryKamera
             StopScanning = false;
 
             string currentTab = SwitchToTabViaController(controller, "Weapons", knownCurrentTab);
-            SetSortModeViaController(controller, SortByLevel ? "Level" : "Quality");
+            sortModeConfirmed = SetSortModeViaController(controller, SortByLevel ? "Level" : "Quality");
 
             int weaponCount = count == 0 ? ScanItemCountViaController() : count;
             progressReporter.SetWeapon_Max(weaponCount);
@@ -410,7 +223,14 @@ namespace InventoryKamera
             Logger.Info("Controller weapon scan finished: {0} of {1} scanned (cancelled={2}, stopped={3})",
                 scanned, weaponCount, InventoryKamera.CancelRequested, StopScanning);
 
-            return currentTab;
+            // Always report "Weapons" here, not whatever SwitchToTabViaController returned: this
+            // method's whole job is to end up scanning the Weapons tab, so by the time we get here
+            // that's true regardless of whether the pre-switch OCR detection above succeeded (it
+            // being unconfident just means the switch itself was skipped, not that the tab is
+            // unknown -- inventory was already sitting on it, or nothing would have scanned).
+            // Reporting the real value lets the next phase use the known-tab fast path instead of
+            // re-running the same flaky OCR detection immediately again.
+            return "Weapons";
         }
 
         Bitmap GetLevelBitmap(Bitmap card)

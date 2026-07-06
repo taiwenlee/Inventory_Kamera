@@ -175,7 +175,15 @@ namespace InventoryKamera
 					}
 					else
 					{
-						weaponScraper.EnterInventoryViaController(controller);
+						try
+						{
+							weaponScraper.EnterInventoryViaController(controller);
+						}
+						catch (FormatException ex) { progressReporter.AddError(ex.Message); }
+						catch (Exception ex)
+						{
+							progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
+						}
 
 						// Per user (2026-07-05): once a phase has switched to and scanned a tab, the
 						// next phase already knows where it left off -- no need to re-detect the
@@ -278,6 +286,20 @@ namespace InventoryKamera
 					}
 				}
 				Logger.Info("Done scanning characters");
+			}
+
+			if (scanSettings.ScanWeapons || scanSettings.ScanArtifacts || scanSettings.ScanCharDevItems ||
+				scanSettings.ScanMaterials || scanSettings.ScanCharacters)
+			{
+				// Final safety net: guarantee the game is back in the free-roam/main-menu state once
+				// every controller-driven scan phase above is done, regardless of whatever
+				// GameController.Dispose()'s MashBack (A-press) safety net left behind -- mirrors the
+				// old mouse-mode MainMenuScreen()'s double-Escape finisher that every scan used to end
+				// with before the controller migration (Phase 3 §6c) dropped it.
+				Navigation.sim.Keyboard.KeyPress(Navigation.escapeKey);
+				Navigation.SystemWait(Navigation.Speed.UI);
+				Navigation.sim.Keyboard.KeyPress(Navigation.escapeKey);
+				Navigation.SystemWait(Navigation.Speed.UI);
 			}
 
 			// Wait for Image Processors to finish
