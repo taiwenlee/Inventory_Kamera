@@ -254,17 +254,29 @@ namespace InventoryKamera
 			if (scanSettings.ScanCharacters && !CancelRequested)
 			{
 				Logger.Info("Scanning characters...");
-				// Get characters
-				Navigation.CharacterScreen();
-				try
+				// Phase 3 §6c: controller-driven replacement for the old mouse-click character scan,
+				// live-verified 2026-07-05. Own GameController connection (not shared with the
+				// weapons/artifacts/materials block above) since the Character screen is a separate
+				// pause-menu tab entered fresh via EnterCharacterMenuViaController, matching how that
+				// block already ended and disconnected before this section runs.
+				using (var controller = new GameController())
 				{
-					characterScraper.ScanCharacters(ref Characters);
+					if (!controller.IsAvailable)
+					{
+						progressReporter.AddError($"Controller scan unavailable: {controller.FailureReason}");
+					}
+					else
+					{
+						try
+						{
+							characterScraper.ScanCharactersViaController(controller, ref Characters);
+						}
+						catch (Exception ex)
+						{
+							progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
+						}
+					}
 				}
-				catch (Exception ex)
-				{
-					progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
-				}
-				Navigation.MainMenuScreen();
 				Logger.Info("Done scanning characters");
 			}
 

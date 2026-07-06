@@ -87,6 +87,7 @@ namespace InventoryKamera
             DarkModeMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             DebugMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             TestControllerMashBackMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            TestControllerCharacterScanMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             CoordinatePickerMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             label2 = new System.Windows.Forms.Label();
             label3 = new System.Windows.Forms.Label();
@@ -596,7 +597,7 @@ namespace InventoryKamera
             //
             // DebugMenuItem
             //
-            DebugMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { TestControllerMashBackMenuItem, CoordinatePickerMenuItem });
+            DebugMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { TestControllerMashBackMenuItem, TestControllerCharacterScanMenuItem, CoordinatePickerMenuItem });
             DebugMenuItem.Name = "DebugMenuItem";
             DebugMenuItem.Size = new System.Drawing.Size(66, 29);
             DebugMenuItem.Text = "Debug";
@@ -697,6 +698,13 @@ namespace InventoryKamera
             TestControllerMashBackMenuItem.Size = new System.Drawing.Size(332, 34);
             TestControllerMashBackMenuItem.Text = "Panic Button: Mash Back to Exit Menus";
             TestControllerMashBackMenuItem.Click += TestControllerMashBackMenuItem_Click;
+            //
+            // TestControllerCharacterScanMenuItem
+            //
+            TestControllerCharacterScanMenuItem.Name = "TestControllerCharacterScanMenuItem";
+            TestControllerCharacterScanMenuItem.Size = new System.Drawing.Size(332, 34);
+            TestControllerCharacterScanMenuItem.Text = "Test: Controller Character Scan";
+            TestControllerCharacterScanMenuItem.Click += TestControllerCharacterScanMenuItem_Click;
             //
             // CoordinatePickerMenuItem
             //
@@ -1195,6 +1203,7 @@ namespace InventoryKamera
         private System.Windows.Forms.ToolStripMenuItem DarkModeMenuItem;
         private System.Windows.Forms.ToolStripMenuItem DebugMenuItem;
         private System.Windows.Forms.ToolStripMenuItem TestControllerMashBackMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem TestControllerCharacterScanMenuItem;
         private System.Windows.Forms.ToolStripMenuItem CoordinatePickerMenuItem;
     }
 }

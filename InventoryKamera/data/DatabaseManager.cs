@@ -359,6 +359,28 @@ namespace InventoryKamera
 
             var newData = new ConcurrentDictionary<string, JObject>(data);
 
+            // Per user (2026-07-05): Traveler's per-element ConstellationOrder is manually
+            // maintained, not something the automated build logic below reliably reproduces -- it
+            // has repeatedly come out wrong/incomplete after a force update. Read whatever's already
+            // saved on disk for this one field BEFORE anything below touches `newData` (force mode
+            // wipes `data`/`newData` to empty in-memory, but the file on disk still has the last
+            // good, manually-corrected version), then re-apply it after the build below regardless of
+            // what that logic computes -- see the re-apply site further down.
+            JToken preservedTravelerConstellationOrder = null;
+            try
+            {
+                var onDisk = JToken.Parse(LoadJsonFromFile(CharactersJson)).ToObject<Dictionary<string, JObject>>();
+                if (onDisk != null && onDisk.TryGetValue("traveler", out var existingTraveler)
+                    && existingTraveler.ContainsKey("ConstellationOrder"))
+                {
+                    preservedTravelerConstellationOrder = existingTraveler["ConstellationOrder"];
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Could not read Traveler's existing ConstellationOrder before updating characters.json: {0}", ex.Message);
+            }
+
             try
             {
                 var characters = JArray.Parse(LoadJsonFromURLAsync(CharactersURL)).ToObject<List<JObject>>();
@@ -400,7 +422,19 @@ namespace InventoryKamera
                             // Ex: Jean -> Qin, Yanfei -> Feiyan, etc.
                             name = character["iconName"].ToString().Split('_').Last(); // UI_AvatarIcon_[Qin] -> Qin
 
-                            if (name.ToLower() == "PlayerBoy".ToLower()) // Handle traveler elements separately
+                            // Bug fix (2026-07-05): this used to gate on name.ToLower() == "PlayerBoy"
+                            // alone, using the iconName-derived `name` reassigned just above. Traveler
+                            // has multiple raw source entries (one per element), all racing here in
+                            // parallel and all sharing nameKey == "traveler" (computed earlier, from
+                            // the pre-reassignment nameTextMapHash-derived name, so it's reliable
+                            // regardless of iconName quirks). If even one of those entries has an
+                            // iconName that doesn't produce exactly "PlayerBoy" after the
+                            // Split('_').Last() above, and that entry happens to win the TryAdd race
+                            // below, it silently fell into the plain-character branch instead --
+                            // building a flat ConstellationOrder and overwriting Traveler's
+                            // per-element one. Checking nameKey directly is immune to that, since it
+                            // doesn't depend on iconName at all.
+                            if (nameKey == "traveler" || name.ToLower() == "PlayerBoy".ToLower()) // Handle traveler elements separately
                             {
                                 var constellationNames = new JArray { "Viator", "Viatrix" };
                                 var constellationOrder = new JObject();
@@ -501,7 +535,53 @@ namespace InventoryKamera
 
                             value.Add("WeaponType", (int)weaponType);
 
+                            // Added for Phase 3 §6c's controller-mode "greedy" constellation scan
+                            // (2026-07-05): starts the check from C6 and reads backward for 4-star
+                            // characters, since those are commonly fully-conned -- needs rarity to
+                            // gate on. NOT YET LIVE-VERIFIED: "qualityType" is the standard rarity
+                            // field in this data source's convention (QUALITY_ORANGE/_SP = 5-star,
+                            // QUALITY_PURPLE = 4-star), matching other public tools built against the
+                            // same AvatarExcelConfigData.json, but hasn't been confirmed against a
+                            // live download here. Unknown/missing quality values are logged and
+                            // Rarity is simply omitted -- callers must treat a missing Rarity as
+                            // "unknown" (fall back to the non-greedy scan), not assume 4 or 5.
+                            string qualityType = character["qualityType"]?.ToString() ?? "";
+                            if (qualityType.Contains("QUALITY_ORANGE")) value.Add("Rarity", 5);
+                            else if (qualityType.Contains("QUALITY_PURPLE")) value.Add("Rarity", 4);
+                            else Logger.Warn("Unknown qualityType \"{0}\" for character {1} -- Rarity omitted", qualityType, name);
+
                             if (newData.TryAdd(nameKey, value)) status = UpdateStatus.Success;
+                        }
+                        else
+                        {
+                            // Backfill for characters that already existed before the Rarity field
+                            // was added (2026-07-05) -- the branch above only runs for genuinely new
+                            // characters (`!newData.ContainsKey(nameKey)`), so an already-known
+                            // character (which is every character on a pre-existing characters.json,
+                            // including Traveler) would otherwise never pick up the new field on a
+                            // normal incremental update, only a full force-refresh.
+                            // Bug fix (2026-07-05): Traveler has multiple raw entries (one per
+                            // element), all processed in parallel by this AsParallel().ForAll and all
+                            // sharing the "traveler" key -- once one wins the TryAdd race above, every
+                            // other Traveler-element thread lands here and was mutating the SAME
+                            // shared JObject's "Rarity" property concurrently with no synchronization.
+                            // Newtonsoft's JObject isn't thread-safe for concurrent property writes;
+                            // this raced hard specifically under a force update (empty starting dict,
+                            // so all Traveler variants genuinely race at once) and corrupted the
+                            // object, losing previously-added properties like the per-element
+                            // ConstellationOrder. Locking on the JObject instance serializes these
+                            // writes; the ContainsKey re-check inside the lock avoids redundant writes
+                            // once another thread has already backfilled it.
+                            lock (newData[nameKey])
+                            {
+                                if (!newData[nameKey].ContainsKey("Rarity"))
+                                {
+                                    string qualityType = character["qualityType"]?.ToString() ?? "";
+                                    if (qualityType.Contains("QUALITY_ORANGE")) newData[nameKey]["Rarity"] = 5;
+                                    else if (qualityType.Contains("QUALITY_PURPLE")) newData[nameKey]["Rarity"] = 4;
+                                    else Logger.Warn("Unknown qualityType \"{0}\" for existing character {1} -- Rarity backfill skipped", qualityType, name);
+                                }
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -532,6 +612,13 @@ namespace InventoryKamera
                         return Mappings[element["avatarVisionBeforTextMapHash"].ToString()].ToString().ToLower();
                     }
                     return "";
+                }
+
+                // Re-apply the preserved, manually-maintained ConstellationOrder over whatever the
+                // automated build above computed for Traveler -- see this method's top for why.
+                if (preservedTravelerConstellationOrder != null && newData.TryGetValue("traveler", out var travelerEntry))
+                {
+                    travelerEntry["ConstellationOrder"] = preservedTravelerConstellationOrder;
                 }
             }
             catch (Exception ex)

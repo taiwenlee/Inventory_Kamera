@@ -802,6 +802,7 @@ namespace InventoryKamera
         // MainForm.Designer.cs) untouched by frequent coordinate/timing tweaks, since editing either
         // risks tripping the WinForms Designer regeneration bug (see MODERNIZATION_PLAN.md §3.0).
         private void TestControllerMashBackMenuItem_Click(object sender, EventArgs e) => game.ControllerNavigationTests.RunMashBackTest();
+        private void TestControllerCharacterScanMenuItem_Click(object sender, EventArgs e) => game.ControllerNavigationTests.RunControllerCharacterScanTest(scanViewModel);
         private void CoordinatePickerMenuItem_Click(object sender, EventArgs e) => new ui.CoordinatePickerForm().Show(this);
 
         private void MainForm_Shown(object sender, EventArgs e)
