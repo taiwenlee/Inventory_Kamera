@@ -59,7 +59,7 @@ Win32 screen capture + Tesseract OCR and exports GOOD-format JSON. Windows-only 
 
 ## Current focus (keep this section ≤5 lines; update per reflection.md §4)
 
-Branch `modernize/phase0-foundation`. Active work: §6c controller-driven scan navigation
-(`game/GameController.cs`, `game/ControllerNavigationTests.cs` — WIP, untracked as of
-2026-07-03). Next-step candidates: plan §9. Harness installed 2026-07-03, uncommitted,
-pending user review.
+Branch `Modernization-preview`, clean, up to date with origin. §6c controller-driven scan
+navigation is **done**: all five scan types (Weapons/Artifacts/Materials/Character Dev
+Items/Character) are controller-driven and mouse-mode code is removed. Remaining small gaps:
+weapon locked-status detection, artifact sort-mode selection. Next-step candidates: plan §9.

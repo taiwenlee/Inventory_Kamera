@@ -14,7 +14,7 @@
 | **1 — Efficiency** | ✅ **complete** | Accord removed, net8.0-windows retarget, Channels/async pipeline, right-sized parallelism, manequin hack killed, concurrency benchmark. §1.4 (System.Text.Json) deliberately deferred to Phase 2 — see §1.4. |
 | **2 — Architecture** | 🔄 **in progress** | §2.1 done: `IOcrService`, `LookupService`, `IImagePreprocessor`/`ImageProcessor`, and `TextNormalizer` all extracted from `GenshinProcesor` with real unit tests. §2.2 done: both stateful services fully constructor-injected into all 5 scrapers; `GenshinProcesor` static forwarding wrappers deleted; no DI container yet (hand-wired composition root). §2.3 done for scan logic: `IScanSettings` seam added, still backed by `Properties.Settings.Default` on purpose (see §2.3 for why). §2.4 investigated and deliberately deferred (remote/variable-shape data + a mutable field make it a real design problem, not a mechanical one). §2.5 done except character display: `ScanViewModel` now owns real observable state for counters, status/errors, gear, material/mora, and navigation image (six slices, unit-tested where possible). Character display stays on the static `UserInterface` bridge pending the scan-input revamp (§6c). |
 | **3 — UX** | 🔄 **in progress** | §3.0 (declutter/reorganize `MainForm`) substantially done — see §3.0 for the full slice history (GroupBoxes → tabbed layout → dedicated Advanced Settings dialog → flat/warm visual theme). §3.1 (live scan feedback) done. §3.2 (pre-flight validation) mostly done — resolution/aspect-ratio/keybind/game-running checks land before a scan starts; HDR/language detection deferred. §3.3 (inline OCR correction) first slice done — confidence capture + threshold setting + correction dialog, wired into one call site (item count), not yet expanded further or live-verified. §3.4's DPI-awareness bullet done (landed as a side effect of the 4K windowed-capture bugfix); dark mode done (commit e9a60a2 — Options-menu toggle, `UiTheme.ApplyTheme` across MainForm/SettingsForm/OcrCorrectionForm); remaining §3.4 polish (keyboard navigation, status/error surfaces) and §3.5 (onboarding) not started. §6b (Windows.Graphics.Capture) was implemented and tested against real usage, then **reverted** — see §6b for why. HDR/overlay support issues remain unresolved. |
-| **Scan input revamp** | 🔄 **weapon + artifact scans live-verified working** | Keyboard-only ruled out; controller input confirmed viable. Both `WeaponScraper.ScanWeaponsViaController` and `ArtifactScraper.ScanArtifactsViaController` are live-verified end to end and wired into `GatherData`, replacing their mouse-based equivalents. Weapons: sort-by-level/quality with early-stop, scan speed scales with Fast/Normal/Slow. Artifacts: sanctify-shift handled, sort-by-obtained toggle and filter-reset working via controller, but no sort-MODE (Level/Quality/Type) selection yet, so filtering never early-stops (correct, just slower on aggressive filters). Remaining gaps: weapon locked-status detection (unmeasured, always reports unlocked). **Three areas confirmed still not started (2026-07-05):** Character screen scanning (`CharacterScraper` — a different UI than the inventory tabs, closer to the pause-menu's own top-level "Character" entry), Character Development Items, and Materials (the latter two share the same base-class primitives as Weapons/Artifacts, but both need per-grid-cell bounding boxes for quantity — see §6c's "New finding" note). See §6c. |
+| **Scan input revamp** | ✅ **all five scan types (Weapons, Artifacts, Materials, Character Development Items, Character) controller-driven and live-verified; mouse-based scan code fully removed** | Keyboard-only ruled out; controller input confirmed viable. All five scrapers now go through `GameController`-driven navigation, wired into `GatherData` as a full replacement (no opt-in toggle, per the original decision) — the old mouse-based `ScanWeapons`/`ScanArtifacts`/etc. methods were deleted (commit `33d5e3e`) once each controller path proved out live. Weapons: sort-by-level/quality with early-stop, gated behind confirming the sort actually applied (fixed live 2026-07-05) rather than trusting it blindly. Artifacts: sanctify-shift, sort-by-obtained toggle, filter-reset all working; no sort-MODE (Level/Quality/Type) selection yet, so filtering never early-stops (correct, just slower on aggressive filters). Materials/Character Dev Items: quantity read via precomputed grid-cell percentages (not blob detection) with per-tab scroll-drift constants, live-verified working. Character: full Attributes→Constellations→Talents pipeline, batched by sub-tab across the roster, gap-aware roster walking, Rarity field added to the character DB, Traveler's per-element `ConstellationOrder` preserved across DB updates. **Known remaining gaps:** weapon locked-status detection (unmeasured, always reports unlocked); constellation/talent panels still require a mouse-input fallback (unavoidable per the game's own UI); artifact sort-mode selection not ported. See §6c. |
 
 **Runtime:** the app now targets **`net8.0-windows7.0`** (was net472 through Phase 0; bumped from bare `net8.0-windows` after live testing surfaced 670+ spurious CA1416 warnings — see below). Single-file self-contained publish verified working. OCR worker pipeline runs on `System.Threading.Channels` + `Task`s instead of a hand-rolled locking queue + polling `Thread`s.
 
@@ -785,7 +785,7 @@ dependencies), it was reverted via `git revert` rather than kept as a not-quite-
 
 ---
 
-## 6c. Scan input revamp — controller-driven navigation — 🔄 weapon/artifact/materials/dev-items scans live-verified (started 2026-07-05, weapon scan proven 2026-07-04)
+## 6c. Scan input revamp — controller-driven navigation — ✅ all five scan types (weapon/artifact/materials/dev-items/character) live-verified and wired in, mouse-mode code removed (started 2026-07-05, weapon scan proven 2026-07-04, character scan + cleanup landed 2026-07-05)
 
 **Motivation:** artifact/weapon grid-item detection (`ProcessScreenshot`/`GetPageOfItems` in
 `InventoryScraper.cs`) reconstructs the item grid from blob-detected column/row coordinates —
@@ -1042,6 +1042,32 @@ actually running it against the game:
   per scroll past row 4, tuned live down to `0.001` (0.1% of window height) each. Result: scans run
   end-to-end with only occasional "Failed to parse quantity" errors -- good enough to ship, revisit
   the constants only if a particular save shows a worse failure rate.
+- **Character scanning, controller-driven, live-verified working (2026-07-05, commit `9a6a4d9`).**
+  `CharacterScraper` replaced entirely with a controller pipeline batched by sub-tab
+  (Attributes -> Constellations -> Talents) across the whole roster instead of per-character, to
+  minimize sub-tab-switch animation cost. Wired into `GatherData` as a full replacement, matching
+  the weapon/artifact/materials controller scans. Bugs found and fixed via live testing: gap-aware
+  roster walking (manequin/duplicate slots no longer misalign Phase 2/3 navigation), gamma-based OCR
+  preprocessing for the constellation "Activated" check, a dead-code contrast bug in level scanning,
+  cancel-request propagation into Phase 2/3, a wrapped-name parsing bug, and a greedy C6-first
+  constellation scan for 4-star characters. Also added a `Rarity` field to the character database and
+  fixed a bug where a force database update could overwrite Traveler's manually-maintained
+  per-element `ConstellationOrder`.
+- **Follow-up hardening pass, live-testing-driven (2026-07-05, commit `33d5e3e`):** bounded the
+  materials controller scan loop (was unbounded, could hang on consecutive unreadable names);
+  `GatherData` now wraps `EnterInventoryViaController` in the same try/catch as its sibling phases;
+  artifact controller-path debug screenshots gated behind `LogScreenshots` like every other scraper;
+  weapon sort-by-level/quality early-stop now only trusted once `SetSortModeViaController` confirms
+  the sort actually applied; `SwitchToTabViaController`'s unrecognized-target-tab case guarded the
+  same way the unrecognized-current-tab case already was; `CharacterScraper.EnterCharacterMenuViaController`
+  gained a `MashBack()` safety net before assuming a clean free-roam baseline. **All now-dead
+  mouse-driven scan methods removed** (`WeaponScraper.ScanWeapons`, `ArtifactScraper`'s equivalent,
+  and related mouse-only navigation) -- the controller path is the sole scan path for these five
+  areas, per the original "full replacement, not opt-in" decision.
+- **Remaining known gaps (not yet built, none blocking the above):** weapon locked-status detection
+  (no measured region, always reports unlocked); artifact sort-MODE (Level/Quality/Type) selection;
+  constellation/talent panels still require the confirmed mouse-input fallback (game-side
+  constraint, not a code gap).
 
 ---
 
@@ -1102,8 +1128,10 @@ unresolved problems. Candidate next steps, not yet sequenced:
    considered live-verified going into whatever's next, rather than needing a dedicated gate.
 2. **Continue Phase 3** (§3.1–§3.5: live scan feedback, pre-flight validation, inline OCR correction,
    dark mode/DPI polish, onboarding) — none started yet.
-3. **Scan-input revamp** (§6c) — still blocked on the user testing Genshin's keyboard-navigation
-   behavior live.
+3. **Scan-input revamp** (§6c) — ✅ done: all five scan types (Weapons, Artifacts, Materials,
+   Character Development Items, Character) are controller-driven, wired into `GatherData`, and
+   mouse-mode code is removed. Remaining gaps are small and non-blocking: weapon locked-status
+   detection, artifact sort-mode selection, and the confirmed constellation/talent mouse fallback.
 4. **Revisit HDR/overlays with a narrower approach** — per §6b's "if this gets revisited" notes:
    confirm the SDR-brightness-slider theory for HDR before attempting a code fix, and consider a
    detect-and-warn approach for overlays instead of trying to exclude them.

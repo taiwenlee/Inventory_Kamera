@@ -7,17 +7,19 @@ using InventoryKamera;
 namespace InventoryKamera.game
 {
     /// <summary>
-    /// Ad-hoc manual test routines for Phase 3 §6c's controller-driven navigation, triggered from
-    /// Options-menu items in <c>MainForm</c>. Deliberately kept out of <c>MainForm.cs</c>/
+    /// Ad-hoc manual test/utility routines for Phase 3 §6c's controller-driven navigation,
+    /// triggered from menu items in <c>MainForm</c>. Deliberately kept out of <c>MainForm.cs</c>/
     /// <c>MainForm.Designer.cs</c> -- editing those repeatedly risks tripping the WinForms Designer
     /// regeneration bug documented in MODERNIZATION_PLAN.md §3.0 (stripped <c>global::</c>
     /// qualifiers, rebound settings to a throwaway instance), and none of this logic needs the
     /// Designer surface at all. <c>MainForm</c>'s Click handler just calls into this one-liner.
-    /// Trimmed (2026-07-05) down to only the panic button -- every other granular per-primitive test
-    /// method (menu nav, tab detection/switching, weapon name/details reads, advance-step check) was
-    /// removed once its only caller (a Debug-menu item) was removed and the real
-    /// <c>WeaponScraper.ScanWeaponsViaController</c>/<c>ArtifactScraper.ScanArtifactsViaController</c>
-    /// superseded the need for them.
+    /// <see cref="RunMashBackTest"/> is a real end-user feature (a top-level, always-visible "Panic
+    /// Button" menu item, not gated behind the Debug menu) -- everything else here is a Debug-only
+    /// manual test. Trimmed (2026-07-05) down to just the panic button and the character-scan test
+    /// -- every other granular per-primitive test method (menu nav, tab detection/switching, weapon
+    /// name/details reads, advance-step check) was removed once its only caller (a Debug-menu item)
+    /// was removed and the real <c>WeaponScraper.ScanWeaponsViaController</c>/
+    /// <c>ArtifactScraper.ScanArtifactsViaController</c> superseded the need for them.
     /// </summary>
     internal static class ControllerNavigationTests
     {
@@ -56,16 +58,25 @@ namespace InventoryKamera.game
             public string Manequin2Name => inner.Manequin2Name;
         }
 
-        // Manual escape hatch: connects, mashes A (back/cancel) to back out of however many menus
-        // deep things are stuck, then gracefully exits controller mode -- for recovering from a bad
-        // test run without needing to alt-tab and press Esc/click through it by hand.
+        // Live escape hatch (not just a Debug-menu test): connects, focuses the game window itself
+        // (no manual Alt+Tab needed), then mashes A (back/cancel) to back out of however many menus
+        // deep things are stuck -- for recovering from a bad scan/controller state in one click, with
+        // no confirmation dialog in the way.
         public static void RunMashBackTest()
         {
-            MessageBox.Show(
-                $"After clicking OK, you have {AltTabSeconds} seconds to switch to Genshin (Alt+Tab). " +
-                "A will be pressed repeatedly to back out of any open menus.",
-                "Controller Panic Button", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            Thread.Sleep(AltTabSeconds * 1000);
+            try
+            {
+                // Also brings the game window to the foreground (Navigation.InitializeProcess
+                // un-minimizes and calls SetForegroundWindow), which is why no manual Alt+Tab step
+                // is needed before mashing back.
+                Navigation.Initialize();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Genshin Impact isn't running or its window couldn't be found: " + ex.Message,
+                    "Controller Panic Button", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
 
             using (var controller = new GameController())
             {
@@ -77,9 +88,6 @@ namespace InventoryKamera.game
 
                 controller.MashBack();
             }
-
-            MessageBox.Show("Sent: repeated A presses. Check that Genshin is back at the main game/menu root.",
-                "Controller Panic Button", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         /// <summary>

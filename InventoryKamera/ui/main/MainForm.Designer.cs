@@ -566,7 +566,7 @@ namespace InventoryKamera
             // menuStrip1
             // 
             menuStrip1.ImageScalingSize = new System.Drawing.Size(20, 20);
-            menuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] { fileToolStripMenuItem, keysToolStripMenuItem, DebugMenuItem });
+            menuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] { fileToolStripMenuItem, keysToolStripMenuItem, DebugMenuItem, TestControllerMashBackMenuItem });
             menuStrip1.Location = new System.Drawing.Point(0, 0);
             menuStrip1.Name = "menuStrip1";
             menuStrip1.Padding = new System.Windows.Forms.Padding(8, 3, 0, 3);
@@ -597,7 +597,7 @@ namespace InventoryKamera
             //
             // DebugMenuItem
             //
-            DebugMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { TestControllerMashBackMenuItem, TestControllerCharacterScanMenuItem, CoordinatePickerMenuItem });
+            DebugMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { TestControllerCharacterScanMenuItem, CoordinatePickerMenuItem });
             DebugMenuItem.Name = "DebugMenuItem";
             DebugMenuItem.Size = new System.Drawing.Size(66, 29);
             DebugMenuItem.Text = "Debug";
@@ -695,8 +695,8 @@ namespace InventoryKamera
             // TestControllerMashBackMenuItem
             //
             TestControllerMashBackMenuItem.Name = "TestControllerMashBackMenuItem";
-            TestControllerMashBackMenuItem.Size = new System.Drawing.Size(332, 34);
-            TestControllerMashBackMenuItem.Text = "Panic Button: Mash Back to Exit Menus";
+            TestControllerMashBackMenuItem.Size = new System.Drawing.Size(122, 29);
+            TestControllerMashBackMenuItem.Text = "Panic Button";
             TestControllerMashBackMenuItem.Click += TestControllerMashBackMenuItem_Click;
             //
             // TestControllerCharacterScanMenuItem

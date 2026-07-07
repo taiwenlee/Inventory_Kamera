@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
-using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -17,14 +16,6 @@ namespace InventoryKamera
     internal class ArtifactScraper : InventoryScraper
 	{
 		private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
-
-		private void SaveDebugScreenshot(Bitmap bitmap, string fileName)
-		{
-			if (!scanSettings.LogScreenshots) return;
-
-			Directory.CreateDirectory("./logging");
-			bitmap.Save($"./logging/{fileName}.png");
-		}
 
 		public ArtifactScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, IScanProgressReporter progressReporter) : base(ocrService, imagePreprocessor, scanSettings, progressReporter)
 		{
@@ -46,11 +37,11 @@ namespace InventoryKamera
         {
             using (var x = Navigation.CaptureRegion(
                 x: (int)(0.6563 * Navigation.GetWidth()),
-                y: (int)(0.1247 * Navigation.GetHeight()),
+                y: (int)((Navigation.IsNormal ? 0.1247 : 0.1121) * Navigation.GetHeight()),
                 width: (int)(0.0112 * Navigation.GetWidth()),
                 height: (int)(0.0218 * Navigation.GetHeight())))
             {
-                SaveDebugScreenshot(x, "ArtifactSortByObtainedRegion");
+                SaveDebugScreenshot(x, "artifacts/sortbyobtained/region");
 
                 // Reference color measured directly from controller mode's HUD (2026-07-04),
                 // replacing mouse-mode's (224, 198, 147) -- that value failed CompareColors' <10-per-
@@ -59,15 +50,20 @@ namespace InventoryKamera
                 Color sortObtainedTrue = Color.FromArgb(255, 212, 188, 142);
                 Color sortObtainedStatus = x.GetPixel(x.Width / 2, x.Height / 2);
                 var sortObtained = GenshinProcesor.CompareColors(sortObtainedTrue, sortObtainedStatus);
-                Logger.Debug("Sort-by-obtained pixel check: sampled={0} reference={1} matched={2} wantObtained={3}",
+                Logger.Info("Sort-by-obtained pixel check: sampled={0} reference={1} matched={2} wantObtained={3}",
                     sortObtainedStatus, sortObtainedTrue, sortObtained, SortByObtained > 0);
                 // Per user (2026-07-04): base timing set explicitly to 100/200/100/500/100/200.
                 if (SortByObtained > 0 ^ sortObtained)
                 {
+                    Logger.Info("Sort-by-obtained: toggling (currently {0}, want {1}).", sortObtained, SortByObtained > 0);
                     controller.MoveStep(GameController.MenuDirection.Up, holdMs: ScaledControllerDelay(100), settleMs: ScaledControllerDelay(200));
                     controller.TapButton(Xbox360Button.B, holdMs: ScaledControllerDelay(100));
                     Thread.Sleep(ScaledControllerDelay(500));
                     controller.MoveStep(GameController.MenuDirection.Down, holdMs: ScaledControllerDelay(100), settleMs: ScaledControllerDelay(200));
+                }
+                else
+                {
+                    Logger.Info("Sort-by-obtained: already {0}, no toggle needed.", sortObtained);
                 }
             }
         }
@@ -85,30 +81,36 @@ namespace InventoryKamera
         {
             using (var x = Navigation.CaptureRegion(
                 x: (int)(0.0740 * Navigation.GetWidth()),
-                y: (int)(0.8499 * Navigation.GetHeight()),
+                y: (int)((Navigation.IsNormal ? 0.8499 : 0.8658) * Navigation.GetHeight()),
                 width: (int)(0.2032 * Navigation.GetWidth()),
                 height: (int)(0.0306 * Navigation.GetHeight())))
             {
-                SaveDebugScreenshot(x, "ArtifactFilterIndicatorRegion");
+                SaveDebugScreenshot(x, "artifacts/filters/indicator");
                 var t = ocrService.AnalyzeText(x).Trim().ToLower();
-                Logger.Debug("Filter-active OCR: rawText=\"{0}\" containsFilter={1}", t, t != null && t.Contains("filter"));
+                bool filterActive = t != null && t.Contains("filter");
+                Logger.Info("Filter-active OCR: rawText=\"{0}\" containsFilter={1}", t, filterActive);
 
-                if (t != null && t.Contains("filter"))
+                if (filterActive)
                 {
-                    using (var before = Navigation.CaptureWindow()) SaveDebugScreenshot(before, "ArtifactFilterReset_0_Before");
+                    Logger.Info("Artifact filters active -- clearing.");
+                    using (var before = Navigation.CaptureWindow()) SaveDebugScreenshot(before, "artifacts/filters/reset_0_before");
 
                     // Per user (2026-07-04): base timing set explicitly to 100/200/100/500/100/200.
                     controller.TapButton(Xbox360Button.Left, holdMs: ScaledControllerDelay(100));
                     Thread.Sleep(ScaledControllerDelay(200));
-                    using (var afterLeft = Navigation.CaptureWindow()) SaveDebugScreenshot(afterLeft, "ArtifactFilterReset_1_AfterLeft");
+                    using (var afterLeft = Navigation.CaptureWindow()) SaveDebugScreenshot(afterLeft, "artifacts/filters/reset_1_afterleft");
 
                     controller.TapButton(Xbox360Button.LeftThumb, holdMs: ScaledControllerDelay(100));
                     Thread.Sleep(ScaledControllerDelay(500));
-                    using (var afterLS = Navigation.CaptureWindow()) SaveDebugScreenshot(afterLS, "ArtifactFilterReset_2_AfterLS");
+                    using (var afterLS = Navigation.CaptureWindow()) SaveDebugScreenshot(afterLS, "artifacts/filters/reset_2_afterls");
 
                     controller.TapButton(Xbox360Button.A, holdMs: ScaledControllerDelay(100));
                     Thread.Sleep(ScaledControllerDelay(200));
-                    using (var afterBack = Navigation.CaptureWindow()) SaveDebugScreenshot(afterBack, "ArtifactFilterReset_3_AfterBack");
+                    using (var afterBack = Navigation.CaptureWindow()) SaveDebugScreenshot(afterBack, "artifacts/filters/reset_3_afterback");
+                }
+                else
+                {
+                    Logger.Info("No active artifact filters -- nothing to clear.");
                 }
             }
         }
@@ -116,36 +118,36 @@ namespace InventoryKamera
         private Bitmap GetSubstatsBitmap(Bitmap card, bool isSanctified = false)
         {
 			double baseY = Navigation.IsNormal ? 0.4216 : 0.3682;
-			double sanctifiedShift = Navigation.IsNormal ? 0.0520 : 0.0471;
+			double sanctifiedShift = 0.0520;
             double yShift = isSanctified ? sanctifiedShift : 0.0;
 
             return GenshinProcesor.CopyBitmap(card,new Rectangle(
 				x:(int)(card.Width * 0.0605),
 				y:(int)(card.Height * (baseY + yShift)),
 				width:(int)(card.Width * 0.8297),
-				height:(int)(card.Height * (Navigation.IsNormal ? 0.2301 : 0.1573))));
+				height:(int)(card.Height * 0.2301)));
         }
 
         private Bitmap GetMainStatBitmap(Bitmap card)
         {
 			return GenshinProcesor.CopyBitmap(card, new Rectangle(
 				x: (int)(card.Width * 0.0405),
-				y: (int)(card.Height * (Navigation.IsNormal ? 0.1722 : 0.1477)),
+				y: (int)(card.Height * (Navigation.IsNormal ? 0.1722 : 0.1319)),
 				width: (int)(card.Width * 0.4555),
-				height: (int)(card.Height * (Navigation.IsNormal ? 0.0416 : 0.0416))));
+				height: (int)(card.Height * 0.0416)));
         }
 
         private Bitmap GetLevelBitmap(Bitmap card, bool isSanctified = false)
         {
-            double baseY = Navigation.IsNormal ? 0.3634 : 0.3197;
-            double sanctifiedShift = Navigation.IsNormal ? 0.0520 : 0.0465;
+            double baseY = Navigation.IsNormal ? 0.3634 : 0.2735;
+            double sanctifiedShift = 0.0520;
             double yShift = isSanctified ? sanctifiedShift : 0.0;
 
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
                 x: (int)(card.Width * 0.0506),
                 y: (int)(card.Height * (baseY + yShift)),
                 width: (int)(card.Width * 0.1417),
-                height: (int)(card.Height * (Navigation.IsNormal ? 0.0416 : 0.0347))));
+                height: (int)(card.Height * 0.0416)));
         }
 
         private Bitmap GetSanctifyBitmap(Bitmap card)
@@ -154,7 +156,7 @@ namespace InventoryKamera
                 x: (int)(card.Width * 0.0),
                 y: (int)(card.Height * (Navigation.IsNormal ? 0.3333 : 0.2941)),
                 width: (int)(card.Width * 0.0606),
-                height: (int)(card.Height * (Navigation.IsNormal ? 0.0526 : 0.0470))));
+                height: (int)(card.Height * 0.0526)));
         }
 
         private Bitmap GetGearSlotBitmap(Bitmap card)
@@ -163,7 +165,7 @@ namespace InventoryKamera
                 x: (int)(card.Width * 0.0405),
                 y: (int)(card.Height * (Navigation.IsNormal ? 0.07720 : 0.0663)),
                 width: (int)(card.Width * 0.4757),
-                height: (int)(card.Height * (Navigation.IsNormal ? 0.0475 : 0.0809))));
+                height: (int)(card.Height * 0.0475)));
         }
 
         /// <summary>Controller-mode equivalent of <see cref="GetGearSlotBitmap"/>, measured with the
@@ -172,7 +174,7 @@ namespace InventoryKamera
         {
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
                 x: (int)(card.Width * 0.0492),
-                y: (int)(card.Height * 0.0676),
+                y: (int)(card.Height * (Navigation.IsNormal ? 0.0676 : 0.0586)),
                 width: (int)(card.Width * 0.5009),
                 height: (int)(card.Height * 0.0333)));
         }
@@ -183,7 +185,7 @@ namespace InventoryKamera
         {
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
                 x: (int)(card.Width * 0.0528),
-                y: (int)(card.Height * 0.1500),
+                y: (int)(card.Height * (Navigation.IsNormal ? 0.1500 : 0.1319)),
                 width: (int)(card.Width * 0.4663),
                 height: (int)(card.Height * 0.0306)));
         }
@@ -195,7 +197,7 @@ namespace InventoryKamera
         // Re-measured 2026-07-04 (0.0491 -> 0.0426): the first pass over-estimated the banner height,
         // which pushed Substats' crop far enough to catch the set-bonus description line below the
         // real stat list -- tighter measurement here fixes that overshoot.
-        private const double SanctifyShift = 0.0426;
+        private double SanctifyShift = Navigation.IsNormal ? 0.0426 : 0.0349;
 
         /// <summary>Controller-mode equivalent of <see cref="GetLevelBitmap"/>, measured with the
         /// coordinate-picker tool (2026-07-04). <paramref name="isSanctified"/> shifts the crop down
@@ -206,7 +208,7 @@ namespace InventoryKamera
             double yShift = isSanctified ? SanctifyShift : 0.0;
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
                 x: (int)(card.Width * 0.0565),
-                y: (int)(card.Height * (0.3120 + yShift)),
+                y: (int)(card.Height * ((Navigation.IsNormal ? 0.3120 : 0.2735) + yShift)),
                 width: (int)(card.Width * 0.1184),
                 height: (int)(card.Height * 0.0306)));
         }
@@ -219,7 +221,7 @@ namespace InventoryKamera
             double yShift = isSanctified ? SanctifyShift : 0.0;
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
                 x: (int)(card.Width * 0.0437),
-                y: (int)(card.Height * (0.3611 + yShift)),
+                y: (int)(card.Height * ((Navigation.IsNormal ? 0.3611 : 0.3150) + yShift)),
                 width: (int)(card.Width * 0.8397),
                 height: (int)(card.Height * 0.1991)));
         }
@@ -233,7 +235,7 @@ namespace InventoryKamera
             double yShift = isSanctified ? SanctifyShift : 0.0;
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
                 x: (int)(card.Width * 0.6321),
-                y: (int)(card.Height * (0.3056 + yShift)),
+                y: (int)(card.Height * ((Navigation.IsNormal ? 0.3056 : 0.2650) + yShift)),
                 width: (int)(card.Width * 0.0893),
                 height: (int)(card.Height * 0.0435)));
         }
@@ -247,7 +249,7 @@ namespace InventoryKamera
         {
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
                 x: (int)(card.Width * 0.0055),
-                y: (int)(card.Height * 0.2907),
+                y: (int)(card.Height * (Navigation.IsNormal ? 0.2907 : 0.2515)),
                 width: (int)(card.Width * 0.0473),
                 height: (int)(card.Height * 0.0398)));
         }
@@ -403,10 +405,20 @@ namespace InventoryKamera
             // not, since it'd risk silently skipping later qualifying artifacts.
             if (belowRarity || belowLevel)
             {
+                Logger.Info("Artifact scan #{0}: filtered out (belowRarity={1}, belowLevel={2}, sanctified={3}).",
+                    id, belowRarity, belowLevel, sanctified);
+                // Filtered-out items never reach ProcessImageCollectionAsync (InventoryKamera.cs),
+                // the only place that normally saves per-region crops -- without this, a wrong
+                // belowLevel/belowRarity read (e.g. a miscalibrated crop) filtered an item with zero
+                // visual evidence of what was actually captured.
+                SaveDebugScreenshot(name, $"artifacts/artifact{id}/name/name");
+                SaveDebugScreenshot(level, $"artifacts/artifact{id}/level/level");
+                SaveDebugScreenshot(card, $"artifacts/artifact{id}/card");
                 artifactImages.ForEach(i => i.Dispose());
                 return;
             }
 
+            Logger.Info("Artifact scan #{0}: queued for cataloguing (sanctified={1}).", id, sanctified);
             InventoryKamera.workerChannel.Writer.TryWrite(new OCRImageCollection(artifactImages, "artifact", id));
         }
 

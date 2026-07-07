@@ -70,6 +70,26 @@ namespace InventoryKamera
         protected readonly IScanSettings scanSettings;
         protected readonly IScanProgressReporter progressReporter;
 
+        /// <summary>
+        /// Shared with every subclass (previously duplicated as a private method on
+        /// <c>ArtifactScraper</c> only) so every controller-mode capture region -- including this
+        /// base class's own <see cref="DetectCurrentTabIndexViaController"/> -- can leave a visual
+        /// trail when <see cref="IScanSettings.LogScreenshots"/> is on, not just artifacts.
+        /// <paramref name="relativePath"/> may contain '/' to nest into subfolders (e.g.
+        /// <c>"weapons/weapon0/name/name"</c>), matching the per-item folder layout
+        /// <c>InventoryKamera.ProcessImageCollectionAsync</c> already uses for cataloguing failures --
+        /// so scan attempts saved from here land in the same kind of organized tree instead of a flat
+        /// dump of files directly under <c>./logging</c>.
+        /// </summary>
+        protected void SaveDebugScreenshot(Bitmap bitmap, string relativePath)
+        {
+            if (!scanSettings.LogScreenshots) return;
+
+            string fullPath = Path.Combine("./logging", relativePath + ".png");
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
+            bitmap.Save(fullPath);
+        }
+
         public InventoryScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, IScanProgressReporter progressReporter)
         {
             this.ocrService = ocrService;
@@ -685,11 +705,10 @@ namespace InventoryKamera
         {
             return Navigation.CaptureRegion(
                 x: (int)(0.7031 * Navigation.GetWidth()),
-                y: (int)(0.1231 * Navigation.GetHeight()),
+                y: (int)((Navigation.IsNormal ? 0.1231 : 0.1120) * Navigation.GetHeight()),
                 width: (int)(0.2167 * Navigation.GetWidth()),
-                height: (int)(0.7556 * Navigation.GetHeight()));
+                height: (int)((Navigation.IsNormal ? 0.7556 : 0.7800) * Navigation.GetHeight()));
         }
-
         /// <summary>
         /// Opens the pause menu and navigates into Inventory via controller -- ported from the
         /// live-verified sequence in <c>ControllerNavigationTests</c> (2026-07-05): open menu, move
@@ -740,16 +759,24 @@ namespace InventoryKamera
         /// </summary>
         internal int DetectCurrentTabIndexViaController(out string rawText)
         {
+            // Height tightened 0.08 -> 0.05 (2026-07-07): the debug screenshot showed the sub-tab
+            // icon row bleeding into the bottom of the crop, which likely confused Tesseract's
+            // SingleLine page-seg mode into garbling otherwise-clean "Weapons" text into "Mn NT".
+            // Needs live confirmation that the tab-name line itself is still fully inside the crop.
             using (var region = Navigation.CaptureRegion(
                 x: (int)(0.09 * Navigation.GetWidth()),
                 y: (int)(0.035 * Navigation.GetHeight()),
                 width: (int)(0.20 * Navigation.GetWidth()),
-                height: (int)(0.08 * Navigation.GetHeight())))
+                height: (int)(0.05 * Navigation.GetHeight())))
             {
+                SaveDebugScreenshot(region, "tabdetection/region");
+
                 var preprocessor = new ImageProcessor();
                 Bitmap processed = preprocessor.ConvertToGrayscale(region);
                 preprocessor.SetContrast(60.0, ref processed);
                 preprocessor.SetInvert(ref processed);
+
+                SaveDebugScreenshot(processed, "tabdetection/processed");
 
                 using (processed)
                 using (var ocr = new OcrService())
@@ -830,10 +857,16 @@ namespace InventoryKamera
 
             if (currentIndex < 0)
             {
+                // Per user (2026-07-07): don't let the scan continue against a tab it can't confirm
+                // -- that risks silently cataloguing items under the wrong item type. Ending this
+                // phase's scan (StopScanning) is safe: WeaponScraper/ArtifactScraper/MaterialScraper's
+                // own scan loops all check StopScanning before every iteration, so this stops before a
+                // single item is read rather than partway through a wrong-tab grid.
                 string warning = $"Could not confidently detect the current inventory tab (last OCR: \"{rawText}\") -- " +
-                    $"skipped switching to {targetTab}. The scan may now run against whatever tab is actually active.";
+                    $"stopping this scan phase instead of switching to {targetTab} blind.";
                 Logger.Warn(warning);
                 progressReporter.AddError(warning);
+                StopScanning = true;
                 return knownCurrentTab; // unknown tab either way; nothing better to report back
             }
 
@@ -841,7 +874,7 @@ namespace InventoryKamera
 
             if (currentIndex == targetIndex)
             {
-                Logger.Info("Tab switch: scanned in on \"{0}\", already the target -- 0 shoulder presses needed.", currentTabName);
+                Logger.Info("Tab switch: scanned in on \"{0}\" (raw=\"{1}\"), already the target -- 0 shoulder presses needed.", currentTabName, rawText);
                 return targetTab;
             }
 
@@ -852,8 +885,8 @@ namespace InventoryKamera
             int steps = Math.Min(forwardSteps, backwardSteps);
             Xbox360Button shoulderButton = goForward ? Xbox360Button.RightShoulder : Xbox360Button.LeftShoulder;
 
-            Logger.Info("Tab switch: scanned in on \"{0}\", target \"{1}\" -- {2} {3} ({4}) presses.",
-                currentTabName, targetTab, steps, shoulderButton, goForward ? "forward/right" : "backward/left");
+            Logger.Info("Tab switch: scanned in on \"{0}\" (raw=\"{1}\"), target \"{2}\" -- {3} {4} ({5}) presses.",
+                currentTabName, rawText, targetTab, steps, shoulderButton, goForward ? "forward/right" : "backward/left");
 
             // Per user (2026-07-04): base tab-switch timing doubled to 200/800/1000 (through several
             // rounds: 80/100/300 -> 120/150/400 -> 240/300/800 -> 100/400/500 -> this) -- still
@@ -895,6 +928,10 @@ namespace InventoryKamera
                 path += "Materials/";
             else path += inventoryPage.ToString() + "/";
 
+            // filename may itself contain '/' to nest into a subfolder (e.g. "quantity/Iron_Quantity.png")
+            // -- GatherData only creates the top-level per-page folder (./logging/materials/) up front,
+            // so any subfolder needs creating here rather than assuming it already exists.
+            Directory.CreateDirectory(Path.GetDirectoryName(path + filename));
             image.Save(path + filename);
         }
 

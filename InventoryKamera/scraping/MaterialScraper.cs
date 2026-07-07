@@ -263,28 +263,45 @@ namespace InventoryKamera
 		// ArtifactScraper.ScanArtifactsViaController's per-row page cap.
 		private const int itemsPerRow = 10;
 
-		// 5 rows fit on screen before the grid needs to scroll (confirmed by user, 2026-07-05); once
-		// the selection advances past row index 4 (0-based), Genshin auto-snap-scrolls exactly one row
-		// at a time, always re-pinning the newly-active row to the same fixed on-screen position --
-		// per user: "row 6 and up are all on the same scrolled row near the bottom of the page". That
-		// means only 6 fixed y-positions ever exist (rows 0-4, plus one shared "scrolled" position for
-		// every row from 5 onward), not one per inventory row.
-		private const int rowsVisiblePreScroll = 5;
+		// 5 rows fit on screen before the grid needs to scroll at 16:9 (confirmed by user, 2026-07-05);
+		// 6 rows fit at 16:10 (confirmed by user, 2026-07-07 -- the taller window shows one more row
+		// before Genshin needs to snap-scroll). Once the selection advances past the last pre-scroll
+		// row (0-based index RowsVisiblePreScroll - 1), Genshin auto-snap-scrolls exactly one row at a
+		// time, always re-pinning the newly-active row to the same fixed on-screen position -- per
+		// user: "row 6 and up are all on the same scrolled row near the bottom of the page" (16:9
+		// case). That means only RowsVisiblePreScroll + 1 fixed y-positions ever exist (the pre-scroll
+		// rows, plus one shared "scrolled" position for every row past that), not one per inventory row.
+		private static int RowsVisiblePreScroll => Navigation.IsNormal ? 5 : 6;
 
 		// Percentages measured with the coordinate-picker tool against a full-window capture
-		// (2026-07-05, 3837x2158) of three known grid positions: row 0/col 0 (pre-scroll), row 4/col 9
-		// (last pre-scroll row), and row 5/col 0 (first post-scroll row). Column spacing computed from
-		// the first two ((0.6325 - 0.0831) / 9); cross-checked by reapplying it to row 4's x, which
-		// reproduced 0.6325 exactly, confirming both the column formula and that columns don't shift
-		// between rows. Row spacing computed from the same two points across 4 row-steps (0 to 4).
-		// Width/height averaged across all three measurements (~0.0510 x ~0.0206).
+		// (2026-07-05, 3837x2158, 16:9) of three known grid positions: row 0/col 0 (pre-scroll), row
+		// 4/col 9 (last pre-scroll row), and row 5/col 0 (first post-scroll row). Column spacing
+		// computed from the first two ((0.6325 - 0.0831) / 9); cross-checked by reapplying it to row
+		// 4's x, which reproduced 0.6325 exactly, confirming both the column formula and that columns
+		// don't shift between rows. Row spacing computed from the same two points across 4 row-steps
+		// (0 to 4). Width/height averaged across all three measurements (~0.0510 x ~0.0206).
+		//
+		// 16:10 row 0/col 0 and row 5/col 9 (last pre-scroll row, since RowsVisiblePreScroll is 6 at
+		// 16:10) measured the same way (2026-07-07, 1680x1050): (0.0833, 0.1943) and (0.6327, 0.7771).
+		// Column step from these ((0.6327 - 0.0833) / 9 = 0.061044) matches 16:9's column step almost
+		// exactly, confirming column spacing is resolution-independent (only letterboxed vertically) --
+		// so quantityBaseX/quantityColStep are shared, unbranched, same as every other x-axis value in
+		// this codebase's 16:9/16:10 handling.
+		//
+		// 16:10 first post-scroll row (row 6/col 0, measured 2026-07-07 from FullInventory_PostScroll,
+		// 1680x1050): (0.0851, 0.7857) -- gives QuantityPostScrollY. STILL UNVERIFIED for 16:10: the
+		// two drift-per-scroll-row constants below (needed for row 7+) are still 16:9-only -- only one
+		// post-scroll row has been measured at 16:10 so far, and drift needs at least two post-scroll
+		// rows to compute a rate. Reusing the 16:9 rate as a placeholder until a second 16:10
+		// post-scroll row (e.g. row 7) is measured.
 		private const double quantityColStep = 0.061044;
 		private const double quantityBaseX = 0.0831;
-		private const double quantityRow0Y = 0.2150;
-		private const double quantityRowStep = (0.7340 - 0.2150) / (rowsVisiblePreScroll - 1);
-		private const double quantityPostScrollY = 0.7674;
-		private const double quantityWidth = 0.0510;
-		private const double quantityHeight = 0.0206;
+		private static double QuantityRow0Y => Navigation.IsNormal ? 0.2150 : 0.1943;
+		private static double QuantityLastPreScrollRowY => Navigation.IsNormal ? 0.7340 : 0.7771;
+		private static double QuantityRowStep => (QuantityLastPreScrollRowY - QuantityRow0Y) / (RowsVisiblePreScroll - 1);
+		private static double QuantityPostScrollY => Navigation.IsNormal ? 0.7674 : 0.7900;
+		private static double QuantityWidth => Navigation.IsNormal ? 0.0510 : 0.0509;
+		private static double QuantityHeight => Navigation.IsNormal ? 0.0206 : 0.01615;
 
 		// Widening the crop height to absorb scroll drift (2026-07-05) was tried and reverted --
 		// broke digit OCR entirely once the top-whiteout band (tuned for this tight height, see
@@ -317,27 +334,27 @@ namespace InventoryKamera
 		{
 			double x = quantityBaseX + column * quantityColStep;
 			double y;
-			if (globalRow < rowsVisiblePreScroll)
+			if (globalRow < RowsVisiblePreScroll)
 			{
-				y = quantityRow0Y + globalRow * quantityRowStep;
+				y = QuantityRow0Y + globalRow * QuantityRowStep;
 			}
 			else
 			{
-				// Row 5 lands at quantityPostScrollY; every row after that adds one more scroll's
-				// worth of drift on top of it -- rate depends on which tab we're in (see the constants'
-				// own comment).
+				// The last pre-scroll row lands at QuantityPostScrollY; every row after that adds one
+				// more scroll's worth of drift on top of it -- rate depends on which tab we're in (see
+				// the constants' own comment).
 				double driftPerScrollRow = inventoryPage == InventoryPage.CharacterDevelopmentItems
 					? quantityDriftPerScrollRowCharDevItems
 					: quantityDriftPerScrollRowMaterials;
-				int scrollsPast = globalRow - rowsVisiblePreScroll;
-				y = quantityPostScrollY + scrollsPast * driftPerScrollRow;
+				int scrollsPast = globalRow - RowsVisiblePreScroll;
+				y = QuantityPostScrollY + scrollsPast * driftPerScrollRow;
 			}
 
 			return new Rectangle(
 				x: (int)(x * Navigation.GetWidth()),
 				y: (int)(y * Navigation.GetHeight()),
-				width: (int)(quantityWidth * Navigation.GetWidth()),
-				height: (int)(quantityHeight * Navigation.GetHeight()));
+				width: (int)(QuantityWidth * Navigation.GetWidth()),
+				height: (int)(QuantityHeight * Navigation.GetHeight()));
 		}
 
 		/// <summary>
@@ -444,15 +461,40 @@ namespace InventoryKamera
 
 			string currentTab = SwitchToTabViaController(controller, targetTab, knownCurrentTab);
 
+			// Full-window reference shot of the grid before scanning starts -- useful alongside the
+			// per-item quantity crops for judging whether GetQuantityRegionViaController's fixed
+			// percentages actually line up with the real grid (e.g. the 16:10 row-count/spacing gap).
+			if (scanSettings.LogScreenshots)
+			{
+				using (var fullInventory = Navigation.CaptureWindow())
+				{
+					SaveInventoryBitmap(fullInventory, $"FullInventory_{Navigation.GetWidth()}x{Navigation.GetHeight()}.png");
+				}
+			}
+
 			int scanned = 0;
 			int column = 0;
 			int globalRow = 0;
 			int consecutiveEmptyReads = 0;
 			const int maxConsecutiveEmptyReads = 3;
+			bool loggedPostScrollShot = false;
 
 			while (!InventoryKamera.CancelRequested && !StopScanning)
 			{
 				progressReporter.WaitIfCorrectionPending();
+
+				// One-time full-window capture right as the grid crosses into post-scroll territory --
+				// this is the point GetQuantityRegionViaController's post-scroll y/drift constants need
+				// to be measured against (still unmeasured for 16:10, per the pending remeasurement
+				// noted on RowsVisiblePreScroll/QuantityRowStep above).
+				if (scanSettings.LogScreenshots && !loggedPostScrollShot && globalRow == RowsVisiblePreScroll)
+				{
+					loggedPostScrollShot = true;
+					using (var postScrollShot = Navigation.CaptureWindow())
+					{
+						SaveInventoryBitmap(postScrollShot, $"FullInventory_PostScroll_{Navigation.GetWidth()}x{Navigation.GetHeight()}.png");
+					}
+				}
 
 				using (Bitmap card = GetItemCardViaController())
 				using (Bitmap nameBitmap = GetItemNameBitmapViaController(card))
@@ -492,7 +534,7 @@ namespace InventoryKamera
 							}
 							if (scanSettings.LogScreenshots || count == 0)
 							{
-								SaveInventoryBitmap(quantity, $"{name}_Quantity.png");
+								SaveInventoryBitmap(quantity, $"quantity/{name}_Quantity.png");
 							}
 
 							material.count = count;

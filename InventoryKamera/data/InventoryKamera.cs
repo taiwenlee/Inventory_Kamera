@@ -374,6 +374,7 @@ namespace InventoryKamera
 
 							if (weapon.IsValid())
 							{
+								Logger.Info("Weapon scan #{0}: scanned OK -- {1}", weapon.Id, weapon.ToString());
 								progressReporter.IncrementWeaponCount();
 								Inventory.Add(weapon);
 								if (!string.IsNullOrWhiteSpace(weapon.EquippedCharacter))
@@ -383,12 +384,14 @@ namespace InventoryKamera
 							{
 								progressReporter.AddError($"Unable to validate information for weapon ID#{weapon.Id}");
 								string error = "";
-								if (!weapon.HasValidWeaponName()) error += "Invalid weapon name\n"; 
+								if (!weapon.HasValidWeaponName()) error += "Invalid weapon name\n";
 								if (!weapon.HasValidRarity()) error += "Invalid weapon rarity\n";
 								if (!weapon.HasValidLevel()) error += "Invalid weapon level\n";
 								if (!weapon.HasValidRefinementLevel()) error += "Invalid refinement level\n";
 								if (!weapon.HasValidEquippedCharacter()) error += "Inavlid equipped character\n";
 								progressReporter.AddError(error + weapon.ToString());
+								Logger.Warn("Weapon scan #{0}: FAILED validation -- {1}scanned as: {2}",
+									weapon.Id, error.Replace("\n", "; "), weapon.ToString());
 								Directory.CreateDirectory(weaponPath);
 								using (var writer = File.CreateText(weaponPath + "log.txt"))
 								{
@@ -408,6 +411,8 @@ namespace InventoryKamera
                                 imageCollection.Bitmaps[1].Save(weaponPath + "level/level.png");
                                 Directory.CreateDirectory(weaponPath + "refinement");
                                 imageCollection.Bitmaps[2].Save(weaponPath + "refinement/refinement.png");
+                                Directory.CreateDirectory(weaponPath + "locked");
+                                imageCollection.Bitmaps[3].Save(weaponPath + "locked/locked.png");
                                 Directory.CreateDirectory(weaponPath + "equipped");
                                 imageCollection.Bitmaps[4].Save(weaponPath + "equipped/equipped.png");
 
@@ -438,6 +443,7 @@ namespace InventoryKamera
 
 							if (artifact.IsValid())
 							{
+								Logger.Info("Artifact scan #{0}: scanned OK -- {1}", artifact.Id, artifact.ToString());
 								progressReporter.IncrementArtifactCount();
 								Inventory.Add(artifact);
 								if (!string.IsNullOrWhiteSpace(artifact.EquippedCharacter))
@@ -455,6 +461,8 @@ namespace InventoryKamera
 								if (!artifact.HasValidSubStats()) error += "Invalid artifact sub stats\n";
 								if (!artifact.HasValidEquippedCharacter()) error += "Invalid equipped character\n";
 								progressReporter.AddError(error + artifact.ToString());
+								Logger.Warn("Artifact scan #{0}: FAILED validation -- {1}scanned as: {2}",
+									artifact.Id, error.Replace("\n", "; "), artifact.ToString());
 								Directory.CreateDirectory(artifactPath);
 								using (var writer = File.CreateText(artifactPath + "log.txt"))
 								{

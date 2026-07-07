@@ -66,10 +66,22 @@ namespace InventoryKamera
 
             if (StopScanning || belowRarity || belowLevel)
             {
+                Logger.Info("Weapon scan #{0}: filtered out (belowRarity={1}, belowLevel={2}, stopping={3}).",
+                    id, belowRarity, belowLevel, StopScanning);
+                // Filtered-out items never reached ProcessImageCollectionAsync (InventoryKamera.cs),
+                // which is the only place that normally saves per-region crops -- without this, a
+                // wrong belowLevel/belowRarity read (e.g. a miscalibrated crop) filtered (or, worse,
+                // via StopScanning, silently ended) a scan with zero visual evidence of what was
+                // actually captured.
+                SaveDebugScreenshot(name, $"weapons/weapon{id}/name/name");
+                SaveDebugScreenshot(level, $"weapons/weapon{id}/level/level");
+                SaveDebugScreenshot(locked, $"weapons/weapon{id}/locked/locked");
+                SaveDebugScreenshot(card, $"weapons/weapon{id}/card");
                 weaponImages.ForEach(i => i.Dispose());
                 return;
             }
 
+            Logger.Info("Weapon scan #{0}: queued for cataloguing.", id);
             InventoryKamera.workerChannel.Writer.TryWrite(new OCRImageCollection(weaponImages, "weapon", id));
         }
 
@@ -86,14 +98,18 @@ namespace InventoryKamera
         {
             using (var region = Navigation.CaptureRegion(
                 x: (int)(0.0625 * Navigation.GetWidth()),
-                y: (int)(0.9037 * Navigation.GetHeight()),
+                y: (int)((Navigation.IsNormal ? 0.9037 : 0.9162) * Navigation.GetHeight()),
                 width: (int)(0.1167 * Navigation.GetWidth()),
                 height: (int)(0.0389 * Navigation.GetHeight())))
             {
+                SaveDebugScreenshot(region, "weapons/sortmode/region");
+
                 var preprocessor = new ImageProcessor();
                 Bitmap processed = preprocessor.ConvertToGrayscale(region);
                 preprocessor.SetContrast(60.0, ref processed);
                 preprocessor.SetInvert(ref processed);
+
+                SaveDebugScreenshot(processed, "weapons/sortmode/processed");
 
                 string rawText;
                 using (processed)
@@ -107,7 +123,7 @@ namespace InventoryKamera
                 string matchedNormalized = TextNormalizer.FindClosestInList(normalizedText, new HashSet<string>(normalizedModes));
                 int index = Array.IndexOf(normalizedModes, matchedNormalized);
 
-                Logger.Debug("Sort mode OCR: rawText=\"{0}\" normalizedText=\"{1}\" matched=\"{2}\"",
+                Logger.Info("Sort mode OCR: rawText=\"{0}\" normalizedText=\"{1}\" matched=\"{2}\"",
                     rawText, normalizedText, index >= 0 ? SortModeNames[index] : "(none)");
 
                 return index >= 0 ? SortModeNames[index] : null;
@@ -130,7 +146,11 @@ namespace InventoryKamera
         private bool SetSortModeViaController(GameController controller, string targetMode)
         {
             string currentMode = DetectCurrentSortModeViaController();
-            if (currentMode == targetMode) return true;
+            if (currentMode == targetMode)
+            {
+                Logger.Info("Controller weapon sort: already \"{0}\", no change needed.", currentMode);
+                return true;
+            }
 
             int currentIndex = Array.IndexOf(SortModeNames, currentMode);
             int targetIndex = Array.IndexOf(SortModeNames, targetMode);
@@ -240,17 +260,17 @@ namespace InventoryKamera
                     x: (int)(card.Width * 0.060),
                     y: (int)(card.Height * (Navigation.IsNormal ? 0.367 : 0.320)),
                     width: (int)(card.Width * 0.262),
-                    height: (int)(card.Height * (Navigation.IsNormal ? 0.035 : 0.033))));
+                    height: (int)(card.Height * 0.035)));
         }
 
         Bitmap GetRefinementBitmap(Bitmap card)
         {
             return GenshinProcesor.CopyBitmap(card,
                 new Rectangle(
-                    x: (int)(card.Width * (Navigation.IsNormal ? 0.058 : 0.057)),
+                    x: (int)(card.Width * 0.058),
                     y: (int)(card.Height * (Navigation.IsNormal ? 0.417 : 0.364)),
-                    width: (int)(card.Width * (Navigation.IsNormal ? 0.074 : 0.075)),
-                    height: (int)(card.Height * (Navigation.IsNormal ? 0.038 : 0.034))));
+                    width: (int)(card.Width * 0.074),
+                    height: (int)(card.Height * 0.038)));
         }
 
         /// <summary>Controller-mode equivalent of <see cref="GetLevelBitmap"/>, measured with the
@@ -260,7 +280,7 @@ namespace InventoryKamera
             return GenshinProcesor.CopyBitmap(card,
                 new Rectangle(
                     x: (int)(card.Width * 0.0564),
-                    y: (int)(card.Height * 0.3102),
+                    y: (int)(card.Height * (Navigation.IsNormal ? 0.3102 : 0.2747)),
                     width: (int)(card.Width * 0.2618),
                     height: (int)(card.Height * 0.0352)));
         }
@@ -272,7 +292,7 @@ namespace InventoryKamera
             return GenshinProcesor.CopyBitmap(card,
                 new Rectangle(
                     x: (int)(card.Width * 0.0564),
-                    y: (int)(card.Height * 0.3556),
+                    y: (int)(card.Height * (Navigation.IsNormal ? 0.3556 : 0.3114)),
                     width: (int)(card.Width * 0.0691),
                     height: (int)(card.Height * 0.0324)));
         }
@@ -287,7 +307,7 @@ namespace InventoryKamera
             return GenshinProcesor.CopyBitmap(card,
                 new Rectangle(
                     x: (int)(card.Width * 0.8545),
-                    y: (int)(card.Height * 0.3083),
+                    y: (int)(card.Height * (Navigation.IsNormal ? 0.3083: 0.2674)),
                     width: (int)(card.Width * 0.0764),
                     height: (int)(card.Height * 0.0389)));
         }
