@@ -162,7 +162,7 @@ namespace InventoryKamera
 				// every controller-driven scan phase below. Per user (2026-07-04): switching between
 				// Weapons/Artifacts tabs shouldn't back all the way out to the unpaused game state and
 				// re-enter via the full pause-menu sequence just to immediately go back into Inventory
-				// -- each phase now just calls SwitchToTabViaController internally. Only when this
+				// -- each phase now just calls SwitchToTab internally. Only when this
 				// `using` block ends (both phases done) does GameController.Dispose() back out of
 				// every menu and switch Genshin back to keyboard/mouse mode -- so no
 				// Navigation.InventoryScreen()/SelectWeaponInventory()/SelectArtifactInventory()/
@@ -177,7 +177,7 @@ namespace InventoryKamera
 					{
 						try
 						{
-							weaponScraper.EnterInventoryViaController(controller);
+							weaponScraper.EnterInventory(controller);
 						}
 						catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 						catch (Exception ex)
@@ -196,7 +196,7 @@ namespace InventoryKamera
 							Logger.Info("Scanning weapons...");
 							try
 							{
-								currentTab = weaponScraper.ScanWeaponsViaController(controller, knownCurrentTab: currentTab);
+								currentTab = weaponScraper.ScanWeapons(controller, knownCurrentTab: currentTab);
 							}
 							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 							catch (Exception ex)
@@ -211,7 +211,7 @@ namespace InventoryKamera
 							Logger.Info("Scanning artifacts...");
 							try
 							{
-								currentTab = artifactScraper.ScanArtifactsViaController(controller, knownCurrentTab: currentTab);
+								currentTab = artifactScraper.ScanArtifacts(controller, knownCurrentTab: currentTab);
 							}
 							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 							catch (Exception ex)
@@ -227,7 +227,7 @@ namespace InventoryKamera
 							try
 							{
 								materialScraper.SetInventoryPage(InventoryPage.CharacterDevelopmentItems);
-								currentTab = materialScraper.ScanMaterialsViaController(controller, ref Inventory, knownCurrentTab: currentTab);
+								currentTab = materialScraper.ScanMaterials(controller, ref Inventory, knownCurrentTab: currentTab);
 							}
 							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 							catch (Exception ex)
@@ -243,7 +243,7 @@ namespace InventoryKamera
 							try
 							{
 								materialScraper.SetInventoryPage(InventoryPage.Materials);
-								currentTab = materialScraper.ScanMaterialsViaController(controller, ref Inventory, knownCurrentTab: currentTab);
+								currentTab = materialScraper.ScanMaterials(controller, ref Inventory, knownCurrentTab: currentTab);
 							}
 							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 							catch (Exception ex)
@@ -265,7 +265,7 @@ namespace InventoryKamera
 				// Phase 3 §6c: controller-driven replacement for the old mouse-click character scan,
 				// live-verified 2026-07-05. Own GameController connection (not shared with the
 				// weapons/artifacts/materials block above) since the Character screen is a separate
-				// pause-menu tab entered fresh via EnterCharacterMenuViaController, matching how that
+				// pause-menu tab entered fresh via EnterCharacterMenu, matching how that
 				// block already ended and disconnected before this section runs.
 				using (var controller = new GameController())
 				{
@@ -277,7 +277,7 @@ namespace InventoryKamera
 					{
 						try
 						{
-							characterScraper.ScanCharactersViaController(controller, ref Characters);
+							characterScraper.ScanCharacters(controller, ref Characters);
 						}
 						catch (Exception ex)
 						{

@@ -34,7 +34,7 @@ namespace InventoryKamera
 		/// <summary>
 		/// Childe (Tartaglia) passive buff fix -- his kit grants +1 auto-attack talent level to the
 		/// first 4 party members once he's Ascension 4+, which the raw scanned talent level doesn't
-		/// reflect. Used by the controller-driven batched path (<see cref="ScanCharactersViaController"/>)
+		/// reflect. Used by the controller-driven batched path (<see cref="ScanCharacters"/>)
 		/// since it only needs the final assembled roster, not how it was scanned.
 		/// </summary>
 		private void ApplyTartagliaFix(List<Character> Characters)
@@ -100,13 +100,13 @@ namespace InventoryKamera
 		/// screen's sub-tab (left-stick up/down; full order is Attributes, Weapons, Artifacts,
 		/// Constellations, Talents, Profile) pays a real UI transition-animation cost, while advancing
 		/// between characters (right shoulder button, mirroring how
-		/// <see cref="InventoryScraper.SwitchToTabViaController"/> cycles inventory tabs with LB/RB)
+		/// <see cref="InventoryScraper.SwitchToTab"/> cycles inventory tabs with LB/RB)
 		/// does not. Interleaving sub-tabs per character would pay that animation cost repeatedly per
 		/// character; this instead pays it exactly twice for the whole scan (Attributes to
 		/// Constellations, a 3-step move past Weapons/Artifacts; Constellations to Talents, 1 step),
 		/// independent of roster size -- at the cost of doing 3 full passes over the roster instead of
 		/// 1. That trade favors batching since shoulder-tap advance is the cheap, already-fast-tuned
-		/// primitive elsewhere (see <see cref="WeaponScraper.ScanWeaponsViaController"/>). Weapons and
+		/// primitive elsewhere (see <see cref="WeaponScraper.ScanWeapons"/>). Weapons and
 		/// Artifacts sub-tabs are only transited through, never scanned, from this method (equipped
 		/// gear is already covered by <see cref="WeaponScraper"/>/<see cref="ArtifactScraper"/>'s own
 		/// controller scans).
@@ -120,18 +120,18 @@ namespace InventoryKamera
 		/// cursor back on the first character for Phase 3 to read forward
 		/// (<see cref="ScanRosterForward"/>) same as the full-scan case.
 		/// Constellation-node navigation and talent reading each get their own controller-native
-		/// method (<see cref="ScanConstellationsViaController"/>/<see cref="ScanTalentsViaController"/>)
+		/// method (<see cref="ScanConstellations"/>/<see cref="ScanTalents"/>)
 		/// rather than reusing the mouse path's per-node click loop.
 		/// <paramref name="Characters"/> is scanned up to <see cref="NumOfCharToScan"/> entries (0 =
 		/// whole roster).
 		/// </summary>
-		public void ScanCharactersViaController(GameController controller, ref List<Character> Characters)
+		public void ScanCharacters(GameController controller, ref List<Character> Characters)
 		{
 			int maxToScan = NumOfCharToScan;
 			if (maxToScan != 0) progressReporter.SetCharacter_Max(maxToScan);
 			progressReporter.ResetCharacterDisplay();
 
-			EnterCharacterMenuViaController(controller);
+			EnterCharacterMenu(controller);
 
 			// Per user (2026-07-05): the Character menu always opens on the Attributes sub-tab
 			// regardless of what was open last time, so no reset-to-known-position step is needed
@@ -166,7 +166,7 @@ namespace InventoryKamera
 			while (true)
 			{
 				string name = null, element = null;
-				ScanNameAndElement(ref name, ref element, viaController: true);
+				ScanNameAndElement(ref name, ref element);
 
 				bool isManequin = name == "Manequin1" || name == "Manequin2";
 				bool hasValidNameAndElement = !isManequin && !string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(element);
@@ -183,7 +183,7 @@ namespace InventoryKamera
 					}
 
 					bool ascended = false;
-					int level = ScanLevel(ref ascended, viaController: true);
+					int level = ScanLevel(ref ascended);
 					if (level == -1)
 					{
 						progressReporter.AddError($"Could not determine {name}'s level. Setting to 1.");
@@ -266,10 +266,10 @@ namespace InventoryKamera
 			void ScanConstellation(Character character)
 			{
 				// Per user (2026-07-05): greedy (C6-first, read backward) mode only for 4-star
-				// characters so far -- see IsFourStarCharacter/ScanConstellationsGreedyViaController.
+				// characters so far -- see IsFourStarCharacter/ScanConstellationsGreedy.
 				character.Constellation = IsFourStarCharacter(character)
-					? ScanConstellationsGreedyViaController(controller, character)
-					: ScanConstellationsViaController(controller, character);
+					? ScanConstellationsGreedy(controller, character)
+					: ScanConstellations(controller, character);
 				Logger.Info("{0} Constellation: {1}", character.NameGOOD, character.Constellation);
 			}
 
@@ -301,7 +301,7 @@ namespace InventoryKamera
 
 			ScanRosterForward(controller, characterList, gapsBeforeEach, null, character =>
 			{
-				character.Talents = ScanTalentsViaController(character);
+				character.Talents = ScanTalents(character);
 				Logger.Info("{0} Talents: {1}", character.NameGOOD, "{" + string.Join(", ", character.Talents.Select(kv => kv.Key + "=" + kv.Value).ToArray()) + "}");
 
 				ApplyConstellationTalentScaling(character);
@@ -313,7 +313,7 @@ namespace InventoryKamera
 
 		/// <summary>
 		/// Advances <paramref name="taps"/> times in one direction, one shoulder-button tap at a time
-		/// (never a single multi-position jump), matching how <see cref="ScanCharactersViaController"/>'s
+		/// (never a single multi-position jump), matching how <see cref="ScanCharacters"/>'s
 		/// Phase 1 measured each gap the same way.
 		/// </summary>
 		private void AdvanceRoster(GameController controller, Xbox360Button button, int taps)
@@ -330,7 +330,7 @@ namespace InventoryKamera
 		/// assuming the cursor is already sitting on the first one, advancing forward (right shoulder)
 		/// by the exact physical gap to the next character after each read -- <paramref
 		/// name="gapsBeforeEach"/>[i] is the gap consumed to reach <paramref name="characters"/>[i]
-		/// (see <see cref="ScanCharactersViaController"/>'s Phase 1 for how it's measured), reused
+		/// (see <see cref="ScanCharacters"/>'s Phase 1 for how it's measured), reused
 		/// here to advance from character i to i+1. After the last character, advances by <paramref
 		/// name="gapAfterLast"/> if given (used when the following phase also needs the cursor back
 		/// at the start), or not at all if null (the last phase needs no such trailing move).
@@ -390,14 +390,14 @@ namespace InventoryKamera
 		/// 2026-07-05), then confirms with B (Genshin's confirm/select button -- A backs out/cancels,
 		/// confirmed 2026-07-05).
 		/// Unlike the Inventory sub-tab row (which does remember its last-viewed tab, see
-		/// <see cref="InventoryScraper.SwitchToTabViaController"/>), the pause menu's own top-level tab
+		/// <see cref="InventoryScraper.SwitchToTab"/>), the pause menu's own top-level tab
 		/// bar resets to [0,0] every time it's opened fresh from gameplay -- confirmed by the user
 		/// (2026-07-06): a prior controller session's teardown (<see cref="GameController.Dispose"/>)
 		/// always exits all the way back out to play mode, not just closes Inventory, so the next
 		/// pause-menu open always cold-starts at [0,0] regardless of what ran before. Move(Right,2)
 		/// then Move(Down,1) from [0,0] is therefore always correct here.
 		/// </summary>
-		private void EnterCharacterMenuViaController(GameController controller)
+		private void EnterCharacterMenu(GameController controller)
 		{
 			Navigation.sim.Keyboard.KeyPress(Navigation.escapeKey);
 			Navigation.SystemWait(Navigation.Speed.UI);
@@ -425,8 +425,8 @@ namespace InventoryKamera
 		/// <summary>
 		/// Saves a full-window screenshot under a per-character logging folder, gated on
 		/// <see cref="scanSettings"/>'s LogScreenshots setting -- shared by every controller-path
-		/// capture point (<see cref="ScanCharactersViaController"/>'s Attributes read,
-		/// <see cref="ScanConstellationsViaController"/> per node, <see cref="ScanTalentsViaController"/>)
+		/// capture point (<see cref="ScanCharacters"/>'s Attributes read,
+		/// <see cref="ScanConstellations"/> per node, <see cref="ScanTalents"/>)
 		/// so debugging a bad capture region has a full-page reference image alongside the small OCR
 		/// crop, per character, per step.
 		/// </summary>
@@ -442,14 +442,14 @@ namespace InventoryKamera
 		/// <summary>
 		/// Applies the constellation-3/5 talent-level discount (Genshin auto-grants a talent level
 		/// via certain constellations, which the raw scanned talent level doesn't reflect). Used by
-		/// the controller-driven batched path (<see cref="ScanCharactersViaController"/>), since it
+		/// the controller-driven batched path (<see cref="ScanCharacters"/>), since it
 		/// only needs the assembled name/element/constellation/talents, not how they were scanned.
 		/// </summary>
 		private void ApplyConstellationTalentScaling(Character character)
 		{
 			// Pyro Traveler's own constellation scan can't be trusted (per user, 2026-07-05): the
 			// secondary constellations that grant +3 to a talent are visually embedded in the same 6
-			// nodes as the base unlocks, so ScanConstellationsViaController can misreport a
+			// nodes as the base unlocks, so ScanConstellations can misreport a
 			// lower-constellation Pyro Traveler as C6. Per user: default to assuming C0 and infer the
 			// real constellation instead from the raw scanned talent levels -- a Skill level of 11+
 			// is only reachable if the C3-equivalent +3 Skill bonus is active, and a Burst level of
@@ -562,28 +562,18 @@ namespace InventoryKamera
 		}
 
 		/// <summary>
-		/// Reads the always-visible name/element region on the Attributes sub-tab.
-		/// <paramref name="viaController"/> selects the controller-mode capture region -- per user
-		/// (2026-07-05, live-tested): controller mode's Character screen layout differs from mouse
-		/// mode's ("everything shifts"), the same reason WeaponScraper needed its own
-		/// coordinate-picker-measured card region instead of reusing the mouse-popup one.
-		/// Controller-mode region measured (2026-07-05) with <c>ui/CoordinatePickerForm.cs</c>.
+		/// Reads the always-visible name/element region on the Attributes sub-tab. Region re-measured
+		/// (2026-07-05) with <c>ui/CoordinatePickerForm.cs</c> against a two-line wrapped name.
 		/// </summary>
-		private void ScanNameAndElement(ref string name, ref string element, bool viaController = false)
+		private void ScanNameAndElement(ref string name, ref string element)
 		{
 			int attempts = 0;
 			int maxAttempts = 20; // reduced from 75 per user (2026-07-05) -- 75 retries at Speed.Fast was too slow when parsing genuinely fails
-			Rectangle region = viaController
-				? new RECT( // re-measured (2026-07-05) against a two-line wrapped name
-					Left:   (int)( 0.0941 * Navigation.GetWidth() ),
-					Top:    (int)( 0.0430 * Navigation.GetHeight() ),
-					Right:  (int)( 0.2442 * Navigation.GetWidth() ),
-					Bottom: (int)( 0.0920 * Navigation.GetHeight() ))
-				: new RECT(
-					Left:   (int)( 85  / 1280.0 * Navigation.GetWidth() ),
-					Top:    (int)( 10  / 720.0 * Navigation.GetHeight() ),
-					Right:  (int)( 305 / 1280.0 * Navigation.GetWidth() ),
-					Bottom: (int)( 55  / 720.0 * Navigation.GetHeight() ));
+			Rectangle region = new RECT(
+				Left:   (int)( 0.0941 * Navigation.GetWidth() ),
+				Top:    (int)( 0.0430 * Navigation.GetHeight() ),
+				Right:  (int)( 0.2442 * Navigation.GetWidth() ),
+				Bottom: (int)( 0.0920 * Navigation.GetHeight() ));
 
 			do
 			{
@@ -656,33 +646,18 @@ namespace InventoryKamera
 		}
 
 		/// <summary>
-		/// Reads the level/ascension region on the Attributes sub-tab. <paramref name="viaController"/>
-		/// selects the controller-mode capture region -- see <see cref="ScanNameAndElement"/>'s doc
-		/// comment for why these differ. Controller-mode region measured (2026-07-05) with
-		/// <c>ui/CoordinatePickerForm.cs</c>.
+		/// Reads the level/ascension region on the Attributes sub-tab. Region measured (2026-07-05)
+		/// with <c>ui/CoordinatePickerForm.cs</c>.
 		/// </summary>
-		private int ScanLevel(ref bool ascended, bool viaController = false)
+		private int ScanLevel(ref bool ascended)
 		{
             int attempt = 0;
 
-            var xRef = 1280.0;
-			var yRef = 720.0;
-			if (Navigation.GetAspectRatio() == new Size(8, 5))
-			{
-				yRef = 800.0;
-			}
-
-			Rectangle region = viaController
-				? new RECT(
-					Left:   (int)( 0.7626 * Navigation.GetWidth() ),
-					Top:    (int)( 0.1895 * Navigation.GetHeight() ),
-					Right:  (int)( 0.8835 * Navigation.GetWidth() ),
-					Bottom: (int)( 0.2247 * Navigation.GetHeight() ))
-				: new RECT(
-					Left:   (int)( 960  / xRef * Navigation.GetWidth() ),
-					Top:    (int)( 135  / yRef * Navigation.GetHeight() ),
-					Right:  (int)( 1125 / xRef * Navigation.GetWidth() ),
-					Bottom: (int)( 163  / yRef * Navigation.GetHeight() ));
+			Rectangle region = new RECT(
+				Left:   (int)( 0.7626 * Navigation.GetWidth() ),
+				Top:    (int)( 0.1895 * Navigation.GetHeight() ),
+				Right:  (int)( 0.8835 * Navigation.GetWidth() ),
+				Bottom: (int)( 0.2247 * Navigation.GetHeight() ));
 
 			do
 			{
@@ -728,104 +703,6 @@ namespace InventoryKamera
 			return -1;
 		}
 
-		private int ScanExperience()
-		{
-			int experience = 0;
-
-			int xOffset = 1117;
-			int yOffset = 151;
-			Bitmap bm = new Bitmap(90, 10);
-			Graphics g = Graphics.FromImage(bm);
-			int screenLocation_X = Navigation.GetPosition().Left + xOffset;
-			int screenLocation_Y = Navigation.GetPosition().Top + yOffset;
-			g.CopyFromScreen(screenLocation_X, screenLocation_Y, 0, 0, bm.Size);
-
-			//Image Operations
-			bm = GenshinProcesor.ResizeImage(bm, bm.Width * 6, bm.Height * 6);
-			//Scraper.ConvertToGrayscale(ref bm);
-			//Scraper.SetInvert(ref bm);
-			imagePreprocessor.SetContrast(30.0, ref bm);
-
-			string text = ocrService.AnalyzeText(bm);
-			text = text.Trim();
-			text = Regex.Replace(text, @"(?![0-9\s/]).", string.Empty);
-
-			if (Regex.IsMatch(text, "/"))
-			{
-				string[] temp = text.Split('/');
-				experience = Convert.ToInt32(temp[0]);
-			}
-			else
-			{
-				Debug.Print("Error: Found " + experience + " instead of experience");
-				progressReporter.AddError("Found " + experience + " instead of experience");
-			}
-
-			return experience;
-		}
-
-		/// <summary>
-		/// Clicks through each constellation node and checks its unlock state. Constellation-node
-		/// selection stays mouse-driven; the controller path is a separate method,
-		/// <see cref="ScanConstellationsViaController"/>, since it navigates with button presses
-		/// instead of mouse clicks.
-		/// </summary>
-		private int ScanConstellations(Character character)
-		{
-			double yReference = 720.0;
-			int constellation;
-
-			if (Navigation.GetAspectRatio() == new Size(8, 5))
-			{
-				yReference = 800.0;
-			}
-
-			Rectangle constActivate = new RECT(
-				Left:   (int)( 70 / 1280.0 * Navigation.GetWidth() ),
-				Top:    (int)( 665 / 720.0 * Navigation.GetHeight() ),
-				Right:  (int)( 100 / 1280.0 * Navigation.GetWidth() ),
-				Bottom: (int)( 695 / 720.0 * Navigation.GetHeight() ));
-
-			for (constellation = 0; constellation < 6; constellation++)
-			{
-				// Select Constellation
-				int yOffset = (int)( ( 180 + ( constellation * 75 ) ) / yReference * Navigation.GetHeight() );
-
-				if (Navigation.GetAspectRatio() == new Size(8, 5))
-				{
-					yOffset = (int)( ( 225 + ( constellation * 75 ) ) / yReference * Navigation.GetHeight() );
-				}
-
-				Navigation.SetCursor((int)( 1130 / 1280.0 * Navigation.GetWidth() ), yOffset);
-				Navigation.Click();
-
-				var pause = constellation == 0 ? 700 : 550;
-				Navigation.SystemWait(pause);
-
-				if (scanSettings.LogScreenshots)
-				{
-					var screenshot = Navigation.CaptureWindow();
-					Directory.CreateDirectory($"./logging/characters/{character.NameGOOD}");
-					screenshot.Save($"./logging/characters/{character.NameGOOD}/constellation_{constellation + 1}.png");
-				}
-
-				// Grab Color
-				using (Bitmap region = Navigation.CaptureRegion(constActivate))
-				{
-					// Check a small region next to the text "Activate"
-					// for a mostly white backround
-					var statistics = imagePreprocessor.AverageColor(region);
-					if (statistics.R >= 190 && statistics.G >= 190 && statistics.B >= 190)
-						break;
-
-				}
-			}
-
-			Navigation.sim.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.ESCAPE);
-			progressReporter.SetCharacter_Constellation(constellation);
-			return constellation;
-		}
-
 		/// <summary>
 		/// Controller-mode constellation scan. Per user (2026-07-05, live-tested), the interaction
 		/// model here is entirely different from the mouse path's per-node click + color-sample: you
@@ -838,7 +715,7 @@ namespace InventoryKamera
 		/// white-background color sample. Exits via cancel (A) once done or once a locked
 		/// constellation is found. Region measured (2026-07-05) with <c>ui/CoordinatePickerForm.cs</c>.
 		/// </summary>
-		private int ScanConstellationsViaController(GameController controller, Character character)
+		private int ScanConstellations(GameController controller, Character character)
 		{
 			Rectangle activatedRegion = new RECT(
 				Left:   (int)( 0.1574 * Navigation.GetWidth() ),
@@ -878,14 +755,14 @@ namespace InventoryKamera
 		/// Reads the currently-focused constellation node's unlock state, retrying up to 3 times
 		/// (re-capturing a fresh screenshot each time, not just re-OCRing the same bitmap -- a miss is
 		/// more likely the node-move animation not having settled yet than a deterministic misread) --
-		/// see <see cref="ScanConstellationsViaController"/>'s doc comment history for why. Reads via
+		/// see <see cref="ScanConstellations"/>'s doc comment history for why. Reads via
 		/// OCR for the literal word "Activated" (a locked constellation instead prompts "Activate").
 		/// Preprocessing is gamma+invert+grayscale (2026-07-05): a live screenshot showed "Activated"
 		/// as bold orange/gold text on a blue-green gradient background, the same pattern that broke
 		/// contrast-based preprocessing for the weapon card nameplate (see
 		/// WeaponScraper/ScanMainCharacterName's doc comments); gamma correction is the proven fix for
 		/// that exact text/background combination in this codebase. Shared by
-		/// <see cref="ScanConstellationsViaController"/> and <see cref="ScanConstellationsGreedyViaController"/>.
+		/// <see cref="ScanConstellations"/> and <see cref="ScanConstellationsGreedy"/>.
 		/// </summary>
 		private bool ReadConstellationActivated(Rectangle activatedRegion)
 		{
@@ -910,7 +787,7 @@ namespace InventoryKamera
 		}
 
 		/// <summary>
-		/// Greedy variant of <see cref="ScanConstellationsViaController"/>: instead of walking C1 to
+		/// Greedy variant of <see cref="ScanConstellations"/>: instead of walking C1 to
 		/// C6 forward and stopping at the first lock, jumps straight to C6 and reads backward. Per
 		/// user (2026-07-05): the constellation list is an unbounded/circular scroll (same as the
 		/// Character screen's own sub-tab row), so a single Up move from the C1 focus that confirming
@@ -924,7 +801,7 @@ namespace InventoryKamera
 		/// constellation list specifically (confirmed only for the Character screen's own sub-tab row
 		/// so far).
 		/// </summary>
-		private int ScanConstellationsGreedyViaController(GameController controller, Character character)
+		private int ScanConstellationsGreedy(GameController controller, Character character)
 		{
 			Rectangle activatedRegion = new RECT(
 				Left:   (int)( 0.1574 * Navigation.GetWidth() ),
@@ -978,90 +855,6 @@ namespace InventoryKamera
 		}
 
 		/// <summary>
-		/// Clicks through each talent icon and reads its level. The controller path is a separate
-		/// method, <see cref="ScanTalentsViaController"/>, since it reads all three talent levels from
-		/// a single capture instead of clicking through icons one at a time.
-		/// </summary>
-		private Dictionary<string, int> ScanTalents(Character character)
-		{
-			var talents = new Dictionary<string, int>
-			{
-				{ "auto" , -1 },
-				{ "skill", -1 },
-				{ "burst", -1 }
-			};
-
-			int specialOffset = 0;
-
-			// Check if character has a movement talent like
-			// Mona or Ayaka
-			if (character.NameGOOD.Contains("Mona") || character.NameGOOD.Contains("Ayaka")) specialOffset = 1;
-
-			var xRef = 1280.0;
-			var yRef = 720.0;
-
-			if (Navigation.GetAspectRatio() == new Size(8, 5)) yRef = 800.0;
-
-			Rectangle region = new Rectangle(
-				x:		(int)((Navigation.IsNormal ? 0.0003 : 0.0003) * Navigation.GetWidth() ),
-				y:		(int)((Navigation.IsNormal ? 0.1278 : 0.1078) * Navigation.GetHeight() ),
-				width:	(int)((Navigation.IsNormal ? 0.2913 : 0.2913) * Navigation.GetWidth() ),
-				height:	(int)((Navigation.IsNormal ? 0.0711 : 0.0711) * Navigation.GetHeight() ));
-
-			for (int i = 0; i < 3; i++)
-			{
-				string talent;
-				// Change y-offset for talent clicking
-				int yOffset = (int)( 110 / yRef * Navigation.GetHeight() ) + ( i + ( ( i == 2 ) ? specialOffset : 0 ) ) * (int)(60 / yRef * Navigation.GetHeight() );
-
-				Navigation.SetCursor((int)(1130 / xRef * Navigation.GetWidth()), yOffset);
-				Navigation.Click();
-				int pause = i == 0 ? 700 : 550;
-				Navigation.SystemWait(pause);
-                switch (i)
-                {
-					default:
-						talent = "auto";
-						break;
-					case 1:
-						talent = "skill";
-						break;
-					case 2:
-						talent = "burst";
-						break;
-                }
-
-                while (talents[talent] < 1 || talents[talent] > 15)
-				{
-					Bitmap talentLevel = Navigation.CaptureRegion(region);
-
-					talentLevel = GenshinProcesor.ResizeImage(talentLevel, talentLevel.Width * 2, talentLevel.Height * 2);
-
-					Bitmap n = imagePreprocessor.ConvertToGrayscale(talentLevel);
-					imagePreprocessor.SetContrast(60, ref n);
-					imagePreprocessor.SetInvert(ref n);
-
-					var text = ocrService.AnalyzeText(n, Tesseract.PageSegMode.SingleBlock).Trim().Split('\n').ToList();
-
-					if (int.TryParse(Regex.Replace(text.Last(), @"\D", string.Empty), out int level))
-					{
-						if (level >= 1 && level <= 15)
-						{
-							talents[talent] = level;
-							progressReporter.SetCharacter_Talent(talentLevel, level.ToString(), i);
-						}
-					}
-
-					n.Dispose();
-					talentLevel.Dispose();
-				}
-			}
-
-			Navigation.sim.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.ESCAPE);
-			return talents;
-		}
-
-		/// <summary>
 		/// Controller-mode talent scan. Per user (2026-07-05, live-tested), the Talents sub-tab
 		/// already displays every talent's level simultaneously as "Lv. XX" rows (plus other
 		/// descriptive text sharing the same region) -- no per-icon click/capture loop is needed the
@@ -1073,7 +866,7 @@ namespace InventoryKamera
 		/// per-icon retry loop) until at least 3 "Lv. XX" rows are found. Region measured (2026-07-05)
 		/// with <c>ui/CoordinatePickerForm.cs</c>.
 		/// </summary>
-		private Dictionary<string, int> ScanTalentsViaController(Character character)
+		private Dictionary<string, int> ScanTalents(Character character)
 		{
 			var talents = new Dictionary<string, int>
 			{

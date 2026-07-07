@@ -946,13 +946,13 @@ actually running it against the game:
   The within-card sub-crops (name strip 0–0.0574h, level, refinement, equipped) were then also all
   user-measured with the picker against the new card frame (2026-07-03) and applied, replacing the
   per-field guesses and their leftover `Navigation.IsNormal` variants.
-- **Real replacement scan wired up and live-verified working (2026-07-03):** `WeaponScraper.ScanWeaponsViaController`
+- **Real replacement scan wired up and live-verified working (2026-07-03):** `WeaponScraper.ScanWeapons`
   (`InventoryKamera/scraping/WeaponScraper.cs`) is a full controller-driven scan loop -- enters
   Inventory, switches to Weapons, then repeatedly reads the selected item's card and advances one
   grid cell right, wrapping to the next row (`Down` + `Left×(cols-1)`, cols from
   `InventoryScraper.GetPageOfItems`'s existing blob detection, reused only for the column count).
-  Shared navigation/capture primitives (`GetItemCardViaController`, `EnterInventoryViaController`,
-  `DetectCurrentTabIndexViaController`, `SwitchToTabViaController`, plus name/equipped sub-crops)
+  Shared navigation/capture primitives (`GetItemCard`, `EnterInventory`,
+  `DetectCurrentTabIndex`, `SwitchToTab`, plus name/equipped sub-crops)
   moved onto the `InventoryScraper` base class so Artifacts/Character Development Items scans can
   reuse them later. First live test (`RunControllerWeaponScanTest`, Options → Debug menu, 3 items)
   passed. **Not yet done:** locked-status detection (no measured region, always reports false --
@@ -975,14 +975,14 @@ actually running it against the game:
   (currently each test connects fresh; a real scan should likely connect once at scan start).
 - **New finding (2026-07-05): Materials/Character Development Items need a different approach than
   Weapons/Artifacts.** Both of those work entirely off the always-visible detail card
-  (`GetItemCardViaController`), which never shows quantity — fine, since weapons/artifacts don't
+  (`GetItemCard`), which never shows quantity — fine, since weapons/artifacts don't
   stack. Materials and Dev Items don't have that luxury: a stack's quantity is only shown as a small
   badge overlaid directly on the inventory grid slot, not anywhere in the detail card. Reading it via
   controller therefore needs each grid cell's own on-screen bounding box, not just the always-visible
-  card — something the `ScanWeaponsViaController`/`ScanArtifactsViaController` approach has avoided
+  card — something the `ScanWeapons`/`ScanArtifacts` approach has avoided
   needing entirely so far.
   Also confirmed by the user: controller mode's grid is **10 items per row** (already used as a fixed
-  constant for the artifact per-row page cap, `ArtifactScraper.ScanArtifactsViaController`'s
+  constant for the artifact per-row page cap, `ArtifactScraper.ScanArtifacts`'s
   `artifactsPerRow`), and the viewport **auto-scrolls once the selection advances far enough down**,
   by a set amount that keeps the row you're currently on fully visible but *not* the next row —
   exact trigger depth and scroll amount not yet measured.
@@ -1009,24 +1009,24 @@ actually running it against the game:
   scroll-agnostic alternative first (self-corrects for any scroll state by re-detecting from pixels
   every call) and does work, but re-screenshots and re-analyzes the whole window per item, which is
   needless overhead once the fixed-position model above was confirmed. `MaterialScraper` now has:
-  `GetQuantityRegionViaController(globalRow, column)` -- column spacing `(0.6325-0.0831)/9` and row
+  `GetQuantityRegion(globalRow, column)` -- column spacing `(0.6325-0.0831)/9` and row
   spacing `(0.7340-0.2150)/4` derived from the 3 measured points (cross-checked: reapplying the
-  column formula to row 4 reproduces its measured x exactly), `ScanQuantityBitmapViaController` --
+  column formula to row 4 reproduces its measured x exactly), `ScanQuantityBitmap` --
   same digit-recognition pipeline as mouse-mode's `ScanMaterialCount`, just fed this bitmap instead
-  of a mouse-detected grid-cell crop, `ScanMaterialsViaController` -- reads name via the shared
-  always-visible card technique (`GetItemNameBitmapViaController`, unaffected by this finding, still
+  of a mouse-detected grid-cell crop, `ScanMaterials` -- reads name via the shared
+  always-visible card technique (`GetItemNameBitmap`, unaffected by this finding, still
   correct), then quantity via the two methods above, tracking only `column`/`globalRow` itself (its
   own advance-loop state, not detected). Wired into `InventoryKamera.GatherData` inside the same
   shared `GameController` session as Weapons/Artifacts, replacing the old mouse-based
   `Scan_Materials`/`Navigation.SelectCharacterDevelopmentInventory`/`SelectMaterialInventory` calls
-  entirely. Since this tab has no per-page count readout (`ScanItemCountViaController` only covers
+  entirely. Since this tab has no per-page count readout (`ScanItemCount` only covers
   Weapons/Artifacts/Furnishings), the loop stops the same way mouse-mode did: once a scanned name
   repeats one already recorded in `inventory.Materials`.
   **STILL UNVERIFIED, none of this has been live-tested yet:** only 3 of the 6 distinct row
   y-positions were directly measured (rows 0 and 4, plus the shared post-scroll position) -- rows 1-3
   are interpolated, assumed evenly spaced; whether a single right-stick step reliably
   advances/auto-scrolls through this grid the same way it does for Weapons (carried over from
-  `ScanWeaponsViaController`, never confirmed for this tab); and whether the name-repeat stop
+  `ScanWeapons`, never confirmed for this tab); and whether the name-repeat stop
   condition correctly detects end-of-list without an explicit scroll-to-bottom/backwards-pass step
   (mouse-mode's `Scan_Materials` has one via its `LastPage` block; this controller version does not).
 - **Live-tested and working (2026-07-05), with one tuning round.** The interpolated row spacing
@@ -1035,7 +1035,7 @@ actually running it against the game:
   small amount, and Materials vs Character Development Items drift at *different* rates (plausibly
   because Genshin's scroll-snap distance scales with the tab's total item count rather than being a
   fixed pixel amount). Widening the crop height to absorb this was tried first and reverted -- it
-  broke digit OCR entirely, since `ScanQuantityBitmapViaController`'s top-whiteout band (tuned for
+  broke digit OCR entirely, since `ScanQuantityBitmap`'s top-whiteout band (tuned for
   the original tight crop) started eating into the actual digits once the crop got taller. Fixed
   instead by modeling the drift directly: `quantityDriftPerScrollRowMaterials` /
   `quantityDriftPerScrollRowCharDevItems` (separate per-tab constants, `MaterialScraper.cs`) added
@@ -1055,10 +1055,10 @@ actually running it against the game:
   per-element `ConstellationOrder`.
 - **Follow-up hardening pass, live-testing-driven (2026-07-05, commit `33d5e3e`):** bounded the
   materials controller scan loop (was unbounded, could hang on consecutive unreadable names);
-  `GatherData` now wraps `EnterInventoryViaController` in the same try/catch as its sibling phases;
+  `GatherData` now wraps `EnterInventory` in the same try/catch as its sibling phases;
   artifact controller-path debug screenshots gated behind `LogScreenshots` like every other scraper;
-  weapon sort-by-level/quality early-stop now only trusted once `SetSortModeViaController` confirms
-  the sort actually applied; `SwitchToTabViaController`'s unrecognized-target-tab case guarded the
+  weapon sort-by-level/quality early-stop now only trusted once `SetSortMode` confirms
+  the sort actually applied; `SwitchToTab`'s unrecognized-target-tab case guarded the
   same way the unrecognized-current-tab case already was; `CharacterScraper.EnterCharacterMenuViaController`
   gained a `MashBack()` safety net before assuming a clean free-roam baseline. **All now-dead
   mouse-driven scan methods removed** (`WeaponScraper.ScanWeapons`, `ArtifactScraper`'s equivalent,

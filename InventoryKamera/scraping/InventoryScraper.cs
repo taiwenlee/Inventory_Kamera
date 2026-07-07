@@ -61,10 +61,6 @@ namespace InventoryKamera
 
         protected readonly List<InventoryPage> materialPages;
 
-        private List<Rectangle> prevRect;
-        private int prevColumn = 0;
-        private int prevRow = 0;
-
         protected readonly IOcrService ocrService;
         protected readonly IImagePreprocessor imagePreprocessor;
         protected readonly IScanSettings scanSettings;
@@ -73,7 +69,7 @@ namespace InventoryKamera
         /// <summary>
         /// Shared with every subclass (previously duplicated as a private method on
         /// <c>ArtifactScraper</c> only) so every controller-mode capture region -- including this
-        /// base class's own <see cref="DetectCurrentTabIndexViaController"/> -- can leave a visual
+        /// base class's own <see cref="DetectCurrentTabIndex"/> -- can leave a visual
         /// trail when <see cref="IScanSettings.LogScreenshots"/> is on, not just artifacts.
         /// <paramref name="relativePath"/> may contain '/' to nest into subfolders (e.g.
         /// <c>"weapons/weapon0/name/name"</c>), matching the per-item folder layout
@@ -105,34 +101,6 @@ namespace InventoryKamera
         }
 
         internal bool StopScanning { get; set; }
-
-        /// <summary>
-        /// Gets the item card on the right side of the in-game screen
-        /// </summary>
-        /// <returns>An image of the in-game item card</returns>
-        internal Bitmap GetItemCard()
-        {
-            // Reverted to capturing the whole window and cropping in memory (2026-07-05) -- a direct
-            // Navigation.CaptureRegion(cardRectangle) here was faster (avoids grabbing the ~85% of the
-            // screen that gets thrown away) but CopyFromScreen has no bounds clipping of its own, and
-            // this method's percentage-based rectangle math has no equivalent safety net outside
-            // GenshinProcesor.CopyBitmap's ClipToSource -- caused screenshots to spill past the window
-            // edge (reported as "screenshotting the whole screen") on at least one non-4K windowed
-            // setup. Worth revisiting with an explicit clamp, but reverting to the known-safe pattern
-            // first rather than guessing at a fix blind.
-            Rectangle cardRectangle = new Rectangle();
-
-            using (var window = Navigation.CaptureWindow())
-            {
-                cardRectangle.X = (int)(window.Width * 0.6807);
-                cardRectangle.Y = (int)(window.Height * (Navigation.IsNormal ? 0.1102 : 0.0989));
-
-                cardRectangle.Width = (int)(window.Width * 0.2573);
-                cardRectangle.Height = (int)(window.Height * (Navigation.IsNormal ? 0.7787 : 0.8022));
-
-                return GenshinProcesor.CopyBitmap(window, cardRectangle);
-            }
-        }
 
         /// <summary>
         /// Parses the item name from an item card's nameplate
@@ -172,29 +140,13 @@ namespace InventoryKamera
         /// Parses the number of items from for the current inventory page.
         /// </summary>
         /// <remarks>Note: This is primarily for the Weapons, Artifacts, and Furnishing inventories since they have
-        /// specific inventory item counts and capacities. 
-        /// All other inventory pages have a "shared" inventory item counts and capacities.</remarks>
+        /// specific inventory item counts and capacities.
+        /// All other inventory pages have a "shared" inventory item counts and capacities. The count
+        /// label's position is measured with the coordinate-picker tool (2026-07-03).</remarks>
         /// <param name="inventoryPage">The current inventory page</param>
         /// <returns>The number of unique items for the current inventory</returns>
         /// <exception cref="FormatException">The inventory item count could not be found where it is expected</exception>
         internal int ScanItemCount()
-        {
-            //Find weapon count
-            Rectangle region = new Rectangle(
-                x: (int)(1030 / 1280.0 * Navigation.GetWidth()),
-                y: (int)(20 / 720.0 * Navigation.GetHeight()),
-                width: (int)(175 / 1280.0 * Navigation.GetWidth()),
-                height: (int)(25 / 720.0 * Navigation.GetHeight()));
-
-            return ScanItemCountFromRegion(region);
-        }
-
-        /// <summary>
-        /// Controller-mode equivalent of <see cref="ScanItemCount"/> -- the count label sits in a
-        /// different position under controller mode's HUD layout than the mouse-mode one above.
-        /// Measured with the coordinate-picker tool (2026-07-03).
-        /// </summary>
-        internal int ScanItemCountViaController()
         {
             Rectangle region = new Rectangle(
                 x: (int)(0.8865 * Navigation.GetWidth()),
@@ -270,317 +222,6 @@ namespace InventoryKamera
         }
 
         /// <summary>
-        /// Parses the sorting method for the current inventory
-        /// </summary>
-        /// <param name="inventoryPage">The current inventory page</param>
-        /// <returns>The inventory page's current sorting method</returns>
-        internal string CurrentSortingMethod()
-        {
-            Rectangle region;
-            switch (inventoryPage)
-            {
-                case InventoryPage.Weapons:
-                    region = new Rectangle(
-                        x: (int)(100.0 / 1280.0 * Navigation.GetWidth()),
-                        y: (int)(660.0 / 720.0 * Navigation.GetHeight()),
-                        width: (int)(175.0 / 1280.0 * Navigation.GetWidth()),
-                        height: (int)(40.0 / 720.0 * Navigation.GetHeight()));
-                    break;
-                case InventoryPage.Artifacts:
-                    // TODO: Update this
-                    region = new Rectangle(
-                        x: (int)(140.0 / 1280.0 * Navigation.GetWidth()),
-                        y: (int)(660.0 / 720.0 * Navigation.GetHeight()),
-                        width: (int)(175.0 / 1280.0 * Navigation.GetWidth()),
-                        height: (int)(40.0 / 720.0 * Navigation.GetHeight()));
-                    break;
-                default:
-                    throw new NotImplementedException($"{inventoryPage} cannot be sorted");
-            }
-
-            using (var bm = Navigation.CaptureRegion(region))
-            {
-                var g = imagePreprocessor.ConvertToGrayscale(bm);
-                var mode = ocrService.AnalyzeText(g).Trim().ToLower();
-                return mode.Contains("level") ? "level" : mode.Contains("quality") ? "quality" : null;
-            }
-        }
-
-        internal (List<Rectangle> rectangles, int cols, int rows) ProcessScreenshot(Bitmap screenshot, double weight = 0)
-        {
-            // Size of an item card is the same in 16:10 and 16:9. Also accounts for character icon and resolution size.
-            double base_aspect_width = 1280.0;
-            double base_aspect_height = 720.0;
-            var icon = new Rectangle(
-                x: 0,
-                y: 0,
-                width: (int)(screenshot.Width * 0.0651),
-                height: (int)(screenshot.Height * (Navigation.IsNormal ? 0.1417: 0.1289)));
-
-            if (Navigation.GetAspectRatio() == new Size(8, 5))
-            {
-                base_aspect_height = 800.0;
-            }
-
-            // Filter for relative size of items in inventory, give or take a few pixels
-            int iconMinHeight = icon.Height - ((int)(icon.Height * 0.15));
-            int iconMaxHeight = icon.Height + ((int)(icon.Height * 0.15));
-            int iconMinWidth = icon.Width - ((int)(icon.Width * 0.15));
-            int iconMaxWidth = icon.Width + ((int)(icon.Width * 0.15));
-            int blobMinHeight = (int)(iconMinHeight * (1 - weight));
-            int blobMaxHeight = (int)(iconMaxHeight * (1 + weight));
-            int blobMinWidth = (int)(iconMinWidth * (1 - weight));
-            int blobMaxWidth = (int)(iconMaxWidth * (1 + weight));
-            {
-                // Image pre-processing
-                screenshot = imagePreprocessor.EdgeDetectKirsch(screenshot); // Algorithm to find edges. Really good but can take ~1s
-                screenshot = imagePreprocessor.ConvertToGrayscale(screenshot);
-                imagePreprocessor.SetThreshold(75, ref screenshot); // Convert to black and white only based on pixel intensity
-
-                // Note: Processing won't always detect all item rectangles on screen. Since the
-                // background isn't a solid color it's a bit trickier to filter out.
-
-                // Don't save overlapping blobs
-                List<Rectangle> rectangles = new List<Rectangle>();
-                List<Rectangle> blobRects = imagePreprocessor.FindBlobRectangles(screenshot, blobMinWidth, blobMaxWidth, blobMinHeight, blobMaxHeight);
-
-                int minWidth = blobRects[0].Width;
-                int minHeight = blobRects[0].Height;
-                foreach (var rect in blobRects)
-                {
-                    bool add = true;
-                    foreach (var item in rectangles)
-                    {
-                        Rectangle r1 = rect;
-                        Rectangle r2 = item;
-                        Rectangle intersect = Rectangle.Intersect(r1, r2);
-                        if (intersect.Width > r1.Width * .1)
-                        {
-                            add = false;
-                            break;
-                        }
-                    }
-                    if (add)
-                    {
-                        minWidth = Math.Min(minWidth, rect.Width);
-                        minHeight = Math.Min(minHeight, rect.Height);
-                        rectangles.Add(rect);
-                    }
-                }
-
-                // Determine X and Y coordinates for columns and rows, respectively
-                var colCoords = new List<int>();
-                var rowCoords = new List<int>();
-
-                foreach (var item in rectangles)
-                {
-                    bool addX = true;
-                    bool addY = true;
-                    foreach (var x in colCoords)
-                    {
-                        var xC = item.Center().X;
-                        if (x - 75 / base_aspect_width * screenshot.Width <= xC && xC <= x + 75 / base_aspect_width * screenshot.Width)
-                        {
-                            addX = false;
-                            break;
-                        }
-                    }
-                    foreach (var y in rowCoords)
-                    {
-                        var yC = item.Center().Y;
-                        if (y - 100 / base_aspect_height * screenshot.Height <= yC && yC <= y + 100 / base_aspect_height * screenshot.Height)
-                        {
-                            addY = false;
-                            break;
-                        }
-                    }
-                    if (addX)
-                    {
-                        colCoords.Add(item.Center().X);
-                    }
-                    if (addY)
-                    {
-                        rowCoords.Add(item.Center().Y);
-                    }
-                }
-
-                // Going to use X,Y coordinate pairings to build rectangles around. Items that might have been missed
-                // This is quite accurate and algorithmically puts rectangles over all items on the screen that were missed.
-                // The center of each of these rectangles should be a good enough spot to click.
-                rectangles.Clear();
-                colCoords.Sort();
-                rowCoords.Sort();
-
-                colCoords.RemoveAll(col => col > screenshot.Width * 0.65);
-
-                foreach (var row in rowCoords)
-                {
-                    foreach (var col in colCoords)
-                    {
-                        int x = (int)(col - (minWidth * .5));
-                        int y = (int)(row - (minHeight * .5));
-
-                        rectangles.Add(new Rectangle(x, y, minWidth, minHeight));
-                    }
-                }
-
-                // Remove some rectangles that somehow overlap each other. Don't think this happens
-                // but it doesn't hurt to double check.
-                for (int i = 0; i < rectangles.Count - 1; i++)
-                {
-                    for (int j = i + 1; j < rectangles.Count; j++)
-                    {
-                        Rectangle r1 = rectangles[i];
-                        Rectangle r2 = rectangles[j];
-                        Rectangle intersect = Rectangle.Intersect(r1, r2);
-                        if (intersect.Width > r1.Width * .2)
-                        {
-                            rectangles.RemoveAt(j);
-                        }
-                    }
-                }
-
-                // Sort by row then by column within each row
-                rectangles = rectangles.OrderBy(r => r.Top).ThenBy(r => r.Left).ToList();
-
-                var avgWidth = rectangles.Average(r => r.Width);
-                var avgHeight = rectangles.Average (r => r.Height);
-
-                rectangles.ForEach(r =>
-                {
-                    r.Width = (int)avgWidth;
-                    r.Height = (int)avgHeight;
-                });
-
-                return (rectangles, colCoords.Count, rowCoords.Count);
-            }
-        }
-
-        // Navigation.CaptureWindow()/CaptureRegion() downscale their own output above 1080p real
-        // window height (Navigation.CaptureScale) -- both the grid-detection screenshot below and
-        // every OCR crop taken elsewhere get proportionally fewer pixels at 4K for free. The one
-        // place that needs to know about it explicitly: rectangle.Center() gets fed straight into
-        // Navigation.SetCursor/CaptureRegion by every caller of GetPageOfItems, both of which expect
-        // real screen coordinates -- so rectangles are scaled back up by 1/CaptureScale immediately
-        // before returning, and every caller downstream (clicking, per-item OCR-region capture) never
-        // needs to know downscaling happened at all.
-        private static Rectangle ScaleRectangle(Rectangle r, double inverseScale)
-        {
-            return new Rectangle(
-                (int)(r.X * inverseScale),
-                (int)(r.Y * inverseScale),
-                (int)(r.Width * inverseScale),
-                (int)(r.Height * inverseScale));
-        }
-
-        internal (List<Rectangle> rectangles, int cols, int rows) GetPageOfItems(int pageNum, bool acceptLess = false)
-        {
-            // Screenshot of inventory
-            using (Bitmap screenshot = Navigation.CaptureWindow())
-            {
-                Bitmap processedScreenshot = new Bitmap(screenshot);
-                using (Graphics g = Graphics.FromImage(processedScreenshot))
-                using (var brush = new SolidBrush(Color.Black))
-                {
-                    // Fill Top region
-                    g.FillRectangle(brush, 0, 0, processedScreenshot.Width, (int)(processedScreenshot.Height * 0.09));
-
-                    // Fill Left region
-                    g.FillRectangle(brush, 0, 0, (int)(processedScreenshot.Width * 0.05), processedScreenshot.Height);
-
-                    // Fill Right region
-                    g.FillRectangle(brush, (int)(processedScreenshot.Width * 0.7), 0, processedScreenshot.Width, processedScreenshot.Height);
-
-                    // Fill Bottom Region
-                    g.FillRectangle(brush, 0, (int)(processedScreenshot.Height * 0.9), processedScreenshot.Width, processedScreenshot.Height);
-                }
-
-                double inverseCaptureScale = 1.0 / Navigation.CaptureScale;
-
-                try
-                {
-                    List<Rectangle> rectangles;
-                    int cols, rows, itemCount, counter = 0;
-                    double weight = 0;
-                    int itemPerPage = (inventoryPage != InventoryPage.Artifacts || !Navigation.IsNormal) ? 40 : 32;
-                    do
-                    {
-                        // rectangles stay in screenshot's own (possibly downscaled) coordinate space
-                        // through the whole retry loop -- debug drawing below clones/draws onto
-                        // screenshot itself, so they need to line up with it, not real coordinates.
-                        (rectangles, cols, rows) = ProcessScreenshot(processedScreenshot, weight);
-                        itemCount = rows * cols;
-                        if (itemCount != itemPerPage && !acceptLess)
-                        {
-                            Logger.Warn("Unable to locate full page of weapons with weight {0}", weight);
-                            Logger.Warn("Detected {0} rows and {1} columns of items", rows, cols);
-
-                            // Generate rectangles
-                            using (Bitmap copy = (Bitmap)screenshot.Clone())
-                            {
-                                SaveInventoryBitmap(copy, $"{inventoryPage}Inventory{pageNum}_{cols}x{rows}.png");
-                                using (Graphics g = Graphics.FromImage(copy))
-                                    rectangles.ForEach(r => g.DrawRectangle(new Pen(Color.Green, 2), r));
-                                SaveInventoryBitmap(copy, $"{inventoryPage}Inventory{pageNum}_{cols}x{rows} - weight {weight}.png");
-#if DEBUG
-                                //Navigation.DisplayBitmap(copy, $"weight = {weight}");
-#endif
-                            }
-                        }
-                        else break;
-
-                        if (itemCount <= 32)
-                            weight += 0.125;
-                        else
-                        { weight -= 0.095; ++counter; }
-                        weight = Math.Min(weight, 1);
-                        rectangles = null;
-                    }
-                    while (itemCount != itemPerPage && weight < 1 && counter < 25 && !InventoryKamera.CancelRequested);
-
-                    processedScreenshot.Dispose();
-
-                    if (rectangles == null)
-                    {
-                        Logger.Warn("Could not find {0} items in inventory. Re-using previous item page.", itemPerPage);
-
-                        return prevRect == null ?
-                            throw new ArgumentNullException("Could not find first page of items!")
-                            :
-                            (prevRect, prevColumn, prevRow);
-                    }
-                    else
-                    {
-                        if (scanSettings.LogScreenshots)
-                        {
-                            SaveInventoryBitmap(screenshot, $"{inventoryPage}Inventory.png");
-                            using (Graphics g = Graphics.FromImage(screenshot))
-                                rectangles.ForEach(r => g.DrawRectangle(new Pen(Color.Green, 2), r));
-
-                            SaveInventoryBitmap(screenshot, $"{inventoryPage}Inventory{pageNum}_{cols}x{rows} - weight {weight}.png");
-                        }
-
-                        // Only now, right before handing rectangles to callers that click/capture at
-                        // real screen coordinates, map them out of screenshot's (possibly downscaled)
-                        // space -- prevRect gets cached already-scaled so the fallback path above needs
-                        // no further conversion.
-                        if (inverseCaptureScale != 1.0) rectangles = rectangles.Select(r => ScaleRectangle(r, inverseCaptureScale)).ToList();
-
-                        prevRect = rectangles; prevColumn = cols; prevRow = rows;
-                        return (rectangles, cols, rows);
-                    }
-
-                }
-                catch (Exception)
-                {
-                    processedScreenshot.Dispose();
-                    SaveInventoryBitmap(screenshot, $"{inventoryPage}Inventory.png");
-                    throw;
-                }
-            }
-
-        }
-
         /// <summary>
         /// Determines the quality of an item based on it's nameplate
         /// </summary>
@@ -605,26 +246,10 @@ namespace InventoryKamera
         }
 
         /// <summary>
-        /// Extracts a bitmap copy of an item card's nameplate
+        /// Extracts a bitmap copy of an item card's nameplate. Measured with the coordinate-picker
+        /// tool (2026-07-03).
         /// </summary>
-        /// <param name="card">Bitmap of the item card</param>
-        /// <returns>A bitmap copy of the item card's nameplate</returns>
         internal static Bitmap GetItemNameBitmap(Bitmap card)
-        {
-            return GenshinProcesor.CopyBitmap(card,
-                new Rectangle(
-                    x: 0,
-                    y: 0,
-                    width: card.Width,
-                    height: (int)(card.Height * (Navigation.IsNormal ? 0.07 : 0.06))));
-        }
-
-        /// <summary>
-        /// Controller-mode equivalent of <see cref="GetItemNameBitmap"/> -- distinct percentage since
-        /// controller mode's always-visible card has a different layout than the mouse-hover popup.
-        /// Measured with the coordinate-picker tool (2026-07-03).
-        /// </summary>
-        internal static Bitmap GetItemNameBitmapViaController(Bitmap card)
         {
             return GenshinProcesor.CopyBitmap(card,
                 new Rectangle(
@@ -635,47 +260,12 @@ namespace InventoryKamera
         }
 
         /// <summary>
-        /// Extracts a bitmap copy of an item card's lock status icon
-        /// </summary>
-        /// <param name="card">Bitmap of the item card</param>
-        /// <returns>A bitmap copy of the item card's lock status icon</returns>
-        internal static Bitmap GetLockedBitmap(Bitmap card, bool isSanctified = false)
-        {
-            double baseY = Navigation.IsNormal ? 0.353 : 0.309;
-            double sanctifiedShift = Navigation.IsNormal ? 0.0520 : 0.0471;
-            double yShift = isSanctified ? sanctifiedShift : 0.0;
-
-            return GenshinProcesor.CopyBitmap(card,
-                new Rectangle(
-                    x: (int)(card.Width * 0.75),
-                    y: (int)(card.Height * (baseY + yShift)),
-                    width: (int)(card.Width * 0.0955),
-                    height: (int)(card.Height * (Navigation.IsNormal ? 0.055 : 0.0495))));
-        }
-
-        /// <summary>
-        /// Extracts a bitmap copy of an item card's equipped character status
-        /// </summary>
-        /// <param name="card">Bitmap of the item card</param>
-        /// <remarks>Note: This method is only useful for equippable items (artifacts and weapons)</remarks>
-        /// <returns>A bitmap copy of the item card's equipped character status.</returns>
-        internal static Bitmap GetEquippedBitmap(Bitmap card)
-        {
-            return GenshinProcesor.CopyBitmap(card,
-                new Rectangle(
-                    x: (int)(card.Width * 0.15),
-                    y: (int)(double)(card.Height * (double)(Navigation.IsNormal ? 0.938 : 0.943)),
-                    width: card.Width,
-                    height: card.Height));
-        }
-
-        /// <summary>
-        /// Controller-mode equivalent of <see cref="GetEquippedBitmap"/>. Measured with the
+        /// Extracts a bitmap copy of an item card's equipped character status. Measured with the
         /// coordinate-picker tool (2026-07-03) -- the left edge matters here: an earlier guess that
         /// started far enough left to include the character portrait icon made Tesseract hallucinate
         /// stray characters even though the text itself was clean.
         /// </summary>
-        internal static Bitmap GetEquippedBitmapViaController(Bitmap card)
+        internal static Bitmap GetEquippedBitmap(Bitmap card)
         {
             return GenshinProcesor.CopyBitmap(card,
                 new Rectangle(
@@ -695,13 +285,11 @@ namespace InventoryKamera
         };
 
         /// <summary>
-        /// Captures the selected item's always-visible detail card in controller mode -- confirmed by
-        /// the user to be the same region for Weapons, Artifacts, and Character Development Items.
-        /// Percentages measured with the coordinate-picker tool from a full-window capture
-        /// (2026-07-03, 1920x1080). Distinct from <see cref="GetItemCard"/> (the mouse-hover popup) --
-        /// controller mode's panel sits at a different position, confirmed via live testing.
+        /// Captures the selected item's always-visible detail card -- confirmed by the user to be the
+        /// same region for Weapons, Artifacts, and Character Development Items. Percentages measured
+        /// with the coordinate-picker tool from a full-window capture (2026-07-03, 1920x1080).
         /// </summary>
-        internal Bitmap GetItemCardViaController()
+        internal Bitmap GetItemCard()
         {
             return Navigation.CaptureRegion(
                 x: (int)(0.7031 * Navigation.GetWidth()),
@@ -715,7 +303,7 @@ namespace InventoryKamera
         /// down twice (Inventory is at grid position [0,2]), confirm with B (Genshin's confirm button
         /// -- swapped from standard Xbox convention, A is back/cancel).
         /// </summary>
-        internal void EnterInventoryViaController(GameController controller)
+        internal void EnterInventory(GameController controller)
         {
             // The mouse-based scan's Navigation.InventoryScreen() started every phase with a real
             // Escape press to guarantee a known baseline (unpaused, no menu open) before doing
@@ -754,10 +342,10 @@ namespace InventoryKamera
         /// Captures the tab-name label (top-left of the inventory screen), OCRs it, and fuzzy-matches
         /// it against <see cref="ControllerInventoryTabNames"/>. Returns the matched index (-1 if no
         /// confident match). Must be called while already inside Inventory (see
-        /// <see cref="EnterInventoryViaController"/>) and before the owning <c>GameController</c> is
+        /// <see cref="EnterInventory"/>) and before the owning <c>GameController</c> is
         /// disposed -- disposal mashes back out of the menu as a safety net.
         /// </summary>
-        internal int DetectCurrentTabIndexViaController(out string rawText)
+        internal int DetectCurrentTabIndex(out string rawText)
         {
             // Height tightened 0.08 -> 0.05 (2026-07-07): the debug screenshot showed the sub-tab
             // icon row bleeding into the bottom of the crop, which likely confused Tesseract's
@@ -795,7 +383,7 @@ namespace InventoryKamera
         /// Switches to <paramref name="targetTab"/> from wherever the cursor currently is, cycling
         /// LB/RB (the inventory sub-tab row's own input, distinct from the pause menu's stick-driven
         /// grid). Tabs wrap around (circular) -- takes whichever direction is fewer presses. Must run
-        /// inside Inventory already (see <see cref="EnterInventoryViaController"/>).
+        /// inside Inventory already (see <see cref="EnterInventory"/>).
         /// </summary>
         /// <param name="knownCurrentTab">
         /// If the caller already knows which tab is active (e.g. the previous scan phase just
@@ -809,7 +397,7 @@ namespace InventoryKamera
         /// <returns>The tab actually active after this call (<paramref name="targetTab"/> on success,
         /// or the original tab if detection failed and the switch was skipped) -- pass this into the
         /// next phase's <paramref name="knownCurrentTab"/> to keep the chain going without OCR.</returns>
-        internal string SwitchToTabViaController(GameController controller, string targetTab, string knownCurrentTab = null)
+        internal string SwitchToTab(GameController controller, string targetTab, string knownCurrentTab = null)
         {
             int currentIndex;
             string rawText = null;
@@ -836,7 +424,7 @@ namespace InventoryKamera
                 const int maxDetectAttempts = 3;
                 for (int attempt = 1; attempt <= maxDetectAttempts && currentIndex < 0; attempt++)
                 {
-                    currentIndex = DetectCurrentTabIndexViaController(out rawText);
+                    currentIndex = DetectCurrentTabIndex(out rawText);
                     if (currentIndex < 0 && attempt < maxDetectAttempts)
                     {
                         Logger.Warn("Tab detection attempt {0} failed (raw=\"{1}\") -- retrying.", attempt, rawText);

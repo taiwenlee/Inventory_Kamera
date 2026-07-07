@@ -16,7 +16,7 @@ namespace InventoryKamera
     {
 		private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
-		// Set by ScanWeaponsViaController from SetSortModeViaController's result; QueueScanViaController
+		// Set by ScanWeapons from SetSortMode's result; QueueScan
 		// only trusts the sorted-order early-stop optimization when this is true.
 		private bool sortModeConfirmed;
 
@@ -28,17 +28,17 @@ namespace InventoryKamera
 
         /// <summary>
         /// Controller-mode equivalent of <see cref="QueueScan"/>: takes an already-captured card
-        /// (from <see cref="ScanWeaponsViaController"/>'s navigation loop) instead of re-capturing via
+        /// (from <see cref="ScanWeapons"/>'s navigation loop) instead of re-capturing via
         /// <see cref="InventoryScraper.GetItemCard"/>'s mouse-hover-popup region. Same filtering/queue
         /// dispatch as the mouse path so both feed the identical worker/cataloguing pipeline.
         /// </summary>
-        private void QueueScanViaController(Bitmap card, int id)
+        private void QueueScan(Bitmap card, int id)
         {
-            Bitmap name = GetItemNameBitmapViaController(card);
-            Bitmap level = GetLevelBitmapViaController(card);
-            Bitmap refinement = GetRefinementBitmapViaController(card);
-            Bitmap equipped = GetEquippedBitmapViaController(card);
-            Bitmap locked = GetLockedBitmapViaController(card);
+            Bitmap name = GetItemNameBitmap(card);
+            Bitmap level = GetLevelBitmap(card);
+            Bitmap refinement = GetRefinementBitmap(card);
+            Bitmap equipped = GetEquippedBitmap(card);
+            Bitmap locked = GetLockedBitmap(card);
 
             List<Bitmap> weaponImages = new List<Bitmap>
             {
@@ -55,11 +55,11 @@ namespace InventoryKamera
             bool belowRarity = GetQuality(name) < scanSettings.MinimumWeaponRarity;
             bool belowLevel = ScanLevel(level, ref a) < scanSettings.MinimumWeaponLevel;
 
-            // Safe as of 2026-07-04: ScanWeaponsViaController sorts by level/quality before scanning
-            // (SetSortModeViaController, confirmed live-working), so a below-threshold item guarantees
+            // Safe as of 2026-07-04: ScanWeapons sorts by level/quality before scanning
+            // (SetSortMode, confirmed live-working), so a below-threshold item guarantees
             // every later item is too, matching QueueScan's (mouse path) own precondition. Only trust
             // that guarantee -- and stop the whole scan on the first below-threshold item -- when
-            // SetSortModeViaController actually confirmed the sort; otherwise (e.g. the sort-mode OCR
+            // SetSortMode actually confirmed the sort; otherwise (e.g. the sort-mode OCR
             // read failed) still filter this one item out below, but keep scanning the rest of the
             // (potentially unsorted) grid instead of assuming everything after it is also below threshold.
             StopScanning = sortModeConfirmed && ((SortByLevel && belowLevel) || (!SortByLevel && belowRarity));
@@ -94,7 +94,7 @@ namespace InventoryKamera
         /// <see cref="SortModeNames"/>. Must be called while on the Weapons tab with the dropdown
         /// closed. Returns null if no confident match.
         /// </summary>
-        private string DetectCurrentSortModeViaController()
+        private string DetectCurrentSortMode()
         {
             using (var region = Navigation.CaptureRegion(
                 x: (int)(0.0625 * Navigation.GetWidth()),
@@ -136,16 +136,16 @@ namespace InventoryKamera
         /// up/down within it, B confirms/closes it (the established confirm button everywhere else in
         /// this codebase). No-ops if already on <paramref name="targetMode"/>. Assumes the dropdown
         /// opens with the currently-active mode pre-highlighted, so the up/down step count can be
-        /// computed from <see cref="DetectCurrentSortModeViaController"/>'s result -- confirmed live
+        /// computed from <see cref="DetectCurrentSortMode"/>'s result -- confirmed live
         /// rather than just assumed. If detection fails (no confident OCR match), skips sorting
         /// entirely rather than guessing a direction.
         /// </summary>
         /// <returns>True if the sort mode is confirmed to already match or was successfully changed to
         /// <paramref name="targetMode"/>; false if detection failed and no sort selection was made, in
         /// which case callers must not assume the weapon grid is sorted.</returns>
-        private bool SetSortModeViaController(GameController controller, string targetMode)
+        private bool SetSortMode(GameController controller, string targetMode)
         {
-            string currentMode = DetectCurrentSortModeViaController();
+            string currentMode = DetectCurrentSortMode();
             if (currentMode == targetMode)
             {
                 Logger.Info("Controller weapon sort: already \"{0}\", no change needed.", currentMode);
@@ -181,32 +181,32 @@ namespace InventoryKamera
         /// already-connected <paramref name="controller"/> that's already inside Inventory (per user,
         /// 2026-07-04: switching between Weapons/Artifacts tabs shouldn't back all the way out to the
         /// unpaused game state and re-enter -- <c>GatherData</c> now owns one <see cref="GameController"/>
-        /// and one <see cref="InventoryScraper.EnterInventoryViaController"/> call spanning every
+        /// and one <see cref="InventoryScraper.EnterInventory"/> call spanning every
         /// controller-driven scan phase, with each phase just switching tabs via
-        /// <see cref="InventoryScraper.SwitchToTabViaController"/> instead of a full exit/re-entry).
+        /// <see cref="InventoryScraper.SwitchToTab"/> instead of a full exit/re-entry).
         /// Switches to Weapons, then repeatedly reads the selected item's card and advances to the next
         /// item with a single left-stick push to the Right -- per user (2026-07-03, live-tested), the
         /// grid auto-advances/wraps to the next item in inventory order on its own, including across row
         /// boundaries, so no column/row bookkeeping is needed (an earlier Down+Left-to-column-0 manual
         /// wrap scheme, never live-tested past 3 sequential items, has been removed).
         /// STILL UNVERIFIED: end-of-list behavior for the last partial row/end of inventory, and
-        /// <see cref="SetSortModeViaController"/>'s pre-highlighted-dropdown assumption. Sorts by
+        /// <see cref="SetSortMode"/>'s pre-highlighted-dropdown assumption. Sorts by
         /// Level or Quality first (matching <see cref="SortByLevel"/>, the same flag the mouse path
-        /// uses) via <see cref="SetSortModeViaController"/> (2026-07-04), which is what makes
-        /// <see cref="QueueScanViaController"/>'s early-stop-on-threshold safe again.
+        /// uses) via <see cref="SetSortMode"/> (2026-07-04), which is what makes
+        /// <see cref="QueueScan"/>'s early-stop-on-threshold safe again.
         /// </summary>
         /// <returns>The tab actually active once this method returns ("Weapons" on a normal run, or
         /// whatever <paramref name="knownCurrentTab"/> was if tab detection failed and switching had
         /// to be skipped) -- pass this into the next controller-driven phase's own call so it can skip
-        /// re-detecting via OCR (see <see cref="InventoryScraper.SwitchToTabViaController"/>).</returns>
-        public string ScanWeaponsViaController(GameController controller, int count = 0, string knownCurrentTab = null)
+        /// re-detecting via OCR (see <see cref="InventoryScraper.SwitchToTab"/>).</returns>
+        public string ScanWeapons(GameController controller, int count = 0, string knownCurrentTab = null)
         {
             StopScanning = false;
 
-            string currentTab = SwitchToTabViaController(controller, "Weapons", knownCurrentTab);
-            sortModeConfirmed = SetSortModeViaController(controller, SortByLevel ? "Level" : "Quality");
+            string currentTab = SwitchToTab(controller, "Weapons", knownCurrentTab);
+            sortModeConfirmed = SetSortMode(controller, SortByLevel ? "Level" : "Quality");
 
-            int weaponCount = count == 0 ? ScanItemCountViaController() : count;
+            int weaponCount = count == 0 ? ScanItemCount() : count;
             progressReporter.SetWeapon_Max(weaponCount);
 
             int scanned = 0;
@@ -215,12 +215,12 @@ namespace InventoryKamera
             {
                 progressReporter.WaitIfCorrectionPending();
 
-                // Not wrapped in `using` -- QueueScanViaController hands `card` into weaponImages,
+                // Not wrapped in `using` -- QueueScan hands `card` into weaponImages,
                 // which either gets disposed immediately (filtered out) or flows into the worker
                 // channel for async cataloguing/disposal, matching QueueScan's mouse-path pattern.
                 // Disposing it here would race the worker thread.
-                Bitmap card = GetItemCardViaController();
-                QueueScanViaController(card, scanned);
+                Bitmap card = GetItemCard();
+                QueueScan(card, scanned);
                 scanned++;
 
                 if (scanned >= weaponCount) break;
@@ -243,7 +243,7 @@ namespace InventoryKamera
             Logger.Info("Controller weapon scan finished: {0} of {1} scanned (cancelled={2}, stopped={3})",
                 scanned, weaponCount, InventoryKamera.CancelRequested, StopScanning);
 
-            // Always report "Weapons" here, not whatever SwitchToTabViaController returned: this
+            // Always report "Weapons" here, not whatever SwitchToTab returned: this
             // method's whole job is to end up scanning the Weapons tab, so by the time we get here
             // that's true regardless of whether the pre-switch OCR detection above succeeded (it
             // being unconfident just means the switch itself was skipped, not that the tab is
@@ -253,29 +253,9 @@ namespace InventoryKamera
             return "Weapons";
         }
 
-        Bitmap GetLevelBitmap(Bitmap card)
-        {
-            return GenshinProcesor.CopyBitmap(card,
-                new Rectangle(
-                    x: (int)(card.Width * 0.060),
-                    y: (int)(card.Height * (Navigation.IsNormal ? 0.367 : 0.320)),
-                    width: (int)(card.Width * 0.262),
-                    height: (int)(card.Height * 0.035)));
-        }
-
-        Bitmap GetRefinementBitmap(Bitmap card)
-        {
-            return GenshinProcesor.CopyBitmap(card,
-                new Rectangle(
-                    x: (int)(card.Width * 0.058),
-                    y: (int)(card.Height * (Navigation.IsNormal ? 0.417 : 0.364)),
-                    width: (int)(card.Width * 0.074),
-                    height: (int)(card.Height * 0.038)));
-        }
-
-        /// <summary>Controller-mode equivalent of <see cref="GetLevelBitmap"/>, measured with the
+        /// <summary>Extracts a bitmap copy of the weapon level readout, measured with the
         /// coordinate-picker tool (2026-07-03).</summary>
-        Bitmap GetLevelBitmapViaController(Bitmap card)
+        Bitmap GetLevelBitmap(Bitmap card)
         {
             return GenshinProcesor.CopyBitmap(card,
                 new Rectangle(
@@ -285,9 +265,9 @@ namespace InventoryKamera
                     height: (int)(card.Height * 0.0352)));
         }
 
-        /// <summary>Controller-mode equivalent of <see cref="GetRefinementBitmap"/>, measured with the
+        /// <summary>Extracts a bitmap copy of the weapon refinement rank readout, measured with the
         /// coordinate-picker tool (2026-07-03).</summary>
-        Bitmap GetRefinementBitmapViaController(Bitmap card)
+        Bitmap GetRefinementBitmap(Bitmap card)
         {
             return GenshinProcesor.CopyBitmap(card,
                 new Rectangle(
@@ -297,12 +277,11 @@ namespace InventoryKamera
                     height: (int)(card.Height * 0.0324)));
         }
 
-        /// <summary>Controller-mode equivalent of <see cref="InventoryScraper.GetLockedBitmap"/>,
-        /// measured with the coordinate-picker tool (2026-07-04). Reuses the same lock-color pixel
-        /// check (<c>CatalogueFromBitmapsAsync</c>'s <c>lockedColor</c>/<c>CompareColors</c> at pixel
-        /// (5,5)) as the mouse path -- it's the same in-game lock badge asset, just captured from a
-        /// different on-screen card position, so the reference color should still apply.</summary>
-        Bitmap GetLockedBitmapViaController(Bitmap card)
+        /// <summary>Extracts a bitmap copy of an item card's lock status icon, measured with the
+        /// coordinate-picker tool (2026-07-04). Uses the same lock-color pixel check
+        /// (<c>CatalogueFromBitmapsAsync</c>'s <c>lockedColor</c>/<c>CompareColors</c> at pixel
+        /// (5,5)) as the in-game lock badge asset elsewhere in this codebase.</summary>
+        Bitmap GetLockedBitmap(Bitmap card)
         {
             return GenshinProcesor.CopyBitmap(card,
                 new Rectangle(

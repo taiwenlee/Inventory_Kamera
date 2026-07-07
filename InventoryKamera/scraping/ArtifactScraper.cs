@@ -33,7 +33,7 @@ namespace InventoryKamera
         /// control, B confirms (the established confirm button everywhere else in this codebase --
         /// not independently confirmed for this specific control), left stick Down returns to the grid.
         /// </summary>
-        private void SetSortByObtainedViaController(GameController controller)
+        private void SetSortByObtained(GameController controller)
         {
             using (var x = Navigation.CaptureRegion(
                 x: (int)(0.6563 * Navigation.GetWidth()),
@@ -77,7 +77,7 @@ namespace InventoryKamera
         /// A, not Back (established convention throughout this codebase: "A backs out, B confirms,
         /// everywhere").
         /// </summary>
-        private void ClearFiltersViaController(GameController controller)
+        private void ClearFilters(GameController controller)
         {
             using (var x = Navigation.CaptureRegion(
                 x: (int)(0.0740 * Navigation.GetWidth()),
@@ -115,62 +115,9 @@ namespace InventoryKamera
             }
         }
 
-        private Bitmap GetSubstatsBitmap(Bitmap card, bool isSanctified = false)
-        {
-			double baseY = Navigation.IsNormal ? 0.4216 : 0.3682;
-			double sanctifiedShift = 0.0520;
-            double yShift = isSanctified ? sanctifiedShift : 0.0;
-
-            return GenshinProcesor.CopyBitmap(card,new Rectangle(
-				x:(int)(card.Width * 0.0605),
-				y:(int)(card.Height * (baseY + yShift)),
-				width:(int)(card.Width * 0.8297),
-				height:(int)(card.Height * 0.2301)));
-        }
-
-        private Bitmap GetMainStatBitmap(Bitmap card)
-        {
-			return GenshinProcesor.CopyBitmap(card, new Rectangle(
-				x: (int)(card.Width * 0.0405),
-				y: (int)(card.Height * (Navigation.IsNormal ? 0.1722 : 0.1319)),
-				width: (int)(card.Width * 0.4555),
-				height: (int)(card.Height * 0.0416)));
-        }
-
-        private Bitmap GetLevelBitmap(Bitmap card, bool isSanctified = false)
-        {
-            double baseY = Navigation.IsNormal ? 0.3634 : 0.2735;
-            double sanctifiedShift = 0.0520;
-            double yShift = isSanctified ? sanctifiedShift : 0.0;
-
-            return GenshinProcesor.CopyBitmap(card, new Rectangle(
-                x: (int)(card.Width * 0.0506),
-                y: (int)(card.Height * (baseY + yShift)),
-                width: (int)(card.Width * 0.1417),
-                height: (int)(card.Height * 0.0416)));
-        }
-
-        private Bitmap GetSanctifyBitmap(Bitmap card)
-        {
-            return GenshinProcesor.CopyBitmap(card, new Rectangle(
-                x: (int)(card.Width * 0.0),
-                y: (int)(card.Height * (Navigation.IsNormal ? 0.3333 : 0.2941)),
-                width: (int)(card.Width * 0.0606),
-                height: (int)(card.Height * 0.0526)));
-        }
-
-        private Bitmap GetGearSlotBitmap(Bitmap card)
-        {
-            return GenshinProcesor.CopyBitmap(card, new Rectangle(
-                x: (int)(card.Width * 0.0405),
-                y: (int)(card.Height * (Navigation.IsNormal ? 0.07720 : 0.0663)),
-                width: (int)(card.Width * 0.4757),
-                height: (int)(card.Height * 0.0475)));
-        }
-
-        /// <summary>Controller-mode equivalent of <see cref="GetGearSlotBitmap"/>, measured with the
+        /// <summary>Extracts a bitmap copy of an artifact's gear-slot icon, measured with the
         /// coordinate-picker tool (2026-07-04).</summary>
-        private Bitmap GetGearSlotBitmapViaController(Bitmap card)
+        private Bitmap GetGearSlotBitmap(Bitmap card)
         {
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
                 x: (int)(card.Width * 0.0492),
@@ -179,9 +126,9 @@ namespace InventoryKamera
                 height: (int)(card.Height * 0.0333)));
         }
 
-        /// <summary>Controller-mode equivalent of <see cref="GetMainStatBitmap"/>, measured with the
+        /// <summary>Extracts a bitmap copy of an artifact's main stat readout, measured with the
         /// coordinate-picker tool (2026-07-04).</summary>
-        private Bitmap GetMainStatBitmapViaController(Bitmap card)
+        private Bitmap GetMainStatBitmap(Bitmap card)
         {
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
                 x: (int)(card.Width * 0.0528),
@@ -192,18 +139,17 @@ namespace InventoryKamera
 
         // Per user (2026-07-04): the sanctify shift equals the sanctify banner's own height, since a
         // sanctified card simply inserts the banner above Level/Substats/Locked, pushing them all
-        // down by exactly that much. Shared by GetLevelBitmapViaController/GetSubstatsBitmapViaController/
-        // GetLockedBitmapViaController and DetectSanctifiedViaController's own region height.
+        // down by exactly that much. Shared by GetLevelBitmap/GetSubstatsBitmap/
+        // GetLockedBitmap and DetectSanctified's own region height.
         // Re-measured 2026-07-04 (0.0491 -> 0.0426): the first pass over-estimated the banner height,
         // which pushed Substats' crop far enough to catch the set-bonus description line below the
         // real stat list -- tighter measurement here fixes that overshoot.
         private double SanctifyShift = Navigation.IsNormal ? 0.0426 : 0.0349;
 
-        /// <summary>Controller-mode equivalent of <see cref="GetLevelBitmap"/>, measured with the
+        /// <summary>Extracts a bitmap copy of an artifact's level readout, measured with the
         /// coordinate-picker tool (2026-07-04). <paramref name="isSanctified"/> shifts the crop down
-        /// by the sanctify banner's own height (see <see cref="SanctifyShift"/>), mirroring mouse
-        /// mode's <c>isSanctified</c>/<c>sanctifiedShift</c> logic.</summary>
-        private Bitmap GetLevelBitmapViaController(Bitmap card, bool isSanctified = false)
+        /// by the sanctify banner's own height (see <see cref="SanctifyShift"/>).</summary>
+        private Bitmap GetLevelBitmap(Bitmap card, bool isSanctified = false)
         {
             double yShift = isSanctified ? SanctifyShift : 0.0;
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
@@ -213,10 +159,10 @@ namespace InventoryKamera
                 height: (int)(card.Height * 0.0306)));
         }
 
-        /// <summary>Controller-mode equivalent of <see cref="GetSubstatsBitmap"/>, measured with the
+        /// <summary>Extracts a bitmap copy of an artifact's substats block, measured with the
         /// coordinate-picker tool (2026-07-04). Same sanctify-shift handling as
-        /// <see cref="GetLevelBitmapViaController"/>.</summary>
-        private Bitmap GetSubstatsBitmapViaController(Bitmap card, bool isSanctified = false)
+        /// <see cref="GetLevelBitmap"/>.</summary>
+        private Bitmap GetSubstatsBitmap(Bitmap card, bool isSanctified = false)
         {
             double yShift = isSanctified ? SanctifyShift : 0.0;
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
@@ -226,11 +172,10 @@ namespace InventoryKamera
                 height: (int)(card.Height * 0.1991)));
         }
 
-        /// <summary>Controller-mode equivalent of <see cref="GetLockedBitmap"/>, measured with the
+        /// <summary>Extracts a bitmap copy of an item card's lock status icon, measured with the
         /// coordinate-picker tool (2026-07-04). Same sanctify-shift handling as
-        /// <see cref="GetLevelBitmapViaController"/>. Reuses the same lock-color pixel check as the
-        /// mouse path (same in-game badge asset).</summary>
-        private Bitmap GetLockedBitmapViaController(Bitmap card, bool isSanctified = false)
+        /// <see cref="GetLevelBitmap"/>.</summary>
+        private Bitmap GetLockedBitmap(Bitmap card, bool isSanctified = false)
         {
             double yShift = isSanctified ? SanctifyShift : 0.0;
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
@@ -242,10 +187,10 @@ namespace InventoryKamera
 
         /// <summary>
         /// Tight crop of just the sanctify icon/sigil (2026-07-04, replacing the earlier wide banner
-        /// span) -- measured with the coordinate-picker tool, matching <see cref="GetLockedBitmap"/>'s
+        /// span) -- measured with the coordinate-picker tool, matching the lock-icon crop's
         /// tightly-cropped-icon pattern rather than the wide-banner OCR approach this superseded.
         /// </summary>
-        private Bitmap GetSanctifyIconBitmapViaController(Bitmap card)
+        private Bitmap GetSanctifyIconBitmap(Bitmap card)
         {
             return GenshinProcesor.CopyBitmap(card, new Rectangle(
                 x: (int)(card.Width * 0.0055),
@@ -255,7 +200,7 @@ namespace InventoryKamera
         }
 
         /// <summary>
-        /// Detects sanctify status from an already-captured <see cref="GetSanctifyIconBitmapViaController"/>
+        /// Detects sanctify status from an already-captured <see cref="GetSanctifyIconBitmap"/>
         /// crop via a single-pixel color sample (2026-07-04) -- replaces the earlier full-text OCR
         /// check, which was the single most expensive per-item operation in the artifact scan loop
         /// (OCR is much slower than a pixel sample, and it ran on every single item). Reuses the
@@ -276,11 +221,11 @@ namespace InventoryKamera
 
         /// <summary>Captures and detects sanctify status in one step, disposing the capture
         /// afterward -- for callers (like the single-item debug read) that don't need to keep the
-        /// bitmap around. <see cref="QueueScanViaController"/> instead keeps the bitmap alive since it
+        /// bitmap around. <see cref="QueueScan"/> instead keeps the bitmap alive since it
         /// needs to hand it into the worker queue.</summary>
-        private bool DetectSanctifiedViaController(Bitmap card)
+        private bool DetectSanctified(Bitmap card)
         {
-            using (var region = GetSanctifyIconBitmapViaController(card))
+            using (var region = GetSanctifyIconBitmap(card))
             {
                 SaveDebugScreenshot(region, "SelectedArtifactDetailsSanctifyIcon");
                 return DetectSanctifiedFromBitmap(region);
@@ -291,49 +236,49 @@ namespace InventoryKamera
         /// Ad-hoc single-item read for Phase 3 §6c artifact controller-scan development -- reads every
         /// field the mouse path's <see cref="QueueScan"/> captures for whichever artifact is currently
         /// selected, without any mouse clicking. Not yet wired into a full scan loop (see
-        /// <c>WeaponScraper.ScanWeaponsViaController</c> for the pattern once this is proven). Caller
+        /// <c>WeaponScraper.ScanWeapons</c> for the pattern once this is proven). Caller
         /// must already be on the Artifacts tab. Detects sanctify status first and passes it to
         /// Level/Substats/Locked so their shifted positions (see <see cref="SanctifyShift"/>) are used
         /// automatically -- live-verify this actually lands correctly on a sanctified artifact.
         /// </summary>
-        public (string SetName, string GearSlot, string MainStat, int Level, bool Sanctified, string Equipped, bool Locked, string SubStatsSummary) ReadSelectedArtifactDetailsViaController()
+        public (string SetName, string GearSlot, string MainStat, int Level, bool Sanctified, string Equipped, bool Locked, string SubStatsSummary) ReadSelectedArtifactDetails()
         {
-            using (var card = GetItemCardViaController())
+            using (var card = GetItemCard())
             {
                 SaveDebugScreenshot(card, "SelectedArtifactDetailsCard");
 
                 string setName;
-                using (var nameBitmap = GetItemNameBitmapViaController(card))
+                using (var nameBitmap = GetItemNameBitmap(card))
                 {
                     SaveDebugScreenshot(nameBitmap, "SelectedArtifactDetailsName");
                     setName = ScanArtifactSet(nameBitmap);
                 }
 
                 string gearSlot;
-                using (var gearSlotBitmap = GetGearSlotBitmapViaController(card))
+                using (var gearSlotBitmap = GetGearSlotBitmap(card))
                 {
                     SaveDebugScreenshot(gearSlotBitmap, "SelectedArtifactDetailsGearSlot");
                     gearSlot = ScanArtifactGearSlot(gearSlotBitmap);
                 }
 
                 string mainStat;
-                using (var mainStatBitmap = GetMainStatBitmapViaController(card))
+                using (var mainStatBitmap = GetMainStatBitmap(card))
                 {
                     SaveDebugScreenshot(mainStatBitmap, "SelectedArtifactDetailsMainStat");
                     mainStat = ScanArtifactMainStat(mainStatBitmap, gearSlot);
                 }
 
-                bool sanctified = DetectSanctifiedViaController(card);
+                bool sanctified = DetectSanctified(card);
 
                 int level;
-                using (var levelBitmap = GetLevelBitmapViaController(card, sanctified))
+                using (var levelBitmap = GetLevelBitmap(card, sanctified))
                 {
                     SaveDebugScreenshot(levelBitmap, "SelectedArtifactDetailsLevel");
                     level = ScanArtifactLevel(levelBitmap);
                 }
 
                 string subStatsSummary;
-                using (var subStatsBitmap = GetSubstatsBitmapViaController(card, sanctified))
+                using (var subStatsBitmap = GetSubstatsBitmap(card, sanctified))
                 {
                     SaveDebugScreenshot(subStatsBitmap, "SelectedArtifactDetailsSubstats");
                     var (active, unactivated) = ScanArtifactSubStats(subStatsBitmap);
@@ -343,14 +288,14 @@ namespace InventoryKamera
                 }
 
                 string equipped;
-                using (var equippedBitmap = GetEquippedBitmapViaController(card))
+                using (var equippedBitmap = GetEquippedBitmap(card))
                 {
                     SaveDebugScreenshot(equippedBitmap, "SelectedArtifactDetailsEquipped");
                     equipped = ScanArtifactEquippedCharacter(equippedBitmap);
                 }
 
                 bool locked;
-                using (var lockedBitmap = GetLockedBitmapViaController(card, sanctified))
+                using (var lockedBitmap = GetLockedBitmap(card, sanctified))
                 {
                     SaveDebugScreenshot(lockedBitmap, "SelectedArtifactDetailsLocked");
                     Color lockedColor = Color.FromArgb(255, 70, 80, 100);
@@ -364,22 +309,22 @@ namespace InventoryKamera
 
         /// <summary>
         /// Controller-mode equivalent of <see cref="QueueScan"/>: takes an already-captured card
-        /// (from <see cref="ScanArtifactsViaController"/>'s navigation loop) instead of re-capturing
+        /// (from <see cref="ScanArtifacts"/>'s navigation loop) instead of re-capturing
         /// via the mouse-hover-popup region. Same field set, index order, filtering, and queue
         /// dispatch as the mouse path so both feed the identical worker/cataloguing pipeline.
         /// </summary>
-        private void QueueScanViaController(Bitmap card, int id)
+        private void QueueScan(Bitmap card, int id)
         {
-            Bitmap name = GetItemNameBitmapViaController(card);
-            Bitmap gearSlot = GetGearSlotBitmapViaController(card);
-            Bitmap mainStat = GetMainStatBitmapViaController(card);
-            Bitmap sanctify = GetSanctifyIconBitmapViaController(card);
+            Bitmap name = GetItemNameBitmap(card);
+            Bitmap gearSlot = GetGearSlotBitmap(card);
+            Bitmap mainStat = GetMainStatBitmap(card);
+            Bitmap sanctify = GetSanctifyIconBitmap(card);
             bool sanctified = DetectSanctifiedFromBitmap(sanctify);
 
-            Bitmap level = GetLevelBitmapViaController(card, sanctified);
-            Bitmap subStats = GetSubstatsBitmapViaController(card, sanctified);
-            Bitmap equipped = GetEquippedBitmapViaController(card);
-            Bitmap locked = GetLockedBitmapViaController(card, sanctified);
+            Bitmap level = GetLevelBitmap(card, sanctified);
+            Bitmap subStats = GetSubstatsBitmap(card, sanctified);
+            Bitmap equipped = GetEquippedBitmap(card);
+            Bitmap locked = GetLockedBitmap(card, sanctified);
 
             List<Bitmap> artifactImages = new List<Bitmap>
             {
@@ -427,31 +372,31 @@ namespace InventoryKamera
         /// mouse click/scroll loop, wired into <c>InventoryKamera.GatherData</c>. Takes an
         /// already-connected <paramref name="controller"/> that's already inside Inventory (per user,
         /// 2026-07-04: switching between Weapons/Artifacts tabs shouldn't back all the way out to the
-        /// unpaused game state and re-enter -- see <c>WeaponScraper.ScanWeaponsViaController</c>'s doc
+        /// unpaused game state and re-enter -- see <c>WeaponScraper.ScanWeapons</c>'s doc
         /// comment for the full reasoning; <c>GatherData</c> now owns the single controller/entry
         /// spanning both phases). Switches to Artifacts, sets sort-by-obtained and clears filters
-        /// (<see cref="SetSortByObtainedViaController"/>/<see cref="ClearFiltersViaController"/>, both
+        /// (<see cref="SetSortByObtained"/>/<see cref="ClearFilters"/>, both
         /// live-verified 2026-07-04), then repeatedly reads the selected item's card and advances with
         /// a single left-stick push to the Right (per user, confirmed to work the same way as weapons).
         /// UNVERIFIED assumptions carried over from weapons without being independently reconfirmed for
-        /// Artifacts: end-of-list behavior, and that <see cref="InventoryScraper.ScanItemCountViaController"/>'s
+        /// Artifacts: end-of-list behavior, and that <see cref="InventoryScraper.ScanItemCount"/>'s
         /// weapon-measured region also correctly reads the Artifacts count label (plausible since it's
         /// a shared HUD element, but not directly confirmed). No sort-MODE selection, i.e. Level/
-        /// Quality/Type (see <see cref="QueueScanViaController"/>'s own comment) -- scans in whatever
+        /// Quality/Type (see <see cref="QueueScan"/>'s own comment) -- scans in whatever
         /// order the grid is currently in, filtering without early-stop.
         /// </summary>
-        /// <param name="knownCurrentTab">See <see cref="InventoryScraper.SwitchToTabViaController"/> --
+        /// <param name="knownCurrentTab">See <see cref="InventoryScraper.SwitchToTab"/> --
         /// pass the previous controller-driven phase's returned tab (e.g. "Weapons") to skip
         /// re-detecting via OCR.</param>
-        public string ScanArtifactsViaController(GameController controller, int count = 0, string knownCurrentTab = null)
+        public string ScanArtifacts(GameController controller, int count = 0, string knownCurrentTab = null)
         {
             StopScanning = false;
 
-            string currentTab = SwitchToTabViaController(controller, "Artifacts", knownCurrentTab);
-            SetSortByObtainedViaController(controller);
-            ClearFiltersViaController(controller);
+            string currentTab = SwitchToTab(controller, "Artifacts", knownCurrentTab);
+            SetSortByObtained(controller);
+            ClearFilters(controller);
 
-            int artifactCount = count == 0 ? ScanItemCountViaController() : count;
+            int artifactCount = count == 0 ? ScanItemCount() : count;
 
             // Mouse-mode's ScanArtifacts() caps the scan to SortByObtained * fullPage items when
             // that setting is active (fullPage = cols*rows from GetPageOfItems' blob detection,
@@ -473,12 +418,12 @@ namespace InventoryKamera
             {
                 progressReporter.WaitIfCorrectionPending();
 
-                // Not wrapped in `using` -- QueueScanViaController hands `card` into
+                // Not wrapped in `using` -- QueueScan hands `card` into
                 // artifactImages, which either gets disposed immediately (filtered out) or flows
                 // into the worker channel for async cataloguing/disposal, matching QueueScan's
                 // mouse-path pattern. Disposing it here would race the worker thread.
-                Bitmap card = GetItemCardViaController();
-                QueueScanViaController(card, scanned);
+                Bitmap card = GetItemCard();
+                QueueScan(card, scanned);
                 scanned++;
 
                 if (scanned >= artifactCount) break;
@@ -494,8 +439,8 @@ namespace InventoryKamera
             Logger.Info("Controller artifact scan finished: {0} of {1} scanned (cancelled={2}, stopped={3})",
                 scanned, artifactCount, InventoryKamera.CancelRequested, StopScanning);
 
-            // Always report "Artifacts" here, not whatever SwitchToTabViaController returned -- see
-            // WeaponScraper.ScanWeaponsViaController's matching comment: by the time we get here the
+            // Always report "Artifacts" here, not whatever SwitchToTab returned -- see
+            // WeaponScraper.ScanWeapons's matching comment: by the time we get here the
             // inventory is on Artifacts regardless of whether the pre-switch OCR detection succeeded,
             // and reporting the real value lets the next phase skip re-running that same flaky OCR.
             return "Artifacts";

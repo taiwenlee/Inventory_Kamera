@@ -118,12 +118,10 @@ namespace InventoryKamera
 
 		/// <summary>
 		/// Ratio applied to every <see cref="CaptureWindow"/>/<see cref="CaptureRegion(RECT, PixelFormat)"/>
-		/// result relative to the real window. Callers that turn captured-image pixel coordinates into
-		/// clicks (only the blob-detected grid rectangles in <c>InventoryScraper.GetPageOfItems</c> do
-		/// this) must divide by this to map back to real screen coordinates -- every other consumer
-		/// either crops proportionally within an already-captured bitmap or computes its region from
-		/// <see cref="GetWidth"/>/<see cref="GetHeight"/> directly, both of which stay correct
-		/// automatically since capture position (not just size) is still sourced from the real screen.
+		/// result relative to the real window. Every consumer either crops proportionally within an
+		/// already-captured bitmap or computes its region from <see cref="GetWidth"/>/
+		/// <see cref="GetHeight"/> directly, both of which stay correct automatically since capture
+		/// position (not just size) is still sourced from the real screen.
 		/// </summary>
 		public static double CaptureScale => Math.Min(1.0, MaxCaptureHeight / (double)GetHeight());
 
@@ -221,70 +219,6 @@ namespace InventoryKamera
 		}
 
 		#endregion Image Displaying
-
-		#region Game Menu Navigation
-
-		public static void SelectCharacterAttributes()
-		{
-			int xOffset = (int)(170 / 1280.0 * GetWidth());
-			int yOffset = (int)(105 / 720.0 * GetHeight());
-
-			if (GetAspectRatio() == new Size(8, 5))
-			{
-				yOffset = (int)( 105 / 800.0 * GetHeight() );
-			}
-
-			SetCursor(xOffset, yOffset);
-			Click();
-			SystemWait(Speed.CharacterUI);
-		}
-
-		public static void SelectCharacterConstellation()
-		{
-			int xOffset = (int)(170 / 1280.0 * GetWidth());
-			int yOffset = (int)(245 / 720.0 * GetHeight());
-
-			if (GetAspectRatio() == new Size(8, 5))
-			{
-				yOffset = (int)( 245 / 800.0 * GetHeight() );
-			}
-
-			SetCursor(xOffset, yOffset);
-			Click();
-			SystemWait(Speed.CharacterUI);
-		}
-
-		public static void SelectCharacterTalents()
-		{
-			int xOffset = (int)(135 / 1280.0 * GetWidth());
-			int yOffset = (int)(290 / 720.0 * GetHeight());
-
-			if (GetAspectRatio() == new Size(8, 5))
-			{
-				yOffset = (int)( 290 / 800.0 * GetHeight() );
-			}
-
-			SetCursor(xOffset, yOffset);
-			Click();
-			SystemWait(Speed.CharacterUI);
-		}
-
-		public static void SelectNextCharacter()
-		{
-			int xOffset = (int)(1230 / 1280.0 * GetWidth());
-			int yOffset = (int)(350 / 720.0 * GetHeight());
-
-			if (GetAspectRatio() == new Size(8, 5))
-			{
-				yOffset = (int)( 400 / 800.0 * GetHeight() );
-			}
-
-			SetCursor(xOffset, yOffset);
-			Click();
-			SystemWait(Speed.SelectNextCharacter);
-		}
-
-		#endregion Game Menu Navigation
 
 		#region Window Size Accessing
 
@@ -398,76 +332,6 @@ namespace InventoryKamera
 
 		#endregion Window Focusing
 
-		#region Mouse
-
-		[DllImport("user32.dll")]
-		public static extern bool SetCursorPos(int X, int Y);
-
-		public static bool SetCursor(int X, int Y)
-        {
-			return SetCursorPos(GetPosition().Left + X, GetPosition().Top + Y);
-		}
-
-		public static bool SetCursor(Point point)
-		{
-			return SetCursor(point.X, point.Y);
-		}
-
-		public static void Click()
-		{
-			if (SystemInformation.MouseButtonsSwapped)
-				sim.Mouse.RightButtonClick();
-			else
-				sim.Mouse.LeftButtonClick();
-		}
-
-		public static void Click(int x, int y)
-		{
-			SetCursor(x, y);
-			Click();
-		}
-
-		public static void Click(Point point)
-		{
-			Click(point.X, point.Y);
-		}
-
-		public static void Scroll(Direction direction, int scrolls, int delay = 1)
-        {
-			Action Scroll;
-            switch (direction)
-            {
-                case Direction.UP:
-					Scroll = () => sim.Mouse.VerticalScroll(1);
-					break;
-                case Direction.DOWN:
-					Scroll = () => sim.Mouse.VerticalScroll(-1);
-                    break;
-                case Direction.LEFT:
-					Scroll = () => sim.Mouse.HorizontalScroll(-1);
-                    break;
-                case Direction.RIGHT:
-					Scroll = () => sim.Mouse.HorizontalScroll(1);
-                    break;
-                default:
-                    return;
-            }
-            for (int i = 0; i < scrolls; i++)
-            {
-				Scroll();
-				Wait(delay);
-            }
-        }
-
-		public enum Direction
-        {
-			UP = 0,
-			DOWN = 1,
-			LEFT = 2,
-			RIGHT = 3,
-        }
-
-        #endregion Mouse
 
         #region Delays
 
@@ -514,10 +378,6 @@ namespace InventoryKamera
 
 				case Speed.UI:
 					value = 2000;
-					break;
-
-				case Speed.SelectNextCharacter:
-					value = 700;
 					break;
 
 				case Speed.InventoryScroll:
@@ -592,7 +452,6 @@ namespace InventoryKamera
 			Fastest,
 			UI,
 			ArtifactIgnore,
-			SelectNextCharacter,
 			SelectNextInventoryItem,
 			InventoryScroll,
 			CharacterUI,

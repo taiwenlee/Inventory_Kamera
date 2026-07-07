@@ -18,8 +18,8 @@ namespace InventoryKamera.game
     /// manual test. Trimmed (2026-07-05) down to just the panic button and the character-scan test
     /// -- every other granular per-primitive test method (menu nav, tab detection/switching, weapon
     /// name/details reads, advance-step check) was removed once its only caller (a Debug-menu item)
-    /// was removed and the real <c>WeaponScraper.ScanWeaponsViaController</c>/
-    /// <c>ArtifactScraper.ScanArtifactsViaController</c> superseded the need for them.
+    /// was removed and the real <c>WeaponScraper.ScanWeapons</c>/
+    /// <c>ArtifactScraper.ScanArtifacts</c> superseded the need for them.
     /// </summary>
     internal static class ControllerNavigationTests
     {
@@ -91,7 +91,7 @@ namespace InventoryKamera.game
         }
 
         /// <summary>
-        /// Manual live test for <see cref="CharacterScraper.ScanCharactersViaController"/> (Phase 3
+        /// Manual live test for <see cref="CharacterScraper.ScanCharacters"/> (Phase 3
         /// §6c, added 2026-07-05, not yet live-verified) -- the sub-tab-batched controller character
         /// scan. Reuses <paramref name="progressReporter"/> (the real <c>ScanViewModel</c> from
         /// <c>MainForm</c>) so scanned name/level/talent images actually show up in the UI panels
@@ -147,7 +147,7 @@ namespace InventoryKamera.game
 
                 try
                 {
-                    scraper.ScanCharactersViaController(controller, ref characters);
+                    scraper.ScanCharacters(controller, ref characters);
                     MessageBox.Show($"Scanned {characters.Count} character(s). Check the log for details.",
                         "Controller Character Scan Test", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
