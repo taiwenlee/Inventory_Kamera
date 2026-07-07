@@ -417,30 +417,6 @@ namespace InventoryKamera
 			return delay;
 		}
 
-        internal static void ClearArtifactFilters()
-        {
-            var x = (IsNormal ? 0.0875 : 0.0868) * GetWidth();
-			var y = (IsNormal ? 0.9389 : 0.9444) * GetHeight();
-
-			for (var i = 0; i < 2; ++i)
-			{
-				Click((int)x, (int)y);
-				SystemWait(Speed.Normal);
-			}
-			sim.Keyboard.KeyPress(escapeKey);
-			SystemWait(Speed.Fast);
-        }
-
-		internal static void ChangeArtifactSortObtained()
-		{
-            var x = 0.6437 * GetWidth();
-            var y = (IsNormal ? 0.1278 : 0.1150) * GetHeight();
-
-            Click((int)x, (int)y);
-
-            SystemWait(Speed.Slow);
-        }
-
         public enum Speed
 		{
 			Slowest,

@@ -816,7 +816,7 @@ namespace InventoryKamera
             var client = new GitHubClient(new ProductHeaderValue("Inventory_Kamera"));
             try
             {
-                var releases = await client.Repository.Release.GetAll("Andrewthe13th", "Inventory_Kamera");
+                var releases = await client.Repository.Release.GetAll("taiwenlee", "Inventory_Kamera");
                 var latest = releases.First();
 
 
