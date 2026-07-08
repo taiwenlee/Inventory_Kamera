@@ -162,11 +162,12 @@ namespace InventoryKamera
 			var gapsBeforeEach = new List<int>();
 			int gapSinceLastRecorded = 0;
 			int wrapGap = 0; // taps from the last recorded character back to the first, once wrapped
+			int unrecognizedCount = 0; // non-manequin slots whose name/element couldn't be read
 
 			while (true)
 			{
 				string name = null, element = null;
-				ScanNameAndElement(ref name, ref element);
+				string rawRead = ScanNameAndElement(ref name, ref element);
 
 				bool isManequin = name == "Manequin1" || name == "Manequin2";
 				bool hasValidNameAndElement = !isManequin && !string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(element);
@@ -207,7 +208,7 @@ namespace InventoryKamera
 						progressReporter.IncrementCharacterCount();
 						if (Characters.Count == 1) firstName = name;
 						Logger.Info("Scanned {0} attributes successfully (controller)", character.NameGOOD);
-						LogCharacterScreenshot(character.NameGOOD, "attributes");
+						LogCharacterScreenshot(character.NameGOOD, "attributes", NameElementRegion());
 					}
 					else
 					{
@@ -216,8 +217,23 @@ namespace InventoryKamera
 				}
 				else if (!isManequin)
 				{
-					if (string.IsNullOrWhiteSpace(name)) progressReporter.AddError("Could not determine character's name");
-					if (string.IsNullOrWhiteSpace(element)) progressReporter.AddError("Could not determine character's element");
+					// Name and element are read from a single combined OCR string and always fail
+					// together (ScanNameAndElement clears both on any parse/element-mismatch failure),
+					// so this is one combined error, not two -- with the raw OCR text so the user can see
+					// what was actually read.
+					progressReporter.AddError($"Could not determine character element and name (\"{rawRead}\")");
+
+					// Unrecognized, non-manequin slot: it never gets added to Characters, so it's
+					// already skipped by the Constellations (Phase 2) and Talents (Phase 3) passes (both
+					// only iterate recorded characters). Save one full-window screenshot so the user can
+					// identify who was skipped -- it goes in the top-level characters folder (not a
+					// per-character subfolder, since we have no name to file it under). Saved regardless
+					// of LogScreenshots: an unrecognized character is a failure worth capturing.
+					unrecognizedCount++;
+					Logger.Warn("Unrecognized character (raw OCR: \"{0}\") -- skipping all passes and saving a full screenshot.", rawRead);
+					Directory.CreateDirectory("./logging/characters");
+					using (var screenshot = Navigation.CaptureWindow())
+						screenshot.Save($"./logging/characters/unrecognized_{unrecognizedCount}.png");
 				}
 
 				controller.TapButton(Xbox360Button.RightShoulder, InventoryScraper.ScaledControllerDelay(80));
@@ -265,6 +281,11 @@ namespace InventoryKamera
 
 			void ScanConstellation(Character character)
 			{
+				// Verify the roster cursor is actually on this character before pressing B -- on a
+				// manequin (no constellation page) B closes the whole Character menu and derails the
+				// scan. See VerifyOnExpectedCharacter.
+				if (!VerifyOnExpectedCharacter(character, "Constellation")) return;
+
 				// Per user (2026-07-05): greedy (C6-first, read backward) mode only for 4-star
 				// characters so far -- see IsFourStarCharacter/ScanConstellationsGreedy.
 				character.Constellation = IsFourStarCharacter(character)
@@ -301,6 +322,11 @@ namespace InventoryKamera
 
 			ScanRosterForward(controller, characterList, gapsBeforeEach, null, character =>
 			{
+				// Same identity check as the constellation pass: confirm the cursor is on this
+				// character before reading talents, so a drifted cursor doesn't record a manequin's or
+				// the wrong character's talent levels.
+				if (!VerifyOnExpectedCharacter(character, "Talent")) return;
+
 				character.Talents = ScanTalents(character);
 				Logger.Info("{0} Talents: {1}", character.NameGOOD, "{" + string.Join(", ", character.Talents.Select(kv => kv.Key + "=" + kv.Value).ToArray()) + "}");
 
@@ -390,12 +416,14 @@ namespace InventoryKamera
 		/// 2026-07-05), then confirms with B (Genshin's confirm/select button -- A backs out/cancels,
 		/// confirmed 2026-07-05).
 		/// Unlike the Inventory sub-tab row (which does remember its last-viewed tab, see
-		/// <see cref="InventoryScraper.SwitchToTab"/>), the pause menu's own top-level tab
-		/// bar resets to [0,0] every time it's opened fresh from gameplay -- confirmed by the user
-		/// (2026-07-06): a prior controller session's teardown (<see cref="GameController.Dispose"/>)
-		/// always exits all the way back out to play mode, not just closes Inventory, so the next
-		/// pause-menu open always cold-starts at [0,0] regardless of what ran before. Move(Right,2)
-		/// then Move(Down,1) from [0,0] is therefore always correct here.
+		/// <see cref="InventoryScraper.SwitchToTab"/>), the pause menu's own top-level tab bar resets
+		/// to [0,0] every time it's opened fresh from gameplay -- so Move(Right,2) then Move(Down,1)
+		/// from [0,0] is always correct here, provided this is entered from the unpaused free-roam
+		/// state. The caller guarantees that: characters run in the same single controller session as
+		/// the inventory phases (Phase 3 §6c, revised 2026-07-07 -- no more per-phase disconnect), and
+		/// <c>InventoryKamera.GatherData</c> explicitly backs out to free-roam (MashBack + a generous
+		/// settle wait) before this runs when an inventory phase preceded it. The leading Escape +
+		/// MashBack below are a belt-and-suspenders reset on top of that.
 		/// </summary>
 		private void EnterCharacterMenu(GameController controller)
 		{
@@ -423,20 +451,56 @@ namespace InventoryKamera
 		}
 
 		/// <summary>
-		/// Saves a full-window screenshot under a per-character logging folder, gated on
+		/// Re-reads the currently-selected slot's name/element header and returns whether it matches
+		/// the character we expect to be scanning. Phases 2 (Constellations) and 3 (Talents) both
+		/// replay Phase 1's shoulder-tap gaps to land back on each recorded character while skipping
+		/// manequin slots; if that replay drifts even one slot (e.g. a constellation enter/exit not
+		/// returning the roster cursor to the exact same position), this catches it before we act on
+		/// the wrong slot -- pressing confirm on a manequin closes the whole Character menu, and reading
+		/// a wrong slot records another character's constellation/talent data. Returns false (and logs)
+		/// on any mismatch or unreadable slot, so the caller skips that character rather than corrupting
+		/// it. Uses a small retry budget (fails fast on a wrong slot); the name/element header is shown
+		/// on every Character sub-tab, so it reads the same region as Phase 1's Attributes read.
+		/// </summary>
+		private bool VerifyOnExpectedCharacter(Character character, string phaseLabel)
+		{
+			string currentName = null, currentElement = null;
+			ScanNameAndElement(ref currentName, ref currentElement, maxAttempts: 5);
+			if (currentName == character.NameGOOD) return true;
+
+			Logger.Warn("{0} scan expected \"{1}\" but the selected slot reads \"{2}\" -- skipping this character.",
+				phaseLabel, character.NameGOOD, currentName ?? "(unreadable)");
+			return false;
+		}
+
+		/// <summary>
+		/// The always-visible name/element header region on the Character screen. Shared by
+		/// <see cref="ScanNameAndElement"/>'s OCR read and Phase 1's per-character attributes
+		/// screenshot. Measured (2026-07-05) with <c>ui/CoordinatePickerForm.cs</c>.
+		/// </summary>
+		private static Rectangle NameElementRegion() => new RECT(
+			Left:   (int)( 0.0941 * Navigation.GetWidth() ),
+			Top:    (int)( 0.0430 * Navigation.GetHeight() ),
+			Right:  (int)( 0.2442 * Navigation.GetWidth() ),
+			Bottom: (int)( 0.0920 * Navigation.GetHeight() ));
+
+		/// <summary>
+		/// Saves a screenshot of just <paramref name="region"/> (the section actually being scanned,
+		/// not the whole window) under a per-character logging folder, gated on
 		/// <see cref="scanSettings"/>'s LogScreenshots setting -- shared by every controller-path
 		/// capture point (<see cref="ScanCharacters"/>'s Attributes read,
-		/// <see cref="ScanConstellations"/> per node, <see cref="ScanTalents"/>)
-		/// so debugging a bad capture region has a full-page reference image alongside the small OCR
-		/// crop, per character, per step.
+		/// <see cref="ScanConstellations"/> per node, <see cref="ScanTalents"/>). <paramref
+		/// name="relativeName"/> may contain '/' to nest into a subfolder (e.g.
+		/// <c>"constellations/constellation_1"</c>).
 		/// </summary>
-		private void LogCharacterScreenshot(string characterName, string fileName)
+		private void LogCharacterScreenshot(string characterName, string relativeName, Rectangle region)
 		{
 			if (!scanSettings.LogScreenshots) return;
 
-			Directory.CreateDirectory($"./logging/characters/{characterName}");
-			using (var screenshot = Navigation.CaptureWindow())
-				screenshot.Save($"./logging/characters/{characterName}/{fileName}.png");
+			string path = $"./logging/characters/{characterName}/{relativeName}.png";
+			Directory.CreateDirectory(Path.GetDirectoryName(path));
+			using (var screenshot = Navigation.CaptureRegion(region))
+				screenshot.Save(path);
 		}
 
 		/// <summary>
@@ -564,16 +628,18 @@ namespace InventoryKamera
 		/// <summary>
 		/// Reads the always-visible name/element region on the Attributes sub-tab. Region re-measured
 		/// (2026-07-05) with <c>ui/CoordinatePickerForm.cs</c> against a two-line wrapped name.
+		/// <paramref name="maxAttempts"/> caps the retry loop -- Phase 1's roster read uses the default
+		/// 20 (a genuine character should read within that), while the Phase 2 constellation guard
+		/// passes a smaller budget so it fails fast on a manequin/wrong slot instead of burning the full
+		/// 20 retries before skipping. Returns the raw OCR text from the final attempt (name and
+		/// element are read from one combined OCR string, so callers can surface it in a failure
+		/// message to show what was actually read).
 		/// </summary>
-		private void ScanNameAndElement(ref string name, ref string element)
+		private string ScanNameAndElement(ref string name, ref string element, int maxAttempts = 20)
 		{
-			int attempts = 0;
-			int maxAttempts = 20; // reduced from 75 per user (2026-07-05) -- 75 retries at Speed.Fast was too slow when parsing genuinely fails
-			Rectangle region = new RECT(
-				Left:   (int)( 0.0941 * Navigation.GetWidth() ),
-				Top:    (int)( 0.0430 * Navigation.GetHeight() ),
-				Right:  (int)( 0.2442 * Navigation.GetWidth() ),
-				Bottom: (int)( 0.0920 * Navigation.GetHeight() ));
+			int attempts = 0; // reduced from 75 per user (2026-07-05) -- 75 retries at Speed.Fast was too slow when parsing genuinely fails
+			Rectangle region = NameElementRegion();
+			string rawText = "";
 
 			do
 			{
@@ -589,6 +655,7 @@ namespace InventoryKamera
 
 					// Characters with wrapped names will not have a slash
 					string nameAndElement = line.Contains("/") ? line : block;
+					rawText = nameAndElement;
 
 					if (nameAndElement.Contains("/"))
 					{
@@ -630,12 +697,15 @@ namespace InventoryKamera
 					{
 						Logger.Debug("Scanned character name as {0} with element {1}", name, element);
                         progressReporter.SetCharacter_NameAndElement(bm, name, element);
-						return;
+						return rawText;
 					}
 					else
                     {
-                        Logger.Debug("Could not parse character name/element (Atempt {0}/{1}). Retrying...", attempts+1, maxAttempts);
-                        bm.Save($"./logging/characters/{bm.GetHashCode()}.png");
+                        // Per-attempt retry: don't dump a screenshot here -- it used to litter the
+                        // top-level ./logging/characters folder with hash-named images (one per failed
+                        // attempt, ungated). A single full-window screenshot is saved once by the Phase 1
+                        // caller if the character stays unrecognized after all retries (unrecognized_N.png).
+                        Logger.Debug("Could not parse character name/element (attempt {0}/{1}). Retrying...", attempts+1, maxAttempts);
                     }
 				}
 				attempts++;
@@ -643,6 +713,7 @@ namespace InventoryKamera
 			} while ( attempts < maxAttempts );
 			name = null;
 			element = null;
+			return rawText;
 		}
 
 		/// <summary>
@@ -739,7 +810,7 @@ namespace InventoryKamera
 						holdMs: InventoryScraper.ScaledControllerDelay(100), settleMs: InventoryScraper.ScaledControllerDelay(400));
 				}
 
-				LogCharacterScreenshot(character.NameGOOD, $"constellation_{constellation + 1}");
+				LogCharacterScreenshot(character.NameGOOD, $"constellations/constellation_{constellation + 1}", activatedRegion);
 
 				if (!ReadConstellationActivated(activatedRegion)) break;
 			}
@@ -818,7 +889,7 @@ namespace InventoryKamera
 			int constellation = 0;
 			for (int node = 5; node >= 0; node--)
 			{
-				LogCharacterScreenshot(character.NameGOOD, $"constellation_greedy_{node + 1}");
+				LogCharacterScreenshot(character.NameGOOD, $"constellations/constellation_greedy_{node + 1}", activatedRegion);
 
 				if (ReadConstellationActivated(activatedRegion))
 				{
@@ -911,7 +982,7 @@ namespace InventoryKamera
 					progressReporter.SetCharacter_Talent(bm, talents["auto"].ToString(), 0);
 					progressReporter.SetCharacter_Talent(bm, talents["skill"].ToString(), 1);
 					progressReporter.SetCharacter_Talent(bm, talents["burst"].ToString(), 2);
-					LogCharacterScreenshot(character.NameGOOD, "talents");
+					LogCharacterScreenshot(character.NameGOOD, "talents", region);
 
 					n.Dispose();
 					bm.Dispose();

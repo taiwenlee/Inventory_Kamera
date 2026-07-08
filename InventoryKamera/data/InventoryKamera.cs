@@ -156,17 +156,23 @@ namespace InventoryKamera
 			GenshinProcesor.UpdateCharacterName("manequin1", scanSettings.Manequin1Name);
 			GenshinProcesor.UpdateCharacterName("manequin2", scanSettings.Manequin2Name);
 
-            if ((scanSettings.ScanWeapons || scanSettings.ScanArtifacts || scanSettings.ScanCharDevItems || scanSettings.ScanMaterials) && !CancelRequested)
+			bool scanInventory = scanSettings.ScanWeapons || scanSettings.ScanArtifacts
+				|| scanSettings.ScanCharDevItems || scanSettings.ScanMaterials;
+			bool workerChannelCompleted = false;
+
+			if ((scanInventory || scanSettings.ScanCharacters) && !CancelRequested)
 			{
-				// Phase 3 §6c: one controller connection and one pause-menu-to-Inventory entry spans
-				// every controller-driven scan phase below. Per user (2026-07-04): switching between
-				// Weapons/Artifacts tabs shouldn't back all the way out to the unpaused game state and
-				// re-enter via the full pause-menu sequence just to immediately go back into Inventory
-				// -- each phase now just calls SwitchToTab internally. Only when this
-				// `using` block ends (both phases done) does GameController.Dispose() back out of
-				// every menu and switch Genshin back to keyboard/mouse mode -- so no
-				// Navigation.InventoryScreen()/SelectWeaponInventory()/SelectArtifactInventory()/
-				// MainMenuScreen() (the mouse path's own entry/exit) are needed here.
+				// Phase 3 §6c: a SINGLE controller connection spans every controller-driven scan phase
+				// -- the inventory group (Weapons/Artifacts/Character Development Items/Materials) AND
+				// Characters. Previously the character phase opened its own second GameController after
+				// the inventory one had been disposed; disconnecting and reconnecting the virtual
+				// controller mid-scan let Genshin drop back to keyboard/mouse (or surface its
+				// "controller disconnected" prompt) in the gap, making the inventory->character handoff
+				// flaky (per user, 2026-07-07). Now there is one connect for the whole scan: between the
+				// two phase groups we just back out to the unpaused free-roam state (MashBack) and let
+				// the next phase re-open the pause menu, never disconnecting until the scan is fully done.
+				// Only when this `using` block ends does GameController.Dispose() back out of every menu
+				// and switch Genshin back to keyboard/mouse.
 				using (var controller = new GameController())
 				{
 					if (!controller.IsAvailable)
@@ -175,118 +181,127 @@ namespace InventoryKamera
 					}
 					else
 					{
-						try
+						if (scanInventory && !CancelRequested)
 						{
-							weaponScraper.EnterInventory(controller);
-						}
-						catch (FormatException ex) { progressReporter.AddError(ex.Message); }
-						catch (Exception ex)
-						{
-							progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
-						}
-
-						// Per user (2026-07-05): once a phase has switched to and scanned a tab, the
-						// next phase already knows where it left off -- no need to re-detect the
-						// current tab via OCR (which had been flaking) just to compute the next
-						// switch. Threaded through explicitly rather than re-derived.
-						string currentTab = null;
-
-						if (scanSettings.ScanWeapons && !CancelRequested)
-						{
-							Logger.Info("Scanning weapons...");
 							try
 							{
-								currentTab = weaponScraper.ScanWeapons(controller, knownCurrentTab: currentTab);
+								weaponScraper.EnterInventory(controller);
 							}
 							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 							catch (Exception ex)
 							{
 								progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
 							}
-							Logger.Info("Done scanning weapons");
+
+							// Per user (2026-07-05): once a phase has switched to and scanned a tab, the
+							// next phase already knows where it left off -- no need to re-detect the
+							// current tab via OCR (which had been flaking) just to compute the next
+							// switch. Threaded through explicitly rather than re-derived.
+							string currentTab = null;
+
+							if (scanSettings.ScanWeapons && !CancelRequested)
+							{
+								Logger.Info("Scanning weapons...");
+								try
+								{
+									currentTab = weaponScraper.ScanWeapons(controller, knownCurrentTab: currentTab);
+								}
+								catch (FormatException ex) { progressReporter.AddError(ex.Message); }
+								catch (Exception ex)
+								{
+									progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
+								}
+								Logger.Info("Done scanning weapons");
+							}
+
+							if (scanSettings.ScanArtifacts && !CancelRequested)
+							{
+								Logger.Info("Scanning artifacts...");
+								try
+								{
+									currentTab = artifactScraper.ScanArtifacts(controller, knownCurrentTab: currentTab);
+								}
+								catch (FormatException ex) { progressReporter.AddError(ex.Message); }
+								catch (Exception ex)
+								{
+									progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
+								}
+								Logger.Info("Done scanning artifacts");
+							}
+
+							if (scanSettings.ScanCharDevItems && !CancelRequested)
+							{
+								Logger.Info("Scanning character development materials...");
+								try
+								{
+									materialScraper.SetInventoryPage(InventoryPage.CharacterDevelopmentItems);
+									currentTab = materialScraper.ScanMaterials(controller, ref Inventory, knownCurrentTab: currentTab);
+								}
+								catch (FormatException ex) { progressReporter.AddError(ex.Message); }
+								catch (Exception ex)
+								{
+									progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
+								}
+								Logger.Info("Done scanning character development materials");
+							}
+
+							if (scanSettings.ScanMaterials && !CancelRequested)
+							{
+								Logger.Info("Scanning materials...");
+								try
+								{
+									materialScraper.SetInventoryPage(InventoryPage.Materials);
+									currentTab = materialScraper.ScanMaterials(controller, ref Inventory, knownCurrentTab: currentTab);
+								}
+								catch (FormatException ex) { progressReporter.AddError(ex.Message); }
+								catch (Exception ex)
+								{
+									progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
+								}
+								Logger.Info("Done scanning materials");
+							}
 						}
 
-						if (scanSettings.ScanArtifacts && !CancelRequested)
+						// All inventory items (if any) are queued -- let the image-processor workers
+						// drain and finish while the character phase runs below. Characters don't queue
+						// to this channel, so it's safe to close it now.
+						workerChannel.Writer.Complete();
+						workerChannelCompleted = true;
+
+						if (scanSettings.ScanCharacters && !CancelRequested)
 						{
-							Logger.Info("Scanning artifacts...");
+							if (scanInventory)
+							{
+								// We're still in controller mode sitting in the Inventory menu. Back all
+								// the way out to the unpaused free-roam state before opening the Character
+								// menu, and give the menu-close animation generous time to finish -- the
+								// Character-menu entry re-opens the pause menu assuming a cold [0,0]
+								// tab-bar start (see EnterCharacterMenu), which only holds from free-roam.
+								// This replaces the old between-phase controller disconnect/reconnect.
+								Logger.Info("Backing out of inventory to free-roam before character scan...");
+								controller.MashBack();
+								Thread.Sleep(Math.Max(4000, InventoryScraper.ScaledControllerDelay(3000)));
+							}
+
+							Logger.Info("Scanning characters...");
 							try
 							{
-								currentTab = artifactScraper.ScanArtifacts(controller, knownCurrentTab: currentTab);
+								characterScraper.ScanCharacters(controller, ref Characters);
 							}
-							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
 							catch (Exception ex)
 							{
 								progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
 							}
-							Logger.Info("Done scanning artifacts");
-						}
-
-						if (scanSettings.ScanCharDevItems && !CancelRequested)
-						{
-							Logger.Info("Scanning character development materials...");
-							try
-							{
-								materialScraper.SetInventoryPage(InventoryPage.CharacterDevelopmentItems);
-								currentTab = materialScraper.ScanMaterials(controller, ref Inventory, knownCurrentTab: currentTab);
-							}
-							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
-							catch (Exception ex)
-							{
-								progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
-							}
-							Logger.Info("Done scanning character development materials");
-						}
-
-						if (scanSettings.ScanMaterials && !CancelRequested)
-						{
-							Logger.Info("Scanning materials...");
-							try
-							{
-								materialScraper.SetInventoryPage(InventoryPage.Materials);
-								currentTab = materialScraper.ScanMaterials(controller, ref Inventory, knownCurrentTab: currentTab);
-							}
-							catch (FormatException ex) { progressReporter.AddError(ex.Message); }
-							catch (Exception ex)
-							{
-								progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
-							}
-							Logger.Info("Done scanning materials");
+							Logger.Info("Done scanning characters");
 						}
 					}
 				}
 			}
 
-			// No more weapon/artifact items will be queued; workers drain whatever's left, then finish.
-			workerChannel.Writer.Complete();
-
-			if (scanSettings.ScanCharacters && !CancelRequested)
-			{
-				Logger.Info("Scanning characters...");
-				// Phase 3 §6c: controller-driven replacement for the old mouse-click character scan,
-				// live-verified 2026-07-05. Own GameController connection (not shared with the
-				// weapons/artifacts/materials block above) since the Character screen is a separate
-				// pause-menu tab entered fresh via EnterCharacterMenu, matching how that
-				// block already ended and disconnected before this section runs.
-				using (var controller = new GameController())
-				{
-					if (!controller.IsAvailable)
-					{
-						progressReporter.AddError($"Controller scan unavailable: {controller.FailureReason}");
-					}
-					else
-					{
-						try
-						{
-							characterScraper.ScanCharacters(controller, ref Characters);
-						}
-						catch (Exception ex)
-						{
-							progressReporter.AddError(ex.Message + "\n" + ex.StackTrace);
-						}
-					}
-				}
-				Logger.Info("Done scanning characters");
-			}
+			// Guarantee the worker channel is closed on every path (controller unavailable, or no
+			// controller-driven phase enabled at all) so AwaitProcessors below never hangs waiting for
+			// a completion signal that otherwise wouldn't come.
+			if (!workerChannelCompleted) workerChannel.Writer.Complete();
 
 			if (scanSettings.ScanWeapons || scanSettings.ScanArtifacts || scanSettings.ScanCharDevItems ||
 				scanSettings.ScanMaterials || scanSettings.ScanCharacters)
