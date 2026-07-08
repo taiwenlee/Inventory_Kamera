@@ -1068,6 +1068,25 @@ actually running it against the game:
   (no measured region, always reports unlocked); artifact sort-MODE (Level/Quality/Type) selection;
   constellation/talent panels still require the confirmed mouse-input fallback (game-side
   constraint, not a code gap).
+- **PLANNED (2026-07-07): rework Materials/Dev-Items quantity position — split unscrolled vs.
+  scrolled scanning.** The current model computes each post-scroll row's quantity Y as
+  `QuantityPostScrollY + scrollsPast × driftPerScrollRow` with a *constant* per-tab drift rate
+  (`MaterialScraper.GetQuantityRegion`). Confirmed by the user (2026-07-07) this is wrong: the shift
+  of the last row depends on the **number of items on the page** — Genshin's scroll is proportional
+  to total content (a longer list scrolls a smaller fraction per row-advance), and it's non-linear
+  near the end where the grid bottoms out. No single drift constant can fit every inventory, and
+  controller mode has no material item-count readout to parameterize it. **Planned approach (per
+  user):** keep two phases within the controller scan —
+  1. **Unscrolled portion:** grid-scan the visible page with the existing fixed per-row positions
+     (rows 0..`RowsVisiblePreScroll`-1), which already work and don't depend on total count.
+  2. **Scrolled portion:** once scrolling begins, stop modeling per-row drift; instead only
+     grid-scan **around the last row** — i.e. treat the newly-revealed bottom row as the scan target
+     each advance, reading its quantity from a position anchored to that last visible row rather than
+     an accumulated drift from the top. This sidesteps the total-count dependence entirely (the last
+     row's on-screen band is stable regardless of how many items precede it).
+  Not built yet. `FullInventory_PostScroll_*.png` (already saved once per scan) is the reference for
+  measuring the last-row band. Supersedes the `quantityDriftPerScrollRow*` constants, which should be
+  removed once this lands.
 
 ---
 
