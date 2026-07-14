@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 
 namespace InventoryKamera
 {
-    public class InventoryKamera
+    public class GameScanner
 	{
 
 		private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
@@ -67,10 +67,10 @@ namespace InventoryKamera
 		/// <param name="progressReporter">
 		/// Owned by the caller (<see cref="MainForm"/>), not constructed here: unlike
 		/// <c>ocrService</c>/<c>imagePreprocessor</c>/<c>scanSettings</c>, a <see cref="ScanViewModel"/>
-		/// needs to outlive any single <see cref="InventoryKamera"/> instance (MainForm recreates one
+		/// needs to outlive any single <see cref="GameScanner"/> instance (MainForm recreates one
 		/// per scan) so its subscribers don't have to re-subscribe every time.
 		/// </param>
-		internal InventoryKamera(IScanProgressReporter progressReporter)
+		internal GameScanner(IScanProgressReporter progressReporter)
 		{
 			Characters = new List<Character>();
 			Inventory = new Inventory();

@@ -352,7 +352,7 @@ namespace InventoryKamera
             {
                 Logger.Info("Artifact scan #{0}: filtered out (belowRarity={1}, belowLevel={2}, sanctified={3}).",
                     id, belowRarity, belowLevel, sanctified);
-                // Filtered-out items never reach ProcessImageCollectionAsync (InventoryKamera.cs),
+                // Filtered-out items never reach ProcessImageCollectionAsync (GameScanner.cs),
                 // the only place that normally saves per-region crops -- without this, a wrong
                 // belowLevel/belowRarity read (e.g. a miscalibrated crop) filtered an item with zero
                 // visual evidence of what was actually captured.
@@ -364,7 +364,7 @@ namespace InventoryKamera
             }
 
             Logger.Info("Artifact scan #{0}: queued for cataloguing (sanctified={1}).", id, sanctified);
-            InventoryKamera.workerChannel.Writer.TryWrite(new OCRImageCollection(artifactImages, "artifact", id));
+            GameScanner.workerChannel.Writer.TryWrite(new OCRImageCollection(artifactImages, "artifact", id));
         }
 
         /// <summary>
@@ -414,7 +414,7 @@ namespace InventoryKamera
 
             int scanned = 0;
 
-            while (scanned < artifactCount && !InventoryKamera.CancelRequested && !StopScanning)
+            while (scanned < artifactCount && !GameScanner.CancelRequested && !StopScanning)
             {
                 progressReporter.WaitIfCorrectionPending();
 
@@ -437,7 +437,7 @@ namespace InventoryKamera
             }
 
             Logger.Info("Controller artifact scan finished: {0} of {1} scanned (cancelled={2}, stopped={3})",
-                scanned, artifactCount, InventoryKamera.CancelRequested, StopScanning);
+                scanned, artifactCount, GameScanner.CancelRequested, StopScanning);
 
             // Always report "Artifacts" here, not whatever SwitchToTab returned -- see
             // WeaponScraper.ScanWeapons's matching comment: by the time we get here the

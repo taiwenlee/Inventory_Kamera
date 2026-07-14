@@ -41,7 +41,7 @@ namespace InventoryKamera
             Source = "NOT FILLED";
         }
 
-        public GOOD(InventoryKamera genshinData) : this()
+        public GOOD(GameScanner genshinData) : this()
         {
             // Get rid of VS warning since we are converting this class to JSON
             Format = "GOOD";

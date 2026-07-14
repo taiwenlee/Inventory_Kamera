@@ -68,7 +68,7 @@ namespace InventoryKamera
             {
                 Logger.Info("Weapon scan #{0}: filtered out (belowRarity={1}, belowLevel={2}, stopping={3}).",
                     id, belowRarity, belowLevel, StopScanning);
-                // Filtered-out items never reached ProcessImageCollectionAsync (InventoryKamera.cs),
+                // Filtered-out items never reached ProcessImageCollectionAsync (GameScanner.cs),
                 // which is the only place that normally saves per-region crops -- without this, a
                 // wrong belowLevel/belowRarity read (e.g. a miscalibrated crop) filtered (or, worse,
                 // via StopScanning, silently ended) a scan with zero visual evidence of what was
@@ -82,7 +82,7 @@ namespace InventoryKamera
             }
 
             Logger.Info("Weapon scan #{0}: queued for cataloguing.", id);
-            InventoryKamera.workerChannel.Writer.TryWrite(new OCRImageCollection(weaponImages, "weapon", id));
+            GameScanner.workerChannel.Writer.TryWrite(new OCRImageCollection(weaponImages, "weapon", id));
         }
 
         // Fixed dropdown order per user (2026-07-04): Level, Quality, Type.
@@ -211,7 +211,7 @@ namespace InventoryKamera
 
             int scanned = 0;
 
-            while (scanned < weaponCount && !InventoryKamera.CancelRequested && !StopScanning)
+            while (scanned < weaponCount && !GameScanner.CancelRequested && !StopScanning)
             {
                 progressReporter.WaitIfCorrectionPending();
 
@@ -241,7 +241,7 @@ namespace InventoryKamera
             }
 
             Logger.Info("Controller weapon scan finished: {0} of {1} scanned (cancelled={2}, stopped={3})",
-                scanned, weaponCount, InventoryKamera.CancelRequested, StopScanning);
+                scanned, weaponCount, GameScanner.CancelRequested, StopScanning);
 
             // Always report "Weapons" here, not whatever SwitchToTab returned: this
             // method's whole job is to end up scanning the Weapons tab, so by the time we get here

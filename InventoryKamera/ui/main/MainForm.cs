@@ -35,7 +35,7 @@ namespace InventoryKamera
         // DatabaseManager's constructor, which touches the filesystem and can trigger a blocking network
         // data download that hangs/breaks the designer.
         private static ScanViewModel scanViewModel;
-        private static InventoryKamera data;
+        private static GameScanner data;
         private static DatabaseManager databaseManager;
 
         private bool running = false;
@@ -53,7 +53,7 @@ namespace InventoryKamera
             if (LicenseManager.UsageMode == LicenseUsageMode.Designtime) return;
 
             scanViewModel = new ScanViewModel();
-            data = new InventoryKamera(scanViewModel);
+            data = new GameScanner(scanViewModel);
             databaseManager = new DatabaseManager();
 
             BindSettings();
@@ -100,7 +100,7 @@ namespace InventoryKamera
         // Binds the settings-backed controls to Properties.Settings.Default in code rather than the
         // WinForms designer. The designer rewrites these bindings to a throwaway `new Settings()`
         // snapshot on every round-trip, silently disconnecting them from Settings.Default -- the
-        // instance ScanSettings/InventoryKamera actually read -- so e.g. unchecking a scan box stopped
+        // instance ScanSettings/GameScanner actually read -- so e.g. unchecking a scan box stopped
         // taking effect. Keeping the bindings here puts them out of the designer's reach. Adding a
         // Binding also pulls each control's initial value from the saved setting.
         private void BindSettings()
@@ -303,8 +303,8 @@ namespace InventoryKamera
             {
                 // Stop navigating weapons/artifacts. .NET no longer supports Thread.Abort, so the
                 // scanner thread is asked to stop cooperatively; it checks this flag between scan
-                // phases and between items within a phase (see InventoryKamera.CancelRequested).
-                InventoryKamera.CancelRequested = true;
+                // phases and between items within a phase (see GameScanner.CancelRequested).
+                GameScanner.CancelRequested = true;
 
                 scanViewModel.SetProgramStatus("Stopping scan...");
             }
@@ -549,7 +549,7 @@ namespace InventoryKamera
                             if (capture.Size != expectedSize) throw new FormatException("Window size and screenshot size mismatch. Please make sure the game is not in a fullscreen mode.");
                         }
 
-                        data = new InventoryKamera(scanViewModel);
+                        data = new GameScanner(scanViewModel);
 
                         Logger.Info("Resolution: {0}x{1}", Navigation.GetSize().Width, Navigation.GetSize().Height);
 
@@ -570,7 +570,7 @@ namespace InventoryKamera
                         // still safe to call again in `finally` (e.g. on the cancelled/exception paths).
                         ResetUI();
 
-                        if (InventoryKamera.CancelRequested)
+                        if (GameScanner.CancelRequested)
                         {
                             // Scan was stopped cooperatively (Stop hotkey). Matches the previous
                             // Thread.Abort behaviour: skip GOOD conversion/export/optimizer dialog.

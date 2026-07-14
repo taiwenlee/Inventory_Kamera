@@ -2,7 +2,7 @@ namespace InventoryKamera
 {
     /// <summary>
     /// The subset of <see cref="Properties.Settings"/> that scan logic (scrapers + the
-    /// <see cref="InventoryKamera"/> orchestrator) reads, behind an injectable seam instead of the
+    /// <see cref="GameScanner"/> orchestrator) reads, behind an injectable seam instead of the
     /// concrete WinForms <c>Properties.Settings.Default</c> static (Phase 2 §2.3).
     /// </summary>
     internal interface IScanSettings

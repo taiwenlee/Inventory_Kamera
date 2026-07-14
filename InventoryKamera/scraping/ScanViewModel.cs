@@ -125,7 +125,7 @@ namespace InventoryKamera
         /// <summary>
         /// Owned by this instance -- cloned from whatever <see cref="Bitmap"/> scan logic passes in
         /// (matching the original <c>UpdatePictureBox</c>'s defensive clone, so scan logic can dispose
-        /// its own copy freely). <see cref="InventoryKamera"/>'s worker pool runs multiple background
+        /// its own copy freely). <see cref="GameScanner"/>'s worker pool runs multiple background
         /// threads concurrently, any of which can call <see cref="SetGear(Bitmap, Weapon)"/>/
         /// <see cref="SetGearPictureBox"/> at the same time, so reading this field directly and handing
         /// it to a <c>PictureBox</c> is unsafe -- a second thread's dispose-and-replace could run between

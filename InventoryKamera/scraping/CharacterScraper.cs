@@ -249,7 +249,7 @@ namespace InventoryKamera
 				gapSinceLastRecorded++;
 
 				if (maxToScan != 0 && Characters.Count >= maxToScan) break;
-				if (InventoryKamera.CancelRequested)
+				if (GameScanner.CancelRequested)
 				{
 					Logger.Info("Stopping character scan: cancel requested");
 					break;
@@ -264,7 +264,7 @@ namespace InventoryKamera
 			// silently kept running the full Constellations/Talents passes over every character
 			// already recorded instead of stopping. If Phase 1 itself was cancelled, skip straight to
 			// the Tartaglia fix on whatever was scanned rather than starting Phase 2/3 at all.
-			if (InventoryKamera.CancelRequested)
+			if (GameScanner.CancelRequested)
 			{
 				ApplyTartagliaFix(Characters);
 				ApplySkirkFix(Characters);
@@ -312,7 +312,7 @@ namespace InventoryKamera
 			else
 				ScanRosterBackward(controller, characterList, gapsBeforeEach, gapAfterLast, ScanConstellation);
 
-			if (InventoryKamera.CancelRequested)
+			if (GameScanner.CancelRequested)
 			{
 				ApplyTartagliaFix(Characters);
 				ApplySkirkFix(Characters);
@@ -378,7 +378,7 @@ namespace InventoryKamera
 
 				// Per user (2026-07-05): a cancel request during Phase 2/3 previously went
 				// unchecked, silently finishing the whole roster pass instead of stopping.
-				if (InventoryKamera.CancelRequested)
+				if (GameScanner.CancelRequested)
 				{
 					Logger.Info("Stopping character scan: cancel requested");
 					break;
@@ -410,7 +410,7 @@ namespace InventoryKamera
 
 				// Per user (2026-07-05): a cancel request during Phase 2/3 previously went
 				// unchecked, silently finishing the whole roster pass instead of stopping.
-				if (InventoryKamera.CancelRequested)
+				if (GameScanner.CancelRequested)
 				{
 					Logger.Info("Stopping character scan: cancel requested");
 					break;

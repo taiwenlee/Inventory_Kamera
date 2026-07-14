@@ -428,7 +428,7 @@ namespace InventoryKamera
 			double rowQuantityTop = ExpectedRowQuantityTop(0);
 			double rowQuantityHeight = QuantityHeight;
 
-			while (!InventoryKamera.CancelRequested && !StopScanning)
+			while (!GameScanner.CancelRequested && !StopScanning)
 			{
 				progressReporter.WaitIfCorrectionPending();
 
@@ -511,7 +511,7 @@ namespace InventoryKamera
 			}
 
 			Logger.Info("Controller {0} scan finished: {1} scanned (cancelled={2}, stopped={3})",
-				inventoryPage, scanned, InventoryKamera.CancelRequested, StopScanning);
+				inventoryPage, scanned, GameScanner.CancelRequested, StopScanning);
 
 			// Always report targetTab here, not whatever SwitchToTab returned -- see
 			// WeaponScraper.ScanWeapons's matching comment: by the time we get here the
