@@ -175,7 +175,7 @@ namespace InventoryKamera
                 text = Regex.Replace(text, @"[^0-9/]", string.Empty);
 
                 float confidencePercent = confidence * 100;
-                Logger.Debug("{0} item count OCR: text=\"{1}\" confidence={2:0.0}% threshold={3}%", inventoryPage, text, confidencePercent, scanSettings.OcrConfidenceThreshold);
+                Logger.Debug("{0} item count OCR: rawText=\"{1}\" confidence={2:0.0}% threshold={3}%", inventoryPage, text, confidencePercent, scanSettings.OcrConfidenceThreshold);
                 if (string.IsNullOrWhiteSpace(text) || confidencePercent < scanSettings.OcrConfidenceThreshold)
                 {
                     Logger.Debug("{0} item count below confidence threshold -- requesting inline correction", inventoryPage);

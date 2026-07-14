@@ -140,7 +140,7 @@ namespace InventoryKamera
 			{
 				imageProcessorTasks.Add(Task.Run(() => ImageProcessorWorkerAsync(workerAbortCts.Token)));
 			}
-			Logger.Debug("Added {NumWorkers} workers", NumWorkers);
+			Logger.Debug("Added {0} workers", NumWorkers);
 
 			ocrService.Restart();
 
@@ -353,7 +353,7 @@ namespace InventoryKamera
 					catch (Exception ex)
 					{
 						// A single bad item shouldn't take the whole worker down; log and keep going.
-						Logger.Error(ex, "Image processor worker failed on a queued {Type} item", imageCollection.Type);
+						Logger.Error(ex, "Image processor worker failed on a queued {0} item", imageCollection.Type);
 					}
 				}
 			}
@@ -372,7 +372,7 @@ namespace InventoryKamera
 						case "weapon":
 							if (weaponScraper.IsEnhancementMaterial(imageCollection.Bitmaps.First()))
 							{
-								Logger.Debug("Enhancement Material found for weapon #{weaponID}", imageCollection.Id);
+								Logger.Debug("Enhancement material found for weapon #{0}", imageCollection.Id);
 								weaponScraper.StopScanning = true;
 								break;
 							}
@@ -442,7 +442,7 @@ namespace InventoryKamera
 						case "artifact":
 							if (artifactScraper.IsEnhancementMaterial(imageCollection.Bitmaps.Last()))
 							{
-								Logger.Debug("Enhancement Material found for artifact #{artifactID}", imageCollection.Id);
+								Logger.Debug("Enhancement material found for artifact #{0}", imageCollection.Id);
 								artifactScraper.StopScanning = true;
 								break;
 							}
@@ -543,7 +543,7 @@ namespace InventoryKamera
 					if (artifact.EquippedCharacter == character.NameGOOD)
 					{
 						character.AssignArtifact(artifact); // Do we even need to do this?
-						Logger.Debug("Assigned {fearSlot} to {character}", artifact.GearSlot, character.NameGOOD);
+						Logger.Debug("Assigned {0} to {1}", artifact.GearSlot, character.NameGOOD);
 						break;
 					}
 				}
@@ -559,14 +559,14 @@ namespace InventoryKamera
 					if (weapon.EquippedCharacter == character.NameGOOD)
 					{
 						character.AssignWeapon(weapon);
-						Logger.Debug("Assigned {weapon} to {character}", weapon.Name, character.NameGOOD);
+						Logger.Debug("Assigned {0} to {1}", weapon.Name, character.NameGOOD);
 						break;
 					}
 				}
 				if (character.Weapon is null)
 				{
 					Inventory.Add(new Weapon(character.WeaponType, character.NameGOOD));
-					Logger.Info("Default weapon assigned to {character}", character.NameGOOD);
+					Logger.Info("Default weapon assigned to {0}", character.NameGOOD);
 				}
 			}
 		}

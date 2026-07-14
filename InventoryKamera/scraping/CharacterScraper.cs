@@ -216,7 +216,7 @@ namespace InventoryKamera
 						scanned.Add(name);
 						progressReporter.IncrementCharacterCount();
 						if (Characters.Count == 1) firstName = name;
-						Logger.Info("Scanned {0} attributes successfully (controller)", character.NameGOOD);
+						Logger.Info("{0} attributes: element={1}, level={2}{3}", character.NameGOOD, character.Element, character.Level, character.Ascended ? "+" : "");
 					}
 					else
 					{

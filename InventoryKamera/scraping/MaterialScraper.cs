@@ -347,7 +347,7 @@ namespace InventoryKamera
 
 					int.TryParse(cleaned, out val);
 
-					Logger.Debug($"Scanned (controller): {original} -> Regex: {cleaned} -> Parsed: {val}");
+					Logger.Debug("Material quantity OCR: raw=\"{0}\" cleaned=\"{1}\" parsed={2}", original, cleaned, val);
 
 					if (counts.TryGetValue(val, out var counter))
 					{

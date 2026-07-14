@@ -241,7 +241,7 @@ namespace InventoryKamera
                     }
                 }
                 else
-                    Logger.Error($"Could not update all information for version {RemoteVersion}");
+                    Logger.Error("Could not update all information for version {0}", RemoteVersion);
 
                 ReleaseMappings();
                 return overallStatus;
