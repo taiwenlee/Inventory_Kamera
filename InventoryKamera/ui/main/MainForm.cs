@@ -1007,5 +1007,10 @@ namespace InventoryKamera
         {
 
         }
+
+        private void Character_Label_Click(object sender, EventArgs e)
+        {
+
+        }
     }
 }

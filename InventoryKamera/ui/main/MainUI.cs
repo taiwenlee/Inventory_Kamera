@@ -66,7 +66,7 @@ namespace InventoryKamera.ui.main
         private void GithubLabelLink_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
             Logger.Info("Opening Github...");
-            Process.Start("https://github.com/Andrewthe13th/Inventory_Kamera/");
+            Process.Start("https://github.com/taiwenlee/Inventory_Kamera/");
         }
     }
 }

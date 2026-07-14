@@ -37,7 +37,7 @@ Before installing Inventory Kamera, please have **the following things installed
 - [GenshinImpact.exe](https://genshin.hoyoverse.com/) or [YuanShen.exe](https://ys.mihoyo.com/) launcher
 - [Microsoft Visual C++ Redistributable for Visual Studio 2015-2022 (x86 or x64)](https://docs.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170#visual-studio-2015-2017-2019-and-2022), _**A computer restart may be required after installing this package for the first time**_
 
-[Download the latest version of Inventory Kamera here](https://github.com/Andrewthe13th/Inventory_Kamera/releases/latest) and unzip its files into a folder of your choosing, then launch the extracted .exe file. It will likely prompt you for Security and/or User Access. This access is required to interact with the game.
+[Download the latest version of Inventory Kamera here](https://github.com/taiwenlee/Inventory_Kamera/releases/latest) and unzip its files into a folder of your choosing, then launch the extracted .exe file. It will likely prompt you for Security and/or User Access. This access is required to interact with the game.
 
 To upgrade from a previous version, download a newer release and unzip its files into the current Inventory Kamera location (allow it to replace old files when prompted) or a new folder of your choosing.
 
@@ -52,7 +52,7 @@ To upgrade from a previous version, download a newer release and unzip its files
      - Don't know if a resolution is 16:9 or 16:10? [Find out here](https://andrew.hedges.name/experiments/aspect_ratio/).
         > **Warning**
         >
-        > If you have an ultrawide screen, please see [this thread](https://github.com/Andrewthe13th/Inventory_Kamera/issues/40)
+        > If you have an ultrawide screen, please see [this thread](https://github.com/taiwenlee/Inventory_Kamera/issues/40)
         > Additionally, HDR is not currently supported. If you experience scanning issues, please make sure this is disabled in Windows Settings
    - Under `Controls`, set _Control Type_ to Keyboard.
      - If you rebound keys (inventory (default: B), character screen (default: C), or selecting character 1 (default: 1)) revert your binding to default or set up the new key binding in Inventory Kamera.

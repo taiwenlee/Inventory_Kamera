@@ -114,8 +114,8 @@ namespace InventoryKamera
             ZeroMeansAllTooltips = new System.Windows.Forms.ToolTip(components);
             ScanAllArtifactPages_CheckBox = new System.Windows.Forms.CheckBox();
             ScanAllCharacters_CheckBox = new System.Windows.Forms.CheckBox();
-            WhatToScanGroupBox = new global::InventoryKamera.ui.FlatGroupBox();
-            FiltersGroupBox = new global::InventoryKamera.ui.FlatGroupBox();
+            WhatToScanGroupBox = new InventoryKamera.ui.FlatGroupBox();
+            FiltersGroupBox = new InventoryKamera.ui.FlatGroupBox();
             ((System.ComponentModel.ISupportInitialize)CharacterTalent1_PictureBox).BeginInit();
             ((System.ComponentModel.ISupportInitialize)CharacterLevel_PictureBox).BeginInit();
             ((System.ComponentModel.ISupportInitialize)CharacterName_PictureBox).BeginInit();
@@ -152,7 +152,7 @@ namespace InventoryKamera
             // WeaponArtifact_Label
             // 
             WeaponArtifact_Label.AutoSize = true;
-            WeaponArtifact_Label.BackColor = System.Drawing.Color.FromArgb(58, 52, 48);
+            WeaponArtifact_Label.BackColor = System.Drawing.Color.FromArgb(64, 64, 64);
             WeaponArtifact_Label.ForeColor = System.Drawing.SystemColors.Control;
             WeaponArtifact_Label.Location = new System.Drawing.Point(14, 16);
             WeaponArtifact_Label.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
@@ -165,7 +165,7 @@ namespace InventoryKamera
             // 
             WeaponArtifactOutput_TextBox_Label.AutoSize = true;
             WeaponArtifactOutput_TextBox_Label.ForeColor = System.Drawing.SystemColors.Control;
-            WeaponArtifactOutput_TextBox_Label.Location = new System.Drawing.Point(230, 16);
+            WeaponArtifactOutput_TextBox_Label.Location = new System.Drawing.Point(249, 16);
             WeaponArtifactOutput_TextBox_Label.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
             WeaponArtifactOutput_TextBox_Label.Name = "WeaponArtifactOutput_TextBox_Label";
             WeaponArtifactOutput_TextBox_Label.Size = new System.Drawing.Size(69, 25);
@@ -211,22 +211,22 @@ namespace InventoryKamera
             // 
             // CharacterOutput_TextBox
             // 
-            CharacterOutput_TextBox.Location = new System.Drawing.Point(856, 60);
+            CharacterOutput_TextBox.Location = new System.Drawing.Point(856, 56);
             CharacterOutput_TextBox.Margin = new System.Windows.Forms.Padding(4);
             CharacterOutput_TextBox.Multiline = true;
             CharacterOutput_TextBox.Name = "CharacterOutput_TextBox";
             CharacterOutput_TextBox.ReadOnly = true;
             CharacterOutput_TextBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            CharacterOutput_TextBox.Size = new System.Drawing.Size(291, 378);
+            CharacterOutput_TextBox.Size = new System.Drawing.Size(291, 382);
             CharacterOutput_TextBox.TabIndex = 40;
             // 
             // CharacterTalent1_PictureBox
             // 
             CharacterTalent1_PictureBox.BackColor = System.Drawing.SystemColors.Window;
-            CharacterTalent1_PictureBox.Location = new System.Drawing.Point(588, 166);
+            CharacterTalent1_PictureBox.Location = new System.Drawing.Point(588, 156);
             CharacterTalent1_PictureBox.Margin = new System.Windows.Forms.Padding(4);
             CharacterTalent1_PictureBox.Name = "CharacterTalent1_PictureBox";
-            CharacterTalent1_PictureBox.Size = new System.Drawing.Size(256, 272);
+            CharacterTalent1_PictureBox.Size = new System.Drawing.Size(256, 282);
             CharacterTalent1_PictureBox.SizeMode = System.Windows.Forms.PictureBoxSizeMode.StretchImage;
             CharacterTalent1_PictureBox.TabIndex = 34;
             CharacterTalent1_PictureBox.TabStop = false;
@@ -234,7 +234,7 @@ namespace InventoryKamera
             // CharacterLevel_PictureBox
             // 
             CharacterLevel_PictureBox.BackColor = System.Drawing.SystemColors.Window;
-            CharacterLevel_PictureBox.Location = new System.Drawing.Point(588, 115);
+            CharacterLevel_PictureBox.Location = new System.Drawing.Point(589, 109);
             CharacterLevel_PictureBox.Margin = new System.Windows.Forms.Padding(4);
             CharacterLevel_PictureBox.Name = "CharacterLevel_PictureBox";
             CharacterLevel_PictureBox.Size = new System.Drawing.Size(256, 39);
@@ -245,7 +245,7 @@ namespace InventoryKamera
             // CharacterName_PictureBox
             // 
             CharacterName_PictureBox.BackColor = System.Drawing.SystemColors.Window;
-            CharacterName_PictureBox.Location = new System.Drawing.Point(588, 60);
+            CharacterName_PictureBox.Location = new System.Drawing.Point(589, 56);
             CharacterName_PictureBox.Margin = new System.Windows.Forms.Padding(4);
             CharacterName_PictureBox.Name = "CharacterName_PictureBox";
             CharacterName_PictureBox.Size = new System.Drawing.Size(256, 45);
@@ -257,7 +257,7 @@ namespace InventoryKamera
             // 
             CharacterOutput_TextBox_Label.AutoSize = true;
             CharacterOutput_TextBox_Label.ForeColor = System.Drawing.SystemColors.Control;
-            CharacterOutput_TextBox_Label.Location = new System.Drawing.Point(844, 16);
+            CharacterOutput_TextBox_Label.Location = new System.Drawing.Point(856, 16);
             CharacterOutput_TextBox_Label.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
             CharacterOutput_TextBox_Label.Name = "CharacterOutput_TextBox_Label";
             CharacterOutput_TextBox_Label.Size = new System.Drawing.Size(69, 25);
@@ -268,12 +268,13 @@ namespace InventoryKamera
             // 
             Character_Label.AutoSize = true;
             Character_Label.ForeColor = System.Drawing.SystemColors.Control;
-            Character_Label.Location = new System.Drawing.Point(631, 16);
+            Character_Label.Location = new System.Drawing.Point(588, 16);
             Character_Label.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
             Character_Label.Name = "Character_Label";
             Character_Label.Size = new System.Drawing.Size(90, 25);
             Character_Label.TabIndex = 29;
             Character_Label.Text = "Character:";
+            Character_Label.Click += Character_Label_Click;
             // 
             // WeaponsScanned_Label
             // 
@@ -464,7 +465,7 @@ namespace InventoryKamera
             // 
             ErrorReport_Label.AutoSize = true;
             ErrorReport_Label.ForeColor = System.Drawing.SystemColors.Control;
-            ErrorReport_Label.Location = new System.Drawing.Point(434, 444);
+            ErrorReport_Label.Location = new System.Drawing.Point(856, 444);
             ErrorReport_Label.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
             ErrorReport_Label.Name = "ErrorReport_Label";
             ErrorReport_Label.Size = new System.Drawing.Size(204, 25);
@@ -475,7 +476,7 @@ namespace InventoryKamera
             // 
             IssuesPage_Label.AutoSize = true;
             IssuesPage_Label.LinkColor = System.Drawing.Color.FromArgb(0, 192, 0);
-            IssuesPage_Label.Location = new System.Drawing.Point(746, 444);
+            IssuesPage_Label.Location = new System.Drawing.Point(1054, 444);
             IssuesPage_Label.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
             IssuesPage_Label.Name = "IssuesPage_Label";
             IssuesPage_Label.Size = new System.Drawing.Size(95, 25);
