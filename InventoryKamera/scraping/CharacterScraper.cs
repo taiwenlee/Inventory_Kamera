@@ -501,9 +501,9 @@ namespace InventoryKamera
 		/// name="relativeName"/> may contain '/' to nest into a subfolder (e.g.
 		/// <c>"constellations/constellation_1"</c>).
 		/// </summary>
-		private void LogCharacterScreenshot(string characterName, string relativeName, Rectangle region)
+		private void LogCharacterScreenshot(string characterName, string relativeName, Rectangle region, bool force = false)
 		{
-			if (!scanSettings.LogScreenshots) return;
+			if (!force && !scanSettings.LogScreenshots) return;
 
 			string path = $"./logging/characters/{characterName}/{relativeName}.png";
 			Directory.CreateDirectory(Path.GetDirectoryName(path));
@@ -1072,6 +1072,16 @@ namespace InventoryKamera
 				bm.Dispose();
 				attempt++;
 				Navigation.SystemWait(Navigation.Speed.Fast);
+			}
+
+			// The loop only sets all three talents together (on a successful read) then breaks; if it
+			// exhausted every attempt without that, they're still -1. Surface it (previously silent --
+			// the character just came back with -1/-1/-1 talents) and force-save the talent region so
+			// the failure is diagnosable even with LogScreenshots off.
+			if (talents["auto"] < 1 || talents["skill"] < 1 || talents["burst"] < 1)
+			{
+				progressReporter.AddError($"Could not determine {character.NameGOOD}'s talents.");
+				LogCharacterScreenshot(character.NameGOOD, "talents_unconfirmed", region, force: true);
 			}
 
 			return talents;
