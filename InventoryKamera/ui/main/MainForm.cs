@@ -64,9 +64,9 @@ namespace InventoryKamera
 #if DEBUG
             version = Assembly.GetExecutingAssembly().GetName().Version.ToString(4);
 #endif
-            Logger.Info("Inventory Kamera version {0}", version);
+            Logger.Info("Inventory Kamera version {0} (preview)", version);
 
-            Text = $"Inventory Kamera V{version}";
+            Text = $"Inventory Kamera V{version} (preview)";
 
             UserInterface.Init(
                 CharacterName_PictureBox,
@@ -660,17 +660,17 @@ namespace InventoryKamera
 
         private void Github_Label_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            Process.Start("https://github.com/taiwenlee/Inventory_Kamera/");
+            Process.Start(new ProcessStartInfo("https://github.com/taiwenlee/Inventory_Kamera/") { UseShellExecute = true });
         }
 
         private void Releases_Label_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            Process.Start("https://github.com/taiwenlee/Inventory_Kamera/releases");
+            Process.Start(new ProcessStartInfo("https://github.com/taiwenlee/Inventory_Kamera/releases") { UseShellExecute = true });
         }
 
         private void IssuesPage_Label_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            Process.Start("https://github.com/taiwenlee/Inventory_Kamera/issues");
+            Process.Start(new ProcessStartInfo("https://github.com/taiwenlee/Inventory_Kamera/issues") { UseShellExecute = true });
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
@@ -825,7 +825,7 @@ namespace InventoryKamera
         {
             if (Directory.Exists(Properties.Settings.Default.OutputPath) || Directory.CreateDirectory(Properties.Settings.Default.OutputPath).Exists)
             {
-                Process.Start($@"{Properties.Settings.Default.OutputPath}");
+                Process.Start(new ProcessStartInfo(Properties.Settings.Default.OutputPath) { UseShellExecute = true });
             }
             else
             {
@@ -945,7 +945,7 @@ namespace InventoryKamera
 
         private void ErrorLog_Label_Click(object sender, EventArgs e)
         {
-            Process.Start($@"logging");
+            Process.Start(new ProcessStartInfo("logging") { UseShellExecute = true });
         }
 
         private void updateExecutablesToolStripMenuItem_Click(object sender, EventArgs e)
