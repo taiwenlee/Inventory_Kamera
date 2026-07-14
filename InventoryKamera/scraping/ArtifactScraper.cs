@@ -20,6 +20,9 @@ namespace InventoryKamera
 		public ArtifactScraper(IOcrService ocrService, IImagePreprocessor imagePreprocessor, IScanSettings scanSettings, IScanProgressReporter progressReporter) : base(ocrService, imagePreprocessor, scanSettings, progressReporter)
 		{
 			inventoryPage = InventoryPage.Artifacts;
+            // Level takes precedence over rarity: sort by level whenever a real minimum level is set,
+            // else fall back to rarity. Threshold is the level floor -- artifact levels are 0-based
+            // (0-20, floor 0), so "> 0", vs WeaponScraper's 1-based levels (floor 1, "> 1").
             SortByLevel = scanSettings.MinimumArtifactLevel > 0;
             SortByObtained = scanSettings.SortByObtained;
         }

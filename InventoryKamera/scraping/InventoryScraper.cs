@@ -77,9 +77,9 @@ namespace InventoryKamera
         /// so scan attempts saved from here land in the same kind of organized tree instead of a flat
         /// dump of files directly under <c>./logging</c>.
         /// </summary>
-        protected void SaveDebugScreenshot(Bitmap bitmap, string relativePath)
+        protected void SaveDebugScreenshot(Bitmap bitmap, string relativePath, bool force = false)
         {
-            if (!scanSettings.LogScreenshots) return;
+            if (!force && !scanSettings.LogScreenshots) return;
 
             string fullPath = Path.Combine("./logging", relativePath + ".png");
             Directory.CreateDirectory(Path.GetDirectoryName(fullPath));

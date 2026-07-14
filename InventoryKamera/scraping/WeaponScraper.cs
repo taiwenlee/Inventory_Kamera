@@ -105,28 +105,56 @@ namespace InventoryKamera
                 SaveDebugScreenshot(region, "weapons/sortmode/region");
 
                 var preprocessor = new ImageProcessor();
-                Bitmap processed = preprocessor.ConvertToGrayscale(region);
-                preprocessor.SetContrast(60.0, ref processed);
-                preprocessor.SetInvert(ref processed);
+                Bitmap gray = preprocessor.ConvertToGrayscale(region);
+                preprocessor.SetContrast(60.0, ref gray);
 
-                SaveDebugScreenshot(processed, "weapons/sortmode/processed");
-
-                string rawText;
-                using (processed)
-                using (var ocr = new OcrService())
-                {
-                    rawText = ocr.AnalyzeText(processed, Tesseract.PageSegMode.SingleLine).Trim();
-                }
-
-                string normalizedText = Regex.Replace(rawText.ToLower(), @"[\W]", string.Empty);
                 var normalizedModes = SortModeNames.Select(m => m.ToLower()).ToArray();
-                string matchedNormalized = TextNormalizer.FindClosestInList(normalizedText, new HashSet<string>(normalizedModes));
-                int index = Array.IndexOf(normalizedModes, matchedNormalized);
+                string matchedMode = null;
+                string rawTextLog = "";
 
-                Logger.Info("Sort mode OCR: rawText=\"{0}\" normalizedText=\"{1}\" matched=\"{2}\"",
-                    rawText, normalizedText, index >= 0 ? SortModeNames[index] : "(none)");
+                // Try both polarities. The tab bar is light-text-on-dark, so the shared
+                // grayscale+contrast+invert pipeline (see InventoryScraper tab detection) makes it
+                // Tesseract-ready -- but the sort-dropdown button renders dark-text-on-light, which that
+                // invert flips to light-on-dark and garbles. Rather than hard-code one polarity (the
+                // button's can differ by game version/state), OCR the non-inverted image first, then the
+                // inverted one, and take whichever matches a known mode.
+                foreach (bool invert in new[] { false, true })
+                {
+                    // Plain local (not `using`) so it can be passed by ref to SetInvert.
+                    Bitmap candidate = (Bitmap)gray.Clone();
+                    try
+                    {
+                        if (invert) preprocessor.SetInvert(ref candidate);
+                        SaveDebugScreenshot(candidate, invert ? "weapons/sortmode/processed_inverted" : "weapons/sortmode/processed");
 
-                return index >= 0 ? SortModeNames[index] : null;
+                        string rawText;
+                        using (var ocr = new OcrService())
+                            rawText = ocr.AnalyzeText(candidate, Tesseract.PageSegMode.SingleLine).Trim();
+
+                        string normalizedText = Regex.Replace(rawText.ToLower(), @"[\W]", string.Empty);
+                        rawTextLog += $"[invert={invert} raw=\"{rawText}\" norm=\"{normalizedText}\"] ";
+
+                        string matchedNormalized = TextNormalizer.FindClosestInList(normalizedText, new HashSet<string>(normalizedModes));
+                        int idx = Array.IndexOf(normalizedModes, matchedNormalized);
+                        if (idx >= 0) { matchedMode = SortModeNames[idx]; break; }
+                    }
+                    finally
+                    {
+                        candidate.Dispose();
+                    }
+                }
+                gray.Dispose();
+
+                Logger.Info("Sort mode OCR: {0}matched=\"{1}\"", rawTextLog, matchedMode ?? "(none)");
+
+                // Sort mode couldn't be read confidently -- always save the captured region for
+                // diagnosis (the SaveDebugScreenshot calls above only run when LogScreenshots is on),
+                // so there's evidence of what the OCR saw when the sort (and thus the filter's
+                // early-stop-on-threshold) gets disabled.
+                if (matchedMode == null)
+                    SaveDebugScreenshot(region, "weapons/sortmode/unconfirmed", force: true);
+
+                return matchedMode;
             }
         }
 
@@ -205,6 +233,11 @@ namespace InventoryKamera
 
             string currentTab = SwitchToTab(controller, "Weapons", knownCurrentTab);
             sortModeConfirmed = SetSortMode(controller, SortByLevel ? "Level" : "Quality");
+            if (!sortModeConfirmed)
+            {
+                Logger.Error("Weapon sort mode could not be confirmed -- early-stop-on-threshold is disabled, so the full weapon grid will be scanned. See ./logging/weapons/sortmode/ for the captured sort-mode region.");
+                progressReporter.AddError("Could not confirm weapon sort mode; scanning all weapons (filter early-stop disabled). See logging/weapons/sortmode.");
+            }
 
             int weaponCount = count == 0 ? ScanItemCount() : count;
             progressReporter.SetWeapon_Max(weaponCount);
