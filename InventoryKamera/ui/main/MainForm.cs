@@ -6,6 +6,7 @@ using NHotkey.WindowsForms;
 using Octokit;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -27,18 +28,35 @@ namespace InventoryKamera
         private static Thread scannerThread;
 
         // Owns the weapon/artifact/character counter state (first real slice of the MVVM redesign,
-        // Phase 2 §2.5) -- declared before `data` so its static-field initializer runs first, and
-        // long-lived across scans (unlike `data`, which gets recreated per scan below) so subscribers
-        // never need to re-subscribe.
-        private static ScanViewModel scanViewModel = new ScanViewModel();
-        private static InventoryKamera data = new InventoryKamera(scanViewModel);
-        private static DatabaseManager databaseManager = new DatabaseManager();
+        // Phase 2 §2.5) -- long-lived across scans (unlike `data`, which gets recreated per scan below)
+        // so subscribers never need to re-subscribe. Constructed in the constructor (in dependency
+        // order: scanViewModel first, then `data`, which takes it) rather than via field initializers,
+        // so the WinForms designer -- which instantiates this form to render it -- doesn't run
+        // DatabaseManager's constructor, which touches the filesystem and can trigger a blocking network
+        // data download that hangs/breaks the designer.
+        private static ScanViewModel scanViewModel;
+        private static InventoryKamera data;
+        private static DatabaseManager databaseManager;
 
         private bool running = false;
 
         public MainForm()
         {
             InitializeComponent();
+
+            // The WinForms designer instantiates this form in its designer process to render it. Bail
+            // out before any runtime-only wiring -- above all the scanViewModel/data/databaseManager
+            // construction below: DatabaseManager's constructor creates folders, reads/writes files and,
+            // when the data files are absent (as in the designer's working directory), kicks off a
+            // blocking network download that hangs/breaks the designer. LicenseManager is the reliable
+            // design-time signal inside a constructor (this.DesignMode is still false this early).
+            if (LicenseManager.UsageMode == LicenseUsageMode.Designtime) return;
+
+            scanViewModel = new ScanViewModel();
+            data = new InventoryKamera(scanViewModel);
+            databaseManager = new DatabaseManager();
+
+            BindSettings();
 
             Language_ComboBox.SelectedItem = "ENG";
 
@@ -53,7 +71,7 @@ namespace InventoryKamera
             UserInterface.Init(
                 CharacterName_PictureBox,
                 CharacterLevel_PictureBox,
-                new[] { CharacterTalent1_PictureBox, CharacterTalent2_PictureBox, CharacterTalent3_PictureBox },
+                new[] { CharacterTalent1_PictureBox },
                 CharacterOutput_TextBox);
 
             scanViewModel.CountersChanged += OnCountersChanged;
@@ -77,6 +95,37 @@ namespace InventoryKamera
 #if !DEBUG
             menuStrip1.Items.Remove(DebugMenuItem);
 #endif
+        }
+
+        // Binds the settings-backed controls to Properties.Settings.Default in code rather than the
+        // WinForms designer. The designer rewrites these bindings to a throwaway `new Settings()`
+        // snapshot on every round-trip, silently disconnecting them from Settings.Default -- the
+        // instance ScanSettings/InventoryKamera actually read -- so e.g. unchecking a scan box stopped
+        // taking effect. Keeping the bindings here puts them out of the designer's reach. Adding a
+        // Binding also pulls each control's initial value from the saved setting.
+        private void BindSettings()
+        {
+            var settings = Properties.Settings.Default;
+
+            void Bind(Control control, string controlProperty, string settingName) =>
+                control.DataBindings.Add(new Binding(
+                    controlProperty, settings, settingName, true, DataSourceUpdateMode.OnPropertyChanged));
+
+            Bind(Weapons_CheckBox, "Checked", "ScanWeapons");
+            Bind(Artifacts_Checkbox, "Checked", "ScanArtifacts");
+            Bind(Characters_CheckBox, "Checked", "ScanCharacters");
+            Bind(Materials_CheckBox, "Checked", "ScanMaterials");
+            Bind(CharDevItems_CheckBox, "Checked", "ScanCharDevItems");
+
+            Bind(EquipWeaponsCheckBox, "Checked", "EquipWeapons");
+            Bind(EquipArtifactsCheckBox, "Checked", "EquipArtifacts");
+
+            Bind(NumOfCharToScanControl, "Value", "NumOfCharToScan");
+            Bind(SortByObtainedControl, "Value", "SortByObtained");
+            Bind(numericUpDown1, "Value", "MinimumArtifactLevel");
+            Bind(MinimumWeaponLevelControl, "Value", "MinimumWeaponLevel");
+            Bind(ArtifactRarityControl, "Value", "MinimumArtifactRarity");
+            Bind(WeaponRarityControl, "Value", "MinimumWeaponRarity");
         }
 
         // Renders scanViewModel's counter state into the labels MainForm owns directly -- the
@@ -169,7 +218,10 @@ namespace InventoryKamera
                 var previous = GearPictureBox.Image;
                 GearPictureBox.Image = image;
                 previous?.Dispose();
-                ArtifactOutput_TextBox.Text = scanViewModel.GearText;
+                // ToString() separates each field with '\n', but a WinForms multiline TextBox only
+                // breaks lines on '\r\n' -- convert so name/level/refinement/etc. each land on their
+                // own line instead of running together (same fix the error log uses).
+                ArtifactOutput_TextBox.Text = scanViewModel.GearText?.Replace("\n", Environment.NewLine);
             };
             GearPictureBox.Invoke(render);
         }
@@ -907,6 +959,51 @@ namespace InventoryKamera
         }
 
         private void WeaponsScannedCount_Label_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void EquipWeaponsCheckBox_CheckedChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void ArtifactsScanned_Label_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void ArtifactOutput_TextBox_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void CharacterOutput_TextBox_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void CharacterTalent1_PictureBox_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void CharacterLevel_PictureBox_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void Language_ComboBox_SelectedIndexChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void SortByObtained_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void label3_Click(object sender, EventArgs e)
         {
 
         }

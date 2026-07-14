@@ -199,44 +199,108 @@ namespace InventoryKamera
 		private const double quantityDriftPerScrollRowCharDevItems = 0.001;
 
 		/// <summary>
-		/// Computes the quantity readout's on-screen rectangle for a given inventory row/column via
-		/// fixed percentages instead of per-item blob detection -- chosen over that approach for scan
-		/// speed, at the cost of needing the measurements/model
-		/// below to be correct up front. Rows 0-4 use directly measured per-row positions; row 5 onward
-		/// don't land on a single fixed position the way first assumed -- per user (2026-07-05, live
-		/// testing), each successive scroll drifts the quantity position down by a small roughly-
-		/// constant amount (<see cref="quantityDriftPerScrollRow"/>), so this accumulates that drift per
-		/// scroll rather than reusing one constant y for every row past 4.
-		/// STILL UNVERIFIED, not yet confirmed correct live: the drift amount/direction is a first
-		/// estimate (~1% of window height per scroll) from a single round of live testing, not a
-		/// direct measurement the way rows 0/4/5's positions were -- may need retuning, and may not
-		/// stay linear indefinitely for very large inventories.
+		/// Fixed-percentage *estimate* of a row's quantity-band top (window-height fraction): pre-scroll
+		/// rows at their measured per-row positions, post-scroll rows at the last-row band plus the old
+		/// per-scroll drift. Only a starting estimate / fallback now -- <see cref="DetectRowQuantityBand"/>
+		/// refines it per row against the actual on-screen band.
 		/// </summary>
-		private Rectangle GetQuantityRegion(int globalRow, int column)
+		private double ExpectedRowQuantityTop(int globalRow)
+		{
+			if (globalRow < RowsVisiblePreScroll)
+				return QuantityRow0Y + globalRow * QuantityRowStep;
+			double driftPerScrollRow = inventoryPage == InventoryPage.CharacterDevelopmentItems
+				? quantityDriftPerScrollRowCharDevItems
+				: quantityDriftPerScrollRowMaterials;
+			return QuantityPostScrollY + (globalRow - RowsVisiblePreScroll) * driftPerScrollRow;
+		}
+
+		/// <summary>
+		/// Detects the current row's quantity-band TOP (window-height fraction) so every column reads off
+		/// one band -- one detection per row, not per cell. The quantity band is a solid WHITE strip at
+		/// the bottom of each cell (dark digits on white), so it's the brightest full-width horizontal
+		/// feature in the row; icons (colored) and inter-cell gaps (dark) don't match. Captures a
+		/// full-row-width strip around <see cref="ExpectedRowQuantityTop"/>, counts near-white pixels per
+		/// scan-line, and finds the longest contiguous run that's mostly white. Only the band TOP is
+		/// detected (for scroll-drift correction); the crop height stays fixed at <see cref="QuantityHeight"/>,
+		/// since <see cref="ScanQuantityBitmap"/>'s top-25% whiteout is tuned to that tight height and a
+		/// taller crop lets it eat into the digits. Falls back to the fixed estimate if no clear band is
+		/// found -- so a failed detection is never worse than the old behavior.
+		/// </summary>
+		private (double topFrac, double heightFrac) DetectRowQuantityBand(int globalRow)
+		{
+			double expectedTop = ExpectedRowQuantityTop(globalRow);
+
+			int winW = Navigation.GetWidth(), winH = Navigation.GetHeight();
+			double marginFrac = QuantityHeight * 1.5;   // vertical slack for scroll shift
+			int stripX = (int)(quantityBaseX * winW);
+			int stripY = (int)((expectedTop - marginFrac) * winH);
+			int stripW = (int)((quantityColStep * (itemsPerRow - 1) + QuantityWidth) * winW);
+			int stripH = (int)((QuantityHeight + 2 * marginFrac) * winH);
+
+			// Clamp fully inside the window so CaptureRegion can't throw on an out-of-bounds rect.
+			stripX = Math.Max(0, stripX);
+			stripY = Math.Max(0, stripY);
+			stripW = Math.Min(stripW, winW - stripX);
+			stripH = Math.Min(stripH, winH - stripY);
+			if (stripW <= 0 || stripH <= 0) return (expectedTop, QuantityHeight);
+
+			using (Bitmap strip = Navigation.CaptureRegion(new Rectangle(stripX, stripY, stripW, stripH)))
+			using (Bitmap gray = imagePreprocessor.ConvertToGrayscale(strip))
+			{
+				if (scanSettings.LogScreenshots)
+					SaveInventoryBitmap(strip, $"quantityband/row{globalRow}_strip.png");
+
+				const int whiteThreshold = 200;   // near-white
+				int h = gray.Height, w = gray.Width;
+				int required = (int)(w * 0.5);    // a band row is >=50% white across the row width
+
+				int runTop = -1, runLen = 0, bestTop = -1, bestLen = 0;
+				for (int y = 0; y < h; y++)
+				{
+					int white = 0;
+					for (int x = 0; x < w; x++)
+						if (gray.GetPixel(x, y).R >= whiteThreshold) white++;
+
+					if (white >= required)
+					{
+						if (runTop < 0) runTop = y;
+						runLen++;
+						if (runLen > bestLen) { bestLen = runLen; bestTop = runTop; }
+					}
+					else { runTop = -1; runLen = 0; }
+				}
+
+				if (bestTop < 0)
+				{
+					Logger.Debug("Row {0} quantity-band: no white band found -- using fixed estimate {1:0.0000}.", globalRow, expectedTop);
+					return (expectedTop, QuantityHeight);
+				}
+
+				// Use the detected band TOP for drift correction, but keep the original fixed
+				// QuantityHeight for the crop height. Deriving the height from the detected band
+				// (previously 1.6x it, with a 0.5x-band up-shift for headroom) re-broke digit OCR the
+				// same way the earlier taller-crop experiment did: ScanQuantityBitmap's top-25%
+				// whiteout is a fraction of crop height tuned to this tight QuantityHeight, so any
+				// taller crop lets the whiteout eat into the digits (see QuantityHeight's comment).
+				double bandTopFrac = (stripY + bestTop) / (double)winH;
+				Logger.Debug("Row {0} quantity-band: estimate top={1:0.0000} -> detected band top={2:0.0000} ({3}px), height fixed at {4:0.0000}",
+					globalRow, expectedTop, bandTopFrac, bestLen, QuantityHeight);
+				return (bandTopFrac, QuantityHeight);
+			}
+		}
+
+		/// <summary>
+		/// The quantity crop for one cell, given the row's (detected) band top + height and the column.
+		/// Columns never shift horizontally, so x is always quantityBaseX + column*quantityColStep.
+		/// </summary>
+		private Rectangle GetQuantityRegion(double rowTopFrac, double rowHeightFrac, int column)
 		{
 			double x = quantityBaseX + column * quantityColStep;
-			double y;
-			if (globalRow < RowsVisiblePreScroll)
-			{
-				y = QuantityRow0Y + globalRow * QuantityRowStep;
-			}
-			else
-			{
-				// The last pre-scroll row lands at QuantityPostScrollY; every row after that adds one
-				// more scroll's worth of drift on top of it -- rate depends on which tab we're in (see
-				// the constants' own comment).
-				double driftPerScrollRow = inventoryPage == InventoryPage.CharacterDevelopmentItems
-					? quantityDriftPerScrollRowCharDevItems
-					: quantityDriftPerScrollRowMaterials;
-				int scrollsPast = globalRow - RowsVisiblePreScroll;
-				y = QuantityPostScrollY + scrollsPast * driftPerScrollRow;
-			}
-
 			return new Rectangle(
 				x: (int)(x * Navigation.GetWidth()),
-				y: (int)(y * Navigation.GetHeight()),
+				y: (int)(rowTopFrac * Navigation.GetHeight()),
 				width: (int)(QuantityWidth * Navigation.GetWidth()),
-				height: (int)(QuantityHeight * Navigation.GetHeight()));
+				height: (int)(rowHeightFrac * Navigation.GetHeight()));
 		}
 
 		/// <summary>
@@ -359,10 +423,18 @@ namespace InventoryKamera
 			int consecutiveEmptyReads = 0;
 			const int maxConsecutiveEmptyReads = 3;
 			bool loggedPostScrollShot = false;
+			// Detected once per row (at column 0) and reused for all 10 columns -- every quantity in a
+			// row shares one band. Falls back to the fixed estimate inside DetectRowQuantityBand.
+			double rowQuantityTop = ExpectedRowQuantityTop(0);
+			double rowQuantityHeight = QuantityHeight;
 
 			while (!InventoryKamera.CancelRequested && !StopScanning)
 			{
 				progressReporter.WaitIfCorrectionPending();
+
+				// New row: find where this row's white quantity band actually sits.
+				if (column == 0)
+					(rowQuantityTop, rowQuantityHeight) = DetectRowQuantityBand(globalRow);
 
 				// One-time full-window capture right as the grid crosses into post-scroll territory --
 				// this is the point GetQuantityRegion's post-scroll y/drift constants need
@@ -406,7 +478,7 @@ namespace InventoryKamera
 
 					if (!string.IsNullOrEmpty(name))
 					{
-						using (Bitmap quantity = Navigation.CaptureRegion(GetQuantityRegion(globalRow, column)))
+						using (Bitmap quantity = Navigation.CaptureRegion(GetQuantityRegion(rowQuantityTop, rowQuantityHeight, column)))
 						{
 							int count = ScanQuantityBitmap(quantity);
 							if (count == 0)

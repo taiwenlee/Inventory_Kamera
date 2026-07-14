@@ -109,29 +109,45 @@ namespace InventoryKamera
 			UpdateTextBox($"Constellation: {level}", character_TextBox);
 		}
 
+		public static void SetCharacter_Constellation(Bitmap bm, int level)
+		{
+			if (bm == null)
+			{
+				SetCharacter_Constellation(level);
+				return;
+			}
+			// Reuse the character-level PictureBox to show the activated-constellation capture:
+			// constellations are scanned in a later phase than level, so the two never contend for it.
+			UpdateElements(bm, $"Constellation: {level}", cLevel_PictureBox, character_TextBox);
+		}
+
 		public static void SetCharacter_Talent(Bitmap bm, string text, int i)
 		{
-			if (i > -1 && i < 3)
-			{
+			if (i < 0 || i > 2) return;
+
+			// Only update a talent PictureBox if one exists for this slot: the UI can have fewer
+			// talent PictureBoxes than the 3 talents (auto/skill/burst) that always get scanned.
+			// The talent level still goes to the text box regardless of how many boxes there are.
+			if (i < cTalent_PictureBoxes.Length)
 				UpdatePictureBox(bm, cTalent_PictureBoxes[i]);
-				UpdateTextBox($"Talent {i + 1}: {text}", character_TextBox);
-			}
+
+			UpdateTextBox($"Talent {i + 1}: {text}", character_TextBox);
 		}
 
 		public static void ResetCharacterDisplay()
 		{
 			MethodInvoker nameAction = delegate { cName_PictureBox.Image = null; };
 			MethodInvoker levelAction = delegate { cLevel_PictureBox.Image = null; };
-			MethodInvoker talentAction_1 = delegate { cTalent_PictureBoxes[0].Image = null; };
-			MethodInvoker talentAction_2 = delegate { cTalent_PictureBoxes[1].Image = null; };
-			MethodInvoker talentAction_3 = delegate { cTalent_PictureBoxes[2].Image = null; };
 			MethodInvoker textAction = delegate { character_TextBox.Clear(); };
 
 			cName_PictureBox.Invoke(nameAction);
 			cLevel_PictureBox.Invoke(levelAction);
-			cTalent_PictureBoxes[0].Invoke(talentAction_1);
-			cTalent_PictureBoxes[1].Invoke(talentAction_2);
-			cTalent_PictureBoxes[2].Invoke(talentAction_3);
+			// Clear however many talent PictureBoxes the UI actually has (may be fewer than 3).
+			foreach (var talentPictureBox in cTalent_PictureBoxes)
+			{
+				var pb = talentPictureBox;
+				pb.Invoke((MethodInvoker)delegate { pb.Image = null; });
+			}
 			character_TextBox.Invoke(textAction);
 		}
 

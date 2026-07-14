@@ -21,6 +21,7 @@ namespace InventoryKamera
         void SetCharacter_NameAndElement(Bitmap bm, string name, string element);
         void SetCharacter_Level(Bitmap bm, int level, int maxLevel);
         void SetCharacter_Constellation(int level);
+        void SetCharacter_Constellation(Bitmap bm, int level);
         void SetMaterial(Bitmap nameplate, Bitmap quantity, string name, int count);
         void SetMora(Bitmap mora, int count);
         void SetCharacter_Talent(Bitmap bm, string text, int i);

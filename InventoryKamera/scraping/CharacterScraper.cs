@@ -1,5 +1,6 @@
 ﻿using InventoryKamera.game;
 using Nefarius.ViGEm.Client.Targets.Xbox360;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -192,6 +193,14 @@ namespace InventoryKamera
 						ascended = false;
 					}
 
+					// Log the Attributes screen here -- after name/element/level are read but before the
+					// duplicate gate below -- so the full-window capture always lands even when level (or
+					// any other field) failed to parse. That failing case is exactly what's worth
+					// debugging for a new aspect ratio like 16:10, where a mis-placed region is the reason
+					// the read failed in the first place.
+					LogCharacterScreenshot(name, "attributes", NameElementRegion());
+					LogCharacterWindow(name, "attributes");
+
 					if (!scanned.Contains(name))
 					{
 						var character = new Character
@@ -208,7 +217,6 @@ namespace InventoryKamera
 						progressReporter.IncrementCharacterCount();
 						if (Characters.Count == 1) firstName = name;
 						Logger.Info("Scanned {0} attributes successfully (controller)", character.NameGOOD);
-						LogCharacterScreenshot(character.NameGOOD, "attributes", NameElementRegion());
 					}
 					else
 					{
@@ -504,6 +512,26 @@ namespace InventoryKamera
 		}
 
 		/// <summary>
+		/// Saves a full-window screenshot (the whole game window, not just the scanned region) next to
+		/// the region crop that <see cref="LogCharacterScreenshot"/> writes, gated on the same
+		/// LogScreenshots setting. Purpose is coordinate discovery: every character-scan region in this
+		/// class is expressed as a window-size fraction, and re-deriving those fractions for a new
+		/// aspect ratio (e.g. 16:10) needs a full-window capture of each screen to measure against. The
+		/// resolution is baked into the filename so captures from different resolutions/aspect ratios
+		/// sit side by side instead of overwriting each other. <paramref name="relativeName"/> may
+		/// contain '/' to nest into a subfolder, same as <see cref="LogCharacterScreenshot"/>.
+		/// </summary>
+		private void LogCharacterWindow(string characterName, string relativeName)
+		{
+			if (!scanSettings.LogScreenshots) return;
+
+			string path = $"./logging/characters/{characterName}/{relativeName}_full_{Navigation.GetWidth()}x{Navigation.GetHeight()}.png";
+			Directory.CreateDirectory(Path.GetDirectoryName(path));
+			using (var screenshot = Navigation.CaptureWindow())
+				screenshot.Save(path);
+		}
+
+		/// <summary>
 		/// Applies the constellation-3/5 talent-level discount (Genshin auto-grants a talent level
 		/// via certain constellations, which the raw scanned talent level doesn't reflect). Used by
 		/// the controller-driven batched path (<see cref="ScanCharacters"/>), since it
@@ -561,12 +589,32 @@ namespace InventoryKamera
 					return;
 				}
 
-				string talentLeveledAtConst3 = character.NameGOOD.Contains("Traveler")
-					? (string)characterData["ConstellationOrder"][character.Element.ToLower()][0]
-					: (string)characterData["ConstellationOrder"][0];
-				string talentLeveledAtConst5 = character.NameGOOD.Contains("Traveler")
-					? (string)characterData["ConstellationOrder"][character.Element.ToLower()][1]
-					: (string)characterData["ConstellationOrder"][1];
+				// For the Traveler the order is keyed by element (a JObject); every other
+				// character stores a flat [const3Talent, const5Talent] JArray. Resolve to that
+				// two-element array up front and validate it. A Traveler whose per-element entry
+				// is missing or malformed (an incomplete auto-build, or a legacy nested
+				// characters.json) would otherwise index into null here and throw a
+				// NullReferenceException that aborts the entire character scan.
+				JToken constellationOrder;
+				if (character.NameGOOD.Contains("Traveler"))
+				{
+					constellationOrder = characterData["ConstellationOrder"] is JObject elementOrders && character.Element != null
+						? elementOrders[character.Element.ToLower()]
+						: null;
+				}
+				else
+				{
+					constellationOrder = characterData["ConstellationOrder"];
+				}
+
+				if (!(constellationOrder is JArray order) || order.Count < 2)
+				{
+					progressReporter.AddError($"{character.NameGOOD}: missing or malformed ConstellationOrder data. Talent levels were not adjusted for constellation bonuses.");
+					return;
+				}
+
+				string talentLeveledAtConst3 = (string)order[0];
+				string talentLeveledAtConst5 = (string)order[1];
 
 				if (character.Constellation >= 3)
 				{
@@ -717,18 +765,22 @@ namespace InventoryKamera
 		}
 
 		/// <summary>
-		/// Reads the level/ascension region on the Attributes sub-tab. Region measured (2026-07-05)
-		/// with <c>ui/CoordinatePickerForm.cs</c>.
+		/// Reads the level/ascension region on the Attributes sub-tab. 16:9 region measured
+		/// (2026-07-05), 16:10 Y position measured (2026-07-13, 1680x1050), both with
+		/// <c>ui/CoordinatePickerForm.cs</c>. Expressed as position + size: the crop's x/width/height are
+		/// shared across aspect ratios, so only the y position branches -- the window is letterboxed
+		/// vertically, but the horizontal axis and the box's dimensions don't change.
 		/// </summary>
 		private int ScanLevel(ref bool ascended)
 		{
             int attempt = 0;
 
-			Rectangle region = new RECT(
-				Left:   (int)( 0.7626 * Navigation.GetWidth() ),
-				Top:    (int)( 0.1895 * Navigation.GetHeight() ),
-				Right:  (int)( 0.8835 * Navigation.GetWidth() ),
-				Bottom: (int)( 0.2247 * Navigation.GetHeight() ));
+			// Shared x/width/height; only the y position shifts by aspect ratio (see doc comment).
+			Rectangle region = new Rectangle(
+				x:      (int)( 0.7626 * Navigation.GetWidth() ),
+				y:      (int)( (Navigation.IsNormal ? 0.1895 : 0.1695) * Navigation.GetHeight() ),   // 16:9 : 16:10
+				width:  (int)( 0.1209 * Navigation.GetWidth() ),
+				height: (int)( 0.0352 * Navigation.GetHeight() ));
 
 			do
 			{
@@ -799,6 +851,7 @@ namespace InventoryKamera
 			controller.TapButton(Xbox360Button.B, InventoryScraper.ScaledControllerDelay(300));
 			Thread.Sleep(InventoryScraper.ScaledControllerDelay(600)); // set to 600 per user (2026-07-05)
 
+			Bitmap constellationShot = null;
 			for (constellation = 0; constellation < 6; constellation++)
 			{
 				if (constellation > 0)
@@ -811,14 +864,26 @@ namespace InventoryKamera
 				}
 
 				LogCharacterScreenshot(character.NameGOOD, $"constellations/constellation_{constellation + 1}", activatedRegion);
+				LogCharacterWindow(character.NameGOOD, $"constellations/constellation_{constellation + 1}");
 
-				if (!ReadConstellationActivated(activatedRegion)) break;
+				bool activated = ReadConstellationActivated(activatedRegion);
+
+				// Capture the constellation region to show in the UI: keep the last ACTIVATED node,
+				// falling back to the first node examined so a C0 character still shows something.
+				if (activated || constellationShot == null)
+				{
+					constellationShot?.Dispose();
+					constellationShot = Navigation.CaptureRegion(activatedRegion);
+				}
+
+				if (!activated) break;
 			}
 
 			controller.TapButton(Xbox360Button.A, InventoryScraper.ScaledControllerDelay(300));
 			Thread.Sleep(InventoryScraper.ScaledControllerDelay(250)); // lowered from 400 per user (2026-07-05)
 
-			progressReporter.SetCharacter_Constellation(constellation);
+			progressReporter.SetCharacter_Constellation(constellationShot, constellation);
+			constellationShot?.Dispose();
 			return constellation;
 		}
 
@@ -886,12 +951,23 @@ namespace InventoryKamera
 			controller.MoveStep(GameController.MenuDirection.Up,
 				holdMs: InventoryScraper.ScaledControllerDelay(100), settleMs: InventoryScraper.ScaledControllerDelay(400));
 
+			Bitmap constellationShot = null;
 			int constellation = 0;
 			for (int node = 5; node >= 0; node--)
 			{
 				LogCharacterScreenshot(character.NameGOOD, $"constellations/constellation_greedy_{node + 1}", activatedRegion);
 
-				if (ReadConstellationActivated(activatedRegion))
+				bool activated = ReadConstellationActivated(activatedRegion);
+
+				// Capture the constellation region for the UI: the activated node found, or the first
+				// node examined as a fallback if none are activated (C0).
+				if (activated || constellationShot == null)
+				{
+					constellationShot?.Dispose();
+					constellationShot = Navigation.CaptureRegion(activatedRegion);
+				}
+
+				if (activated)
 				{
 					constellation = node + 1;
 					break;
@@ -907,7 +983,8 @@ namespace InventoryKamera
 			controller.TapButton(Xbox360Button.A, InventoryScraper.ScaledControllerDelay(300));
 			Thread.Sleep(InventoryScraper.ScaledControllerDelay(250));
 
-			progressReporter.SetCharacter_Constellation(constellation);
+			progressReporter.SetCharacter_Constellation(constellationShot, constellation);
+			constellationShot?.Dispose();
 			return constellation;
 		}
 
@@ -983,6 +1060,7 @@ namespace InventoryKamera
 					progressReporter.SetCharacter_Talent(bm, talents["skill"].ToString(), 1);
 					progressReporter.SetCharacter_Talent(bm, talents["burst"].ToString(), 2);
 					LogCharacterScreenshot(character.NameGOOD, "talents", region);
+					LogCharacterWindow(character.NameGOOD, "talents");
 
 					n.Dispose();
 					bm.Dispose();

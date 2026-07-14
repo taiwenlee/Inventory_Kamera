@@ -445,6 +445,7 @@ namespace InventoryKamera
         public void SetCharacter_NameAndElement(Bitmap bm, string name, string element) => UserInterface.SetCharacter_NameAndElement(bm, name, element);
         public void SetCharacter_Level(Bitmap bm, int level, int maxLevel) => UserInterface.SetCharacter_Level(bm, level, maxLevel);
         public void SetCharacter_Constellation(int level) => UserInterface.SetCharacter_Constellation(level);
+        public void SetCharacter_Constellation(Bitmap bm, int level) => UserInterface.SetCharacter_Constellation(bm, level);
         public void SetCharacter_Talent(Bitmap bm, string text, int i) => UserInterface.SetCharacter_Talent(bm, text, i);
         public void ResetCharacterDisplay() => UserInterface.ResetCharacterDisplay();
     }
