@@ -120,113 +120,10 @@ namespace InventoryKamera
             // Assign Wanderer's custom name
             GenshinProcesor.UpdateCharacterName("wanderer", Properties.Settings.Default.WandererName);
 
-			try
-			{
-                GenshinProcesor.UpdateCharacterName("manequin1", Properties.Settings.Default.Manequin1Name);
-                GenshinProcesor.UpdateCharacterName("manequin2", Properties.Settings.Default.Manequin2Name);
-            }
-			catch(Exception e)
-			{
-				// Source - https://stackoverflow.com/questions/33081102/how-to-add-a-new-object-to-an-existing-json-file
-				// Posted by Alex, modified by community. See post 'Timeline' for change history
-				// Retrieved 2025-11-07, License - CC BY-SA 3.0
-
-				//load from file
-
-				var path = $"./inventorylists/characters.json";
-
-				var initialJson = File.ReadAllText(path, Encoding.Default);
-
-				var jsonToOutput = initialJson.Remove(initialJson.Length - 3, 3);
-
-				#region manequins
-				//"manequin1": {
-				//  "GOOD": "Manequin1",
-				//	"ConstellationName": [
-				//		"support for manequins to ommit them during scan, as of writing it (6th November 2025) GO doesn't support manequins"
-				//	],
-				//	"ConstellationOrder": [
-				//		"burst",
-				//		"skill"
-				//	],
-				//	"Element": [
-				//		"electro",
-				//		"pyro",
-				//		"dendro",
-				//		"geo",
-				//		"hydro",
-				//		"anemo"
-				//	],
-				//	"WeaponType": 0
-				//},
-				//"manequin2": {
-				//	"GOOD": "Manequin2",
-				//	"ConstellationName": [
-				//		"support for manequins to ommit them during scan, as of writing it (6th November 2025) GO doesn't support manequins"
-				//	],
-				//	"ConstellationOrder": [
-				//		"burst",
-				//		"skill"
-				//	],
-				//	"Element": [
-				//		"electro",
-				//		"pyro",
-				//		"dendro",
-				//		"geo",
-				//		"hydro",
-				//		"anemo"
-				//	],
-				//	"WeaponType": 0
-				//}
-				#endregion
-
-
-				var manequinData = ",\n" +
-								" \"manequin1\":{\n" +
-								"  \"GOOD\":\"Manequin1\",\n" +
-								"  \"ConstellationName\":[\n" +
-								"   \"support for manequins to ommit them during scan, as of writing it (6th November 2025) GO doesn't support manequins\"\n" +
-								"  ],\n" +
-                                "  \"ConstellationOrder\":[\n" +
-                                "   \"burst\",\n" +
-                                "   \"skills\"\n" +
-                                "  ],\n" +
-                                "  \"Element\":[\n" +
-                                "   \"electro\",\n" +
-                                "   \"pyro\",\n" +
-                                "   \"dendro\",\n" +
-                                "   \"geo\",\n" +
-                                "   \"hydro\",\n" +
-                                "   \"anemo\"\n" +
-								"  ],\n" +
-								"  \"WeaponType\": 0" +
-								" },\n" +
-                                " \"manequin2\":{\n" +
-                                "  \"GOOD\":\"Manequin2\",\n" +
-                                "  \"ConstellationName\":[\n" +
-                                "   \"support for manequins to ommit them during scan, as of writing it (6th November 2025) GO doesn't support manequins\"\n" +
-                                "  ],\n" +
-                                "  \"ConstellationOrder\":[\n" +
-                                "   \"burst\",\n" +
-                                "   \"skills\"\n" +
-                                "  ],\n" +
-                                "  \"Element\":[\n" +
-                                "   \"electro\",\n" +
-                                "   \"pyro\",\n" +
-                                "   \"dendro\",\n" +
-                                "   \"geo\",\n" +
-                                "   \"hydro\",\n" +
-                                "   \"anemo\"\n" +
-                                "  ],\n" +
-                                "  \"WeaponType\": 0" +
-                                " }\n" +
-                                "}";
-				jsonToOutput += manequinData;
-                //save to file here
-                File.WriteAllText(path, jsonToOutput);
-
-                GatherData();
-			}
+			// Mannequin aliases are already present in the in-memory scraper dictionary.
+			// Never mutate the generated lookup table or recursively restart GatherData().
+			GenshinProcesor.UpdateCharacterName("manequin1", Properties.Settings.Default.Manequin1Name);
+			GenshinProcesor.UpdateCharacterName("manequin2", Properties.Settings.Default.Manequin2Name);
 
             if (Properties.Settings.Default.ScanWeapons)
 			{
@@ -234,17 +131,30 @@ namespace InventoryKamera
 				// Get Weapons
 				Navigation.InventoryScreen();
 				Navigation.SelectWeaponInventory();
+
+				Exception weaponScanFailure = null;
 				try
 				{
                     weaponScraper.ScanWeapons();
 				}
-				catch (FormatException ex) { UserInterface.AddError(ex.Message); }
-				catch (ThreadAbortException) { }
+				catch (ThreadAbortException) { throw; }
 				catch (Exception ex)
 				{
+					weaponScanFailure = ex;
 					UserInterface.AddError(ex.Message + "\n" + ex.StackTrace);
 				}
+
 				Navigation.MainMenuScreen();
+
+				if (weaponScanFailure != null)
+				{
+					Logger.Error(weaponScanFailure,
+						"Weapon scan failed. Aborting export so a requested weapon category cannot silently disappear.");
+					throw new InvalidOperationException(
+						"Weapon scanning failed. Export was aborted to prevent creating an incomplete GOOD file.",
+						weaponScanFailure);
+				}
+
 				Logger.Info("Done scanning weapons");
 			}
 
@@ -291,6 +201,19 @@ namespace InventoryKamera
 
 			// Wait for Image Processors to finish
 			AwaitProcessors();
+
+			// A default full weapon scan should never legitimately yield zero weapons.
+			// Treat that as a scan-integrity failure instead of exporting a GOOD file
+			// that silently replaces every equipped weapon with optimizer defaults.
+			if (Properties.Settings.Default.ScanWeapons &&
+				Properties.Settings.Default.MinimumWeaponRarity == 1 &&
+				Properties.Settings.Default.MinimumWeaponLevel == 1 &&
+				Inventory.Weapons.Count == 0)
+			{
+				throw new InvalidOperationException(
+					"Weapon scanning was requested with no filters, but zero valid weapons were captured. " +
+					"Export was aborted because the scan is incomplete.");
+			}
 
 			if (Properties.Settings.Default.ScanCharacters)
 			{
@@ -426,6 +349,8 @@ namespace InventoryKamera
                                 imageCollection.Bitmaps[1].Save(weaponPath + "level/level.png");
                                 Directory.CreateDirectory(weaponPath + "refinement");
                                 imageCollection.Bitmaps[2].Save(weaponPath + "refinement/refinement.png");
+                                Directory.CreateDirectory(weaponPath + "locked");
+                                imageCollection.Bitmaps[3].Save(weaponPath + "locked/locked.png");
                                 Directory.CreateDirectory(weaponPath + "equipped");
                                 imageCollection.Bitmaps[4].Save(weaponPath + "equipped/equipped.png");
 

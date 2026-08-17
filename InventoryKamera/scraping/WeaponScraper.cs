@@ -169,7 +169,7 @@ namespace InventoryKamera
 
             Bitmap name, level, refinement, equipped, locked;
             name = GetItemNameBitmap(card);
-            locked = GetLockedBitmap(card);
+            locked = GetWeaponLockedBitmap(card);
             equipped = GetEquippedBitmap(card);
             level = GetLevelBitmap(card);
             refinement = GetRefinementBitmap(card);
@@ -250,10 +250,9 @@ namespace InventoryKamera
 				Color equippedStatus = bm[w_equippedCharacter].GetPixel(5, 5);
 				bool b_equipped = GenshinProcesor.CompareColors(equippedColor, equippedStatus);
 
-				// Check for lock color
-				Color lockedColor = Color.FromArgb(255, 70, 80, 100); // Dark area around red lock
-				Color lockStatus = bm[w_lock].GetPixel(5, 5);
-				locked = GenshinProcesor.CompareColors(lockedColor, lockStatus);
+				// Detect the current lock glyph across the whole badge region rather than
+				// relying on one fixed pixel from the pre-7.0 UI.
+				locked = IsLockedWeapon(bm[w_lock]);
 
 				List<Task> tasks = new List<Task>();
 

@@ -112,6 +112,26 @@ namespace InventoryKamera
 			DevItems = listManager.LoadDevItems();
 			Materials = listManager.LoadMaterials();
 
+			// Scanner-only aliases. Keep these out of generated GOOD data and out of
+			// characters.json; they only exist to match custom mannequin names.
+			EnsureSyntheticCharacter("manequin1", "Manequin1");
+			EnsureSyntheticCharacter("manequin2", "Manequin2");
+		}
+
+		private static void EnsureSyntheticCharacter(string key, string goodName)
+		{
+			if (Characters.ContainsKey(key)) return;
+
+			Characters[key] = new JObject
+			{
+				["GOOD"] = goodName,
+				["ConstellationName"] = new JArray("scanner-only synthetic mannequin"),
+				["ConstellationOrder"] = new JArray("burst", "skill"),
+				["Element"] = new JArray("electro", "pyro", "dendro", "geo", "hydro", "anemo", "cryo"),
+				["WeaponType"] = 0
+			};
+
+			Logger.Debug("Added scanner-only synthetic character alias {0}", key);
 		}
 
 		internal static void UpdateCharacterName(string target, string name)
@@ -119,20 +139,43 @@ namespace InventoryKamera
 			target = target.ConvertToGood().ToLower();
 			name = name.ConvertToGood().ToLower();
 
-			if (target == name) return;
-
-			if (Characters.TryGetValue(name, out _))
+			if (string.IsNullOrWhiteSpace(name))
 			{
-				Logger.Error("{0} already exists as a character in the game. " +
-					"This may wind up confusing Kamera when connecting items for {1}.", name, target);
+				Logger.Warn("Ignoring blank custom name for {0}", target);
+				return;
 			}
+
+			if (target == name) return;
 
             if (Characters.TryGetValue(target, out _))
 			{
+				var collisions = Characters
+					.Where(character => character.Key != target)
+					.Where(character =>
+						character.Key.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+						(character.Value.TryGetValue("CustomName", out var existingCustomName) &&
+						 string.Equals(existingCustomName?.ToString(), name, StringComparison.OrdinalIgnoreCase)))
+					.Select(character => character.Key)
+					.ToList();
+
+				if (collisions.Count > 0)
+				{
+					Logger.Warn(
+						"Custom character name '{0}' is shared by {1} and {2}. " +
+						"Kamera will treat an OCR match for that name as ambiguous instead of crashing or guessing.",
+						name, target, string.Join(", ", collisions));
+				}
+
 				Characters[target]["CustomName"] = name;
 				Logger.Info("Internally set {0} custom name to {1}", target, Characters[target]["CustomName"]);
 			}
 			else throw new KeyNotFoundException($"Could not find '{target}' entry in characters.json");
+		}
+
+		internal static bool IsScannerOnlyCharacter(string character)
+		{
+			return string.Equals(character, "Manequin1", StringComparison.OrdinalIgnoreCase) ||
+				string.Equals(character, "Manequin2", StringComparison.OrdinalIgnoreCase);
 		}
 
 		internal static void AssignTravelerName(string name)
@@ -195,7 +238,8 @@ namespace InventoryKamera
 			TesseractEngine e;
 			while (!engines.TryTake(out e)) { Thread.Sleep(10); }
 
-			if (numbersOnly) e.SetVariable("tessedit_char_whitelist", "0123456789");
+			// Scope the whitelist to this OCR call. Empty means unrestricted OCR.
+			e.SetVariable("tessedit_char_whitelist", numbersOnly ? "0123456789" : "");
 			using (var page = e.Process(bitmap, pageMode))
 			{
 				using (var iter = page.GetIterator())
@@ -327,17 +371,126 @@ namespace InventoryKamera
             return closestMatch;
 		}
 
-		internal static string FindClosestCharacterName(string name, int minConfidence = 90)
+		internal static List<string> FindExactCharacterNameCandidates(string name)
 		{
-			var temp = new Dictionary<string, JObject>();
+			if (string.IsNullOrWhiteSpace(name)) return new List<string>();
+
+			name = name.ConvertToGood().ToLower();
+
+			var matches = new List<string>();
 			foreach (var character in Characters)
 			{
-				if (character.Value.TryGetValue("CustomName", out var CustomName)) temp.Add(((string)CustomName), character.Value);
-				else temp.Add(character.Key, character.Value);
-			}
-			var n = FindClosestInDict(source: name, targets: temp, minConfidence: minConfidence);
+				string canonical = character.Key.ConvertToGood().ToLower();
+				bool matched = canonical == name;
 
-            return n;
+				if (!matched && character.Value.TryGetValue("CustomName", out var customNameToken))
+				{
+					string customName = customNameToken == null
+						? ""
+						: customNameToken.ToString().ConvertToGood().ToLower();
+					matched = !string.IsNullOrWhiteSpace(customName) && customName == name;
+				}
+
+				if (!matched) continue;
+
+				string goodName = character.Value["GOOD"]?.ToString();
+				if (!string.IsNullOrWhiteSpace(goodName) &&
+					!matches.Contains(goodName, StringComparer.OrdinalIgnoreCase))
+				{
+					matches.Add(goodName);
+				}
+			}
+
+			return matches;
+		}
+
+		internal static string FindClosestCharacterName(string name, int minConfidence = 90)
+		{
+			if (string.IsNullOrWhiteSpace(name)) return "";
+
+			name = name.ConvertToGood().ToLower();
+
+			// A custom name is not guaranteed to be unique. Traveler, Wanderer, Manekin,
+			// and Manekina can legally collide after case normalization. The old code used
+			// Dictionary.Add(customName, ...), which threw when two aliases matched.
+			var candidates = new List<Tuple<string, JObject>>();
+			foreach (var character in Characters)
+			{
+				string canonical = character.Key.ConvertToGood().ToLower();
+				candidates.Add(Tuple.Create(canonical, character.Value));
+
+				if (character.Value.TryGetValue("CustomName", out var customNameToken))
+				{
+					string customName = customNameToken == null ? "" : customNameToken.ToString().ConvertToGood().ToLower();
+					if (!string.IsNullOrWhiteSpace(customName) && customName != canonical)
+						candidates.Add(Tuple.Create(customName, character.Value));
+				}
+			}
+
+			Func<IEnumerable<Tuple<string, JObject>>, List<string>> distinctGoods = matches =>
+				matches.Select(candidate => candidate.Item2["GOOD"]?.ToString())
+					.Where(goodName => !string.IsNullOrWhiteSpace(goodName))
+					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.ToList();
+
+			var exactMatches = distinctGoods(candidates.Where(candidate => candidate.Item1 == name));
+			if (exactMatches.Count == 1) return exactMatches[0];
+			if (exactMatches.Count > 1)
+			{
+				Logger.Warn("Ambiguous exact character-name match '{0}': {1}", name, string.Join(", ", exactMatches));
+				return "";
+			}
+
+			var containsMatches = distinctGoods(candidates.Where(candidate =>
+				candidate.Item1.Contains(name) || name.Contains(candidate.Item1)));
+			if (containsMatches.Count == 1) return containsMatches[0];
+			if (containsMatches.Count > 1)
+			{
+				// Do not treat every substring match as equally strong. For example,
+				// OCR "yeti0841" should prefer configured Traveler alias "yeti084"
+				// over a shorter mannequin alias "yeti". Exact duplicate aliases are
+				// still rejected above; here we let the similarity scorer decide.
+				Logger.Debug(
+					"Multiple partial character-name matches for '{0}': {1}. Comparing similarity scores.",
+					name,
+					string.Join(", ", containsMatches));
+			}
+
+			double bestScore = 0;
+			string bestGood = "";
+			bool tie = false;
+
+			foreach (var candidate in candidates)
+			{
+				double score = StringSimilarity(name, candidate.Item1);
+				if (score <= minConfidence) continue;
+
+				string goodName = candidate.Item2["GOOD"]?.ToString();
+				if (string.IsNullOrWhiteSpace(goodName)) continue;
+
+				if (score > bestScore + 0.001)
+				{
+					bestScore = score;
+					bestGood = goodName;
+					tie = false;
+				}
+				else if (Math.Abs(score - bestScore) <= 0.001 &&
+					!string.Equals(bestGood, goodName, StringComparison.OrdinalIgnoreCase))
+				{
+					tie = true;
+				}
+			}
+
+			if (tie)
+			{
+				Logger.Warn("Ambiguous fuzzy character-name match '{0}' at {1:0.0}% confidence", name, bestScore);
+				return "";
+			}
+
+			if (!string.IsNullOrWhiteSpace(bestGood))
+				Logger.Debug("Most similar character string found for {0} as {1} ({2:0.0}%)", name, bestGood, bestScore);
+
+            return bestGood;
 		}
 
 		internal static string FindClosestDevelopmentName(string name, int minConfidence = 90)

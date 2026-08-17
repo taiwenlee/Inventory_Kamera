@@ -56,6 +56,9 @@ namespace InventoryKamera
 
 		public void Scan_Materials(ref Inventory inventory)
 		{
+			// Each material section gets one fresh first-page calibration.
+			ResetMaterialGridCalibration();
+
 			if (!inventory.Materials.Contains(new Material("Mora", 0)))
 			{
 				inventory.Materials.Add(new Material("Mora", ScanMora()));
@@ -315,11 +318,13 @@ namespace InventoryKamera
 		public static int ScanMaterialCount(Rectangle rectangle, out Bitmap quantity)
 		{
 			Dictionary<int, int> counts = new Dictionary<int, int>();
+			// Quantity text sits in the narrow footer band centered on the
+			// detected inventory-card bottom. Keep rarity stars out of the OCR ROI.
 			var region = new RECT(
 				Left: rectangle.X,
-				Top: (int)(rectangle.Y + (0.8 * rectangle.Height)), // Only get the bottom of inventory item
+				Top: rectangle.Bottom - 26,
 				Right: rectangle.Right,
-				Bottom: rectangle.Bottom + 10);
+				Bottom: rectangle.Bottom);
 
             var rRange = new Accord.IntRange(0, 150);
             var bRange = new Accord.IntRange(0, 150);
@@ -336,30 +341,21 @@ namespace InventoryKamera
                         Bitmap copy = (Bitmap)rescaled.Clone();
                         GenshinProcesor.FilterColors(ref copy, rRange, bRange, gRange);
 
-                        for (int i = 0; i < copy.Width; i++)
-                            for (int j = 0; j < copy.Height * 0.25; j++)
-                                copy.SetPixel(i, j, Color.White);
-
                         Bitmap n = GenshinProcesor.ConvertToGrayscale(copy);
                         
 						GenshinProcesor.SetInvert(ref n);
                         n = new Threshold(50).Apply(n);
 
-                        string original = GenshinProcesor.AnalyzeText(n).Trim();
+                        string original = GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.SingleLine, numbersOnly: true).Trim();
 
 						n.Dispose();
 						copy.Dispose();
 
-                        if (int.TryParse(original, out int val)) return val;
+                        // Quantity OCR is digit-whitelisted, but still evaluate every
+                        // scale instead of trusting the first parseable result.
+                        var cleaned = Regex.Replace(original, @"[^0-9]", string.Empty);
 
-                        // Might be worth it to train some more numbers
-                        var cleaned = original;
-
-                        cleaned = cleaned.Replace("M", "111");
-
-                        cleaned = Regex.Replace(cleaned, @"[^0-9]", string.Empty);
-
-                        int.TryParse(cleaned, out val);
+                        int.TryParse(cleaned, out int val);
 
                         Logger.Debug($"Scanned: {original} -> Regex: {cleaned} -> Parsed: {val}");
 
@@ -376,16 +372,12 @@ namespace InventoryKamera
                 }
 			}
 			
-			var nullableMode = SafeExtractMaxCounter(counts);
-			if (nullableMode == null)
-				return 0;
+			var positiveCounts = counts
+				.Where(entry => entry.Key > 0)
+				.ToDictionary(entry => entry.Key, entry => entry.Value);
 
-			var mode = nullableMode.Value;
-			if (mode.Key == 0 && counts.Count >= 5) 
-				return 0;
-			
-			counts.Remove(mode.Key);
-			return SafeExtractMaxCounter(counts)?.Value ?? 0;
+			var nullableMode = SafeExtractMaxCounter(positiveCounts);
+			return nullableMode?.Key ?? 0;
 		}
 
 		private static KeyValuePair<int, int>? SafeExtractMaxCounter(Dictionary<int, int> counts)

@@ -10,7 +10,9 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 
 namespace InventoryKamera
@@ -37,26 +39,29 @@ namespace InventoryKamera
 
         private readonly string NewVersion = "version.txt";
 
-        private const string commitsAPIURL = "https://gitlab.com/api/v4/projects/53216109/repository/commits";
-        private const string repoBaseURL = "https://gitlab.com/Dimbreath/AnimeGameData2/-/raw/main/";
-        private const string TextMapEnURL = repoBaseURL + "TextMap/TextMapEN.json";
-        private const string TextMapMediumEnURL = repoBaseURL + "TextMap/TextMap_MediumEN.json";
-        private const string CharactersURL = repoBaseURL + "ExcelBinOutput/AvatarExcelConfigData.json";
-        private const string ConstellationsURL = repoBaseURL + "ExcelBinOutput/FetterInfoExcelConfigData.json";
-        private const string TalentsURL = repoBaseURL + "ExcelBinOutput/AvatarTalentExcelConfigData.json";
-        private const string SkillsURL = repoBaseURL + "ExcelBinOutput/AvatarSkillExcelConfigData.json";
+        private const string commitsAPIURL = "https://gitlab.com/api/v4/projects/Dimbreath%2FAnimeGameData2/repository/commits?per_page=100";
+        private const string repoRawBaseURL = "https://gitlab.com/Dimbreath/AnimeGameData2/-/raw/";
+        private const string TextMapEnPath = "TextMap/TextMapEN.json";
+        private const string TextMapMediumEnPath = "TextMap/TextMap_MediumEN.json";
+        private const string CharactersPath = "ExcelBinOutput/AvatarExcelConfigData.json";
+        private const string ConstellationsPath = "ExcelBinOutput/FetterInfoExcelConfigData.json";
+        private const string TalentsPath = "ExcelBinOutput/AvatarTalentExcelConfigData.json";
+        private const string SkillsPath = "ExcelBinOutput/AvatarSkillExcelConfigData.json";
 
-        private const string ArtifactsDisplayItemURL = repoBaseURL + "ExcelBinOutput/DisplayItemExcelConfigData.json";
-        private const string ArtifactsCodex = repoBaseURL + "ExcelBinOutput/ReliquaryCodexExcelConfigData.json";
-        private const string ArtifactSetConfig = repoBaseURL + "ExcelBinOutput/ReliquaryExcelConfigData.json";
+        private const string ArtifactsDisplayItemPath = "ExcelBinOutput/DisplayItemExcelConfigData.json";
+        private const string ArtifactsCodexPath = "ExcelBinOutput/ReliquaryCodexExcelConfigData.json";
+        private const string ArtifactSetConfigPath = "ExcelBinOutput/ReliquaryExcelConfigData.json";
 
-        private const string WeaponsURL = repoBaseURL + "ExcelBinOutput/WeaponExcelConfigData.json";
-        private const string MaterialsURL = repoBaseURL + "ExcelBinOutput/MaterialExcelConfigData.json";
+        private const string WeaponsPath = "ExcelBinOutput/WeaponExcelConfigData.json";
+        private const string MaterialsPath = "ExcelBinOutput/MaterialExcelConfigData.json";
+        private const string UpdateManifestJson = "update_manifest.json";
 
         private ConcurrentDictionary<string, string> Mappings = new ConcurrentDictionary<string, string>();
 
         internal Version LocalVersion = new Version();
         internal Version RemoteVersion = new Version();
+        internal string SourceHeadCommitSha = "";
+        internal string VersionMarkerCommitSha = "";
 
         private static readonly List<string> elements = new List<string>
         {
@@ -94,7 +99,17 @@ namespace InventoryKamera
                 File.Exists(ListsDir + CharactersJson) &&
                 File.Exists(ListsDir + MaterialsJson)))
             {
-                UpdateGameData(force: true);
+                var bootstrapStatus = UpdateGameData(force: true);
+
+                if (bootstrapStatus == UpdateStatus.Fail ||
+                    !(File.Exists(ListsDir + WeaponsJson) &&
+                      File.Exists(ListsDir + ArtifactsJson) &&
+                      File.Exists(ListsDir + CharactersJson) &&
+                      File.Exists(ListsDir + MaterialsJson)))
+                {
+                    throw new InvalidOperationException(
+                        "Initial lookup-table generation failed. Previous data was preserved when available; see InventoryKamera.debug.log for the exact update failure.");
+                }
             }
         }
 
@@ -108,26 +123,71 @@ namespace InventoryKamera
         }
 
         private Version CheckRemoteVersion()
-        { 
-            using (var response = new HttpClient().GetAsync(commitsAPIURL))
-            {
-                string pattern = @"(\d+\.\d+\.\d+)";
+        {
+            Version latest = null;
+            string latestVersionCommit = "";
+            string headCommit = "";
 
-                string body = response.Result.Content.ReadAsStringAsync().Result;
-                var commits = JsonConvert.DeserializeObject<List<JObject>>(body);
+            // Scan multiple pages so version discovery does not silently fail if the
+            // repository has more than 100 commits between game-version marker commits.
+            for (int page = 1; page <= 5; page++)
+            {
+                var url = commitsAPIURL + "&page=" + page;
+
+                string pattern = @"(\d+\.\d+\.\d+)";
+                string body = LoadJsonFromURLAsync(url);
+                var commits = JsonConvert.DeserializeObject<List<JObject>>(body) ?? new List<JObject>();
+
+                if (page == 1 && commits.Count > 0)
+                    headCommit = commits[0]["id"]?.ToString() ?? "";
+
+                if (commits.Count == 0)
+                    break;
+
                 foreach (var commit in commits)
                 {
-                    var c = commit.ToObject<Dictionary<string, object>>();
-                    var match = Regex.Match(c["title"].ToString(), pattern);
-                    if (match.Success)
+                    var title = commit["title"]?.ToString() ?? string.Empty;
+                    var match = Regex.Match(title, pattern);
+
+                    if (!match.Success) continue;
+
+                    if (Version.TryParse(match.Groups[1].Value, out var parsed) &&
+                        (latest == null || parsed.CompareTo(latest) > 0))
                     {
-                        var v = match.Groups[1].Value;
-                        Debug.WriteLine("Latest version found {0}", v);
-                        return new Version(v);
+                        latest = parsed;
+                        latestVersionCommit = commit["id"]?.ToString() ?? "";
                     }
                 }
+
+                // Commits are returned newest first. Once the first page contains
+                // a semantic game-version marker, older pages cannot contain a
+                // newer game version.
+                if (page == 1 && latest != null)
+                    break;
             }
-            return null;
+
+            if (latest != null)
+            {
+                SourceHeadCommitSha = headCommit;
+                VersionMarkerCommitSha = latestVersionCommit;
+
+                Logger.Info(
+                    "Latest game data version {0}; source head={1}; version marker={2}",
+                    latest,
+                    string.IsNullOrWhiteSpace(SourceHeadCommitSha) ? "unknown" : SourceHeadCommitSha,
+                    string.IsNullOrWhiteSpace(VersionMarkerCommitSha) ? "unknown" : VersionMarkerCommitSha);
+            }
+
+            return latest;
+        }
+
+        private string BuildDataURL(string relativePath)
+        {
+            var revision = string.IsNullOrWhiteSpace(SourceHeadCommitSha)
+                ? "main"
+                : SourceHeadCommitSha;
+
+            return repoRawBaseURL + revision + "/" + relativePath.TrimStart('/');
         }
 
         public Dictionary<string, JObject> LoadCharacters()
@@ -190,69 +250,122 @@ namespace InventoryKamera
 
         public UpdateStatus UpdateGameData(bool force = false)
         {
+            string backupDirectory = null;
+
             try
             {
                 UpdateStatus overallStatus = UpdateStatus.Skipped;
-                var statusLock = new object();
-                LoadMappings();
+
+                // Always refresh version/source metadata immediately before an update so
+                // every downloaded table can be pinned to one immutable upstream commit.
+                RemoteVersion = CheckRemoteVersion();
+                if (RemoteVersion == null)
+                    throw new InvalidOperationException("Could not determine the current Genshin data version.");
+
+                if (!force && RemoteVersion.CompareTo(LocalVersion) <= 0)
+                {
+                    Logger.Info(
+                        "Game data is already current. local={0}, remote={1}",
+                        LocalVersion,
+                        RemoteVersion);
+                    return UpdateStatus.Skipped;
+                }
 
                 if (force)
                 {
                     Logger.Info("Forcing update for game data");
                     Properties.Settings.Default.LastUpdateCheck = DateTime.MinValue;
-                    RemoteVersion = CheckRemoteVersion();
                 }
+
+                // New game versions are rebuilt from source instead of merged into the
+                // previous lookup tables. Merging can preserve stale metadata for existing
+                // characters/items when upstream changes an already-known record.
+                bool rebuildFromSource = true;
+
+                Logger.Info(
+                    "Game data update plan: local={0}, remote={1}, rebuildFromSource={2}, sourceHead={3}",
+                    LocalVersion,
+                    RemoteVersion,
+                    rebuildFromSource,
+                    string.IsNullOrWhiteSpace(SourceHeadCommitSha) ? "unknown" : SourceHeadCommitSha);
+
+                backupDirectory = CreateUpdateBackup();
+                LoadMappings();
 
                 var lists = Enum.GetValues(typeof(ListType)).Cast<ListType>().ToList();
-
                 lists.RemoveAll(e => e == ListType.CharacterDevelopmentItems);
 
-                lists.AsParallel().ForAll(e =>
+                // Deterministic sequential updates avoid shared status races and make the
+                // update log reproducible. The datasets are small enough that the previous
+                // PLINQ fan-out provided little practical benefit.
+                foreach (var list in lists)
                 {
-                    var status = UpdateList(e, force);
+                    var listStatus = UpdateList(list, rebuildFromSource);
 
-                    lock (statusLock) 
+                    if (listStatus == UpdateStatus.Fail)
                     {
-                        switch (status)
-                        {
-                            case UpdateStatus.Fail:
-                                overallStatus = UpdateStatus.Fail;
-                                Logger.Error("Failed to update {0} data", e);
-                                break;
-                            case UpdateStatus.Success:
-                                if (overallStatus != UpdateStatus.Fail)
-                                    overallStatus = UpdateStatus.Success;
-                                break;
-                            default:
-                                if (overallStatus == UpdateStatus.Skipped)
-                                    overallStatus = UpdateStatus.Skipped;
-                                break;
-                        }
+                        overallStatus = UpdateStatus.Fail;
+                        Logger.Error("Failed to update {0} data", list);
+                        break;
                     }
-                });
 
-                if (overallStatus != UpdateStatus.Fail)
-                {
-
-                    if (RemoteVersion != new Version())
+                    if (listStatus == UpdateStatus.Skipped)
                     {
-                        LocalVersion = RemoteVersion;
-                        File.WriteAllText(ListsDir + NewVersion, LocalVersion.ToString());
+                        overallStatus = UpdateStatus.Fail;
+                        Logger.Error(
+                            "Update for {0} unexpectedly produced no replacement data while rebuilding from source",
+                            list);
+                        break;
                     }
+
+                    overallStatus = UpdateStatus.Success;
                 }
-                else
-                    Logger.Error($"Could not update all information for version {RemoteVersion}");
 
-                ReleaseMappings();
+                if (overallStatus == UpdateStatus.Fail)
+                {
+                    Logger.Error("Could not update all information for version {0}; restoring previous lookup set", RemoteVersion);
+                    RestoreUpdateBackup(backupDirectory);
+                    return UpdateStatus.Fail;
+                }
+
+                LocalVersion = RemoteVersion;
+
+                if (!SaveTextToFileAtomically(LocalVersion.ToString(), NewVersion))
+                {
+                    Logger.Error("Failed to persist version metadata; restoring previous lookup set");
+                    RestoreUpdateBackup(backupDirectory);
+                    return UpdateStatus.Fail;
+                }
+
+                if (!WriteUpdateManifest())
+                {
+                    Logger.Error("Failed to persist update manifest; restoring previous lookup set");
+                    RestoreUpdateBackup(backupDirectory);
+                    return UpdateStatus.Fail;
+                }
+
+                DeleteUpdateBackup(backupDirectory);
+                backupDirectory = null;
+
+                Logger.Info(
+                    "Game data update committed successfully. version={0}, sourceHead={1}",
+                    LocalVersion,
+                    string.IsNullOrWhiteSpace(SourceHeadCommitSha) ? "unknown" : SourceHeadCommitSha);
+
                 return overallStatus;
             }
             catch (Exception e)
             {
-                ReleaseMappings();
+                if (!string.IsNullOrWhiteSpace(backupDirectory))
+                    RestoreUpdateBackup(backupDirectory);
+
                 Logger.Error(e);
                 return UpdateStatus.Fail;
             }
-            
+            finally
+            {
+                ReleaseMappings();
+            }
         }
 
         private void LoadMappings()
@@ -261,12 +374,12 @@ namespace InventoryKamera
             {
                 if (!Mappings.Any())
                 {
-                    var mapping = JObject.Parse(LoadJsonFromURLAsync(TextMapEnURL))
+                    var mapping = JObject.Parse(LoadJsonFromURLAsync(BuildDataURL(TextMapEnPath)))
                         .ToObject<Dictionary<string, string>>()
                         .Where(e => !string.IsNullOrWhiteSpace(e.Value)) // Remove any mapping with empty
                         .ToDictionary(i => i.Key, i => i.Value);
 
-                    var mediumMapping = JObject.Parse(LoadJsonFromURLAsync(TextMapMediumEnURL))
+                    var mediumMapping = JObject.Parse(LoadJsonFromURLAsync(BuildDataURL(TextMapMediumEnPath)))
                         .ToObject<Dictionary<string, string>>()
                         .Where(e => !string.IsNullOrWhiteSpace(e.Value)) // Remove any mapping with empty
                         .ToDictionary(i => i.Key, i => i.Value);
@@ -288,23 +401,49 @@ namespace InventoryKamera
 
         private string LoadJsonFromURLAsync(string url)
         {
-            string json = "";
+            Exception lastException = null;
 
-            try
+            for (int attempt = 1; attempt <= 3; attempt++)
             {
-                using (WebClient client = new WebClient())
+                try
                 {
-                    client.Encoding = System.Text.Encoding.UTF8;
-                    json = client.DownloadString(url);
+                    using (var client = new HttpClient())
+                    {
+                        client.Timeout = TimeSpan.FromSeconds(60);
+
+                        using (var response = client.GetAsync(url).Result)
+                        {
+                            response.EnsureSuccessStatusCode();
+                            var json = response.Content.ReadAsStringAsync().Result;
+
+                            if (string.IsNullOrWhiteSpace(json))
+                                throw new InvalidDataException("Downloaded JSON was empty.");
+
+                            var firstNonWhitespace = json.FirstOrDefault(c => !char.IsWhiteSpace(c));
+                            if (firstNonWhitespace != '{' && firstNonWhitespace != '[')
+                                throw new InvalidDataException("Downloaded content does not look like JSON.");
+
+                            return json;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+                    Logger.Warn(
+                        "Download attempt {0}/3 failed for {1}: {2}",
+                        attempt,
+                        url,
+                        ex.Message);
+
+                    if (attempt < 3)
+                        Thread.Sleep(500 * attempt);
                 }
             }
-            catch (Exception)
-            {
 
-                throw;
-            }
-            
-            return json;
+            throw new InvalidOperationException(
+                "Failed to download required game data after 3 attempts: " + url,
+                lastException);
         }
 
         private UpdateStatus UpdateList(ListType list, bool force = false)
@@ -361,29 +500,82 @@ namespace InventoryKamera
 
             try
             {
-                var characters = JArray.Parse(LoadJsonFromURLAsync(CharactersURL)).ToObject<List<JObject>>();
-                var constellations = JArray.Parse(LoadJsonFromURLAsync(ConstellationsURL)).ToObject<List<JObject>>();
-                var talents = JArray.Parse(LoadJsonFromURLAsync(TalentsURL)).ToObject<List<JObject>>();
-                var skills = JArray.Parse(LoadJsonFromURLAsync(SkillsURL)).ToObject<List<JObject>>();
+                var characters = JArray.Parse(LoadJsonFromURLAsync(BuildDataURL(CharactersPath))).ToObject<List<JObject>>();
+                var constellations = JArray.Parse(LoadJsonFromURLAsync(BuildDataURL(ConstellationsPath))).ToObject<List<JObject>>();
+                var talents = JArray.Parse(LoadJsonFromURLAsync(BuildDataURL(TalentsPath))).ToObject<List<JObject>>();
+                var skills = JArray.Parse(LoadJsonFromURLAsync(BuildDataURL(SkillsPath))).ToObject<List<JObject>>();
 
                 characters.RemoveAll(c => !c.ContainsKey("useType") || c["useType"].ToString() != "AVATAR_FORMAL");
 
                 Logger.Debug("Found {0} playable characters available", characters.Count);
-                characters.AsParallel().ForAll(character =>
+
+                int sourceFormalRows = characters.Count;
+                int generatedRows = 0;
+                int skippedFemaleTraveler = 0;
+                int skippedInternalId = 0;
+                int skippedKnownMannequin = 0;
+                int skippedUnmappedName = 0;
+                int skippedUnmappedSkill = 0;
+                int skippedUnmappedC3 = 0;
+                int skippedUnmappedC5 = 0;
+                int skippedDuplicateKey = 0;
+                int failedRows = 0;
+
+                foreach (var character in characters)
                 {
-                    string name = Mappings[character["nameTextMapHash"].ToString()].ToString();
+                    string name = "<unknown>";
 
                     try
                     {
+                        if (!character.TryGetValue("nameTextMapHash", out var nameHashToken) ||
+                            string.IsNullOrWhiteSpace(nameHashToken?.ToString()) ||
+                            !Mappings.TryGetValue(nameHashToken.ToString(), out name))
+                        {
+                            skippedUnmappedName++;
+                            Logger.Warn(
+                                "Skipping character with unmapped name. id={0}, hash={1}, iconName={2}",
+                                character["id"]?.ToString() ?? "missing",
+                                nameHashToken?.ToString() ?? "missing",
+                                character["iconName"]?.ToString() ?? "missing");
+                            continue;
+                        }
 
-                        if (name.ToLower() == "PlayerGirl".ToLower()) return; // Both travelers are listed but are essentially identical
+                        if (string.Equals(name, "PlayerGirl", StringComparison.OrdinalIgnoreCase))
+                        {
+                            skippedFemaleTraveler++;
+                            Logger.Debug(
+                                "Excluding duplicate female Traveler source row. id={0}, iconName={1}",
+                                character["id"]?.ToString() ?? "missing",
+                                character["iconName"]?.ToString() ?? "missing");
+                            continue;
+                        }
 
                         string PascalCase = CultureInfo.GetCultureInfo("en").TextInfo.ToTitleCase(name);
                         string nameGOOD = Regex.Replace(PascalCase, @"[\W]", string.Empty);
                         string nameKey = nameGOOD.ToLower();
                         int characterID = (int)character["id"];
 
-                        if (characterID > 10000900) return; // Not playable characters
+                        if (characterID > 10000900)
+                        {
+                            skippedInternalId++;
+                            Logger.Debug(
+                                "Excluding internal/non-playable character row by ID range. name={0}, id={1}, iconName={2}",
+                                nameGOOD,
+                                characterID,
+                                character["iconName"]?.ToString() ?? "missing");
+                            continue;
+                        }
+
+                        if (string.Equals(nameGOOD, "Manekin", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(nameGOOD, "Manekina", StringComparison.OrdinalIgnoreCase))
+                        {
+                            skippedKnownMannequin++;
+                            Logger.Debug(
+                                "Excluding known mannequin/internal avatar row. name={0}, id={1}",
+                                nameGOOD,
+                                characterID);
+                            continue;
+                        }
 
                         string const3Description = "";
                         string const5Description = "";
@@ -392,7 +584,17 @@ namespace InventoryKamera
 
                         var value = new JObject();
 
-                        if (!newData.ContainsKey(nameKey))
+                        if (newData.ContainsKey(nameKey))
+                        {
+                            skippedDuplicateKey++;
+                            Logger.Warn(
+                                "Skipping duplicate character GOOD key. key={0}, name={1}, id={2}",
+                                nameKey,
+                                nameGOOD,
+                                characterID);
+                            continue;
+                        }
+
                         {
                             value.Add("GOOD", nameGOOD);
 
@@ -412,22 +614,43 @@ namespace InventoryKamera
                                     { "Grass", "dendro" },
                                     { "Rock", "geo"},
                                     { "Water", "hydro"},
-                                    { "Wind", "anemo"}
+                                    { "Wind", "anemo"},
+                                    { "Ice", "cryo"}
                                 };
 
                                 value.Add("Element", new JArray(playerElements.Values));
 
                                 foreach (var element in playerElements)
                                 {
-                                    var elementSkill = skills.FirstOrDefault(entry => entry["skillIcon"].ToString().Contains($"Player{element.Key}") && !entry.ContainsKey("costElemType"));
+                                    var elementSkill = skills.FirstOrDefault(entry =>
+                                        entry["skillIcon"] != null &&
+                                        entry["skillIcon"].ToString().Contains($"Player{element.Key}") &&
+                                        !entry.ContainsKey("costElemType"));
                                     
 
                                     if (elementSkill == null) continue;
 
-                                    skill = Mappings[elementSkill["nameTextMapHash"].ToString()].ToString();
+                                    var travelerSkillHash = elementSkill["nameTextMapHash"]?.ToString();
+                                    if (string.IsNullOrWhiteSpace(travelerSkillHash) ||
+                                        !Mappings.TryGetValue(travelerSkillHash, out skill))
+                                    {
+                                        Logger.Warn("Skipping unmapped Traveler skill. element={0}, hash={1}",
+                                            element.Key, travelerSkillHash ?? "missing");
+                                        continue;
+                                    }
 
-                                    const3Description = talents.Where(entry => entry["openConfig"].ToString().Contains($"Player_{element.Key}")).ElementAt(2)["descTextMapHash"].ToString();
-                                    const3Description = Mappings[const3Description].ToString();
+                                    var travelerTalent = talents
+                                        .Where(entry => entry["openConfig"] != null && entry["openConfig"].ToString().Contains($"Player_{element.Key}"))
+                                        .Skip(2)
+                                        .FirstOrDefault();
+                                    var travelerC3Hash = travelerTalent?["descTextMapHash"]?.ToString();
+                                    if (string.IsNullOrWhiteSpace(travelerC3Hash) ||
+                                        !Mappings.TryGetValue(travelerC3Hash, out const3Description))
+                                    {
+                                        Logger.Warn("Skipping unmapped Traveler C3 description. element={0}, hash={1}",
+                                            element.Key, travelerC3Hash ?? "missing");
+                                        continue;
+                                    }
 
                                     if (const3Description.Contains(skill))
                                     {
@@ -442,21 +665,53 @@ namespace InventoryKamera
                             }
                             else // Any other character that isn't traveler
                             {
-                                skill = skills.First(entry => entry["skillIcon"].ToString().Contains($"Skill_S_{name}"))["nameTextMapHash"].ToString();
-                                skill = Mappings[skill].ToString();
+                                var characterSkillCandidates = skills
+                                    .Where(entry => entry["skillIcon"] != null &&
+                                        entry["skillIcon"].ToString().Contains($"Skill_S_{name}"))
+                                    .ToList();
+
+                                // Prefer the canonical unsuffixed skill icon.  Some characters have
+                                // multiple Skill_S_* rows and FirstOrDefault() can select an alternate
+                                // state/variant, which then breaks C3/C5 talent detection.
+                                var characterSkill = characterSkillCandidates.FirstOrDefault(entry =>
+                                    string.Equals(entry["skillIcon"].ToString(), $"Skill_S_{name}", StringComparison.OrdinalIgnoreCase))
+                                    ?? characterSkillCandidates.FirstOrDefault(entry => !entry.ContainsKey("costElemType"))
+                                    ?? characterSkillCandidates.FirstOrDefault();
+
+                                var characterSkillHash = characterSkill?["nameTextMapHash"]?.ToString();
+
+                                if (string.IsNullOrWhiteSpace(characterSkillHash) ||
+                                    !Mappings.TryGetValue(characterSkillHash, out skill))
+                                {
+                                    skippedUnmappedSkill++;
+                                    Logger.Warn("Skipping character with unmapped skill. character={0}, hash={1}",
+                                        nameGOOD, characterSkillHash ?? "missing");
+                                    continue;
+                                }
 
                                 value.Add("ConstellationName", new JArray
                                 {
-                                    GetConstellationNameFromId(characterID)
+                                    GetConstellationNameFromId(characterID, nameGOOD)
                                 });
 
                                 var constellationOrder = new JArray();
 
                                 // The skill/burst name is always mentioned in the constellation's description so we'll check for it
-                                const3Description = talents.Where(entry => entry["icon"].ToString().Contains(name)).ElementAt(2)["descTextMapHash"].ToString();
-                                const3Description = Mappings[const3Description].ToString();
+                                var thirdTalent = talents
+                                    .Where(entry => entry["icon"] != null && entry["icon"].ToString().Contains(name))
+                                    .Skip(2)
+                                    .FirstOrDefault();
+                                var c3Hash = thirdTalent?["descTextMapHash"]?.ToString();
+                                if (string.IsNullOrWhiteSpace(c3Hash) ||
+                                    !Mappings.TryGetValue(c3Hash, out const3Description))
+                                {
+                                    skippedUnmappedC3++;
+                                    Logger.Warn("Skipping character with unmapped C3 description. character={0}, hash={1}",
+                                        nameGOOD, c3Hash ?? "missing");
+                                    continue;
+                                }
 
-                                if (const3Description.Contains(auto))
+                                if (const3Description.Contains(auto) || const3Description.Contains("Charged Attack"))
                                 {
                                     constellationOrder.Add("auto");
                                 } else if (const3Description.Contains(skill))
@@ -469,10 +724,21 @@ namespace InventoryKamera
                                 }
 
                                 // The skill/burst name is always mentioned in the constellation's description so we'll check for it
-                                const5Description = talents.Where(entry => entry["icon"].ToString().Contains(name)).ElementAt(4)["descTextMapHash"].ToString();
-                                const5Description = Mappings[const5Description].ToString();
+                                var fifthTalent = talents
+                                    .Where(entry => entry["icon"] != null && entry["icon"].ToString().Contains(name))
+                                    .Skip(4)
+                                    .FirstOrDefault();
+                                var c5Hash = fifthTalent?["descTextMapHash"]?.ToString();
+                                if (string.IsNullOrWhiteSpace(c5Hash) ||
+                                    !Mappings.TryGetValue(c5Hash, out const5Description))
+                                {
+                                    skippedUnmappedC5++;
+                                    Logger.Warn("Skipping character with unmapped C5 description. character={0}, hash={1}",
+                                        nameGOOD, c5Hash ?? "missing");
+                                    continue;
+                                }
 
-                                if (const5Description.Contains(auto))
+                                if (const5Description.Contains(auto) || const5Description.Contains("Charged Attack"))
                                 {
                                     constellationOrder.Add("auto");
                                 }
@@ -483,6 +749,28 @@ namespace InventoryKamera
                                 else
                                 {
                                     constellationOrder.Add("burst");
+                                }
+
+                                // A small number of characters cannot be inferred reliably from the
+                                // current text/icon heuristic.  Keep explicit, verified fallbacks rather
+                                // than silently emitting duplicate/incorrect C3/C5 talent adjustments.
+                                if (nameGOOD == "KamisatoAyaka")
+                                {
+                                    constellationOrder = new JArray { "burst", "skill" };
+                                }
+                                else if (nameGOOD == "Aloy")
+                                {
+                                    // Aloy has no obtainable constellations, but keep structurally sane
+                                    // metadata for consumers that expect a two-entry order.
+                                    constellationOrder = new JArray { "burst", "skill" };
+                                }
+                                else if (nameGOOD == "Sandrone")
+                                {
+                                    // Sandrone C3 increases her Normal Attack talent and C5 increases
+                                    // her Elemental Burst. The localized constellation descriptions
+                                    // reference talent names rather than the generic "Normal Attack"
+                                    // label, so the text heuristic cannot infer this reliably.
+                                    constellationOrder = new JArray { "auto", "burst" };
                                 }
 
                                 value.Add("ConstellationOrder", constellationOrder);
@@ -501,25 +789,140 @@ namespace InventoryKamera
 
                             value.Add("WeaponType", (int)weaponType);
 
-                            if (newData.TryAdd(nameKey, value)) status = UpdateStatus.Success;
+                            if (newData.TryAdd(nameKey, value))
+                            {
+                                generatedRows++;
+                                status = UpdateStatus.Success;
+                            }
+                            else
+                            {
+                                skippedDuplicateKey++;
+                                Logger.Warn(
+                                    "Character key became duplicate before insertion. key={0}, name={1}, id={2}",
+                                    nameKey,
+                                    nameGOOD,
+                                    characterID);
+                            }
                         }
                     }
                     catch (Exception ex)
                     {
+                        failedRows++;
                         Logger.Warn("Problem when generating character information for {0}", name);
                         Logger.Warn(ex);
                     }
-                });
+                }
 
-                string GetConstellationNameFromId(int targetID)
+                int excludedRows =
+                    skippedFemaleTraveler +
+                    skippedInternalId +
+                    skippedKnownMannequin +
+                    skippedUnmappedName +
+                    skippedUnmappedSkill +
+                    skippedUnmappedC3 +
+                    skippedUnmappedC5 +
+                    skippedDuplicateKey;
+
+                int accountedRows = generatedRows + excludedRows + failedRows;
+
+                Logger.Info(
+                    "Character source accounting: sourceFormalRows={0}, generatedRows={1}, excludedRows={2}, failedRows={3}, accountedRows={4}",
+                    sourceFormalRows,
+                    generatedRows,
+                    excludedRows,
+                    failedRows,
+                    accountedRows);
+
+                Logger.Info(
+                    "Character exclusion breakdown: femaleTravelerDuplicate={0}, internalIdRange={1}, knownMannequin={2}, unmappedName={3}, unmappedSkill={4}, unmappedC3={5}, unmappedC5={6}, duplicateKey={7}",
+                    skippedFemaleTraveler,
+                    skippedInternalId,
+                    skippedKnownMannequin,
+                    skippedUnmappedName,
+                    skippedUnmappedSkill,
+                    skippedUnmappedC3,
+                    skippedUnmappedC5,
+                    skippedDuplicateKey);
+
+                if (accountedRows != sourceFormalRows)
                 {
+                    Logger.Error(
+                        "Character source accounting mismatch: sourceFormalRows={0}, accountedRows={1}",
+                        sourceFormalRows,
+                        accountedRows);
+                    status = UpdateStatus.Fail;
+                }
+
+                if (failedRows > 0)
+                {
+                    Logger.Error(
+                        "Character generation encountered {0} unhandled row exception(s); refusing to save a partial character table",
+                        failedRows);
+                    status = UpdateStatus.Fail;
+                }
+
+                string GetConstellationNameFromId(int targetID, string goodName)
+                {
+                    // Some characters intentionally or historically expose "???" in the
+                    // upstream text-map field even though their in-game constellation name
+                    // is known.  Preserve authoritative overrides instead of exporting the
+                    // placeholder and make future unresolved placeholders visible in logs.
+                    var knownConstellationNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { "Columbina", "Columbina Hyposelenia" },
+                        { "Neuvillette", "Leviathan Judicator" },
+                        { "Zhongli", "Lapis Dei" }
+                    };
+
                     foreach (var constellation in from constellation in constellations
                                                   where (((int)constellation["avatarId"]) == targetID)
                                                   select constellation)
                     {
-                        return Mappings[constellation["avatarConstellationBeforTextMapHash"].ToString()].ToString();
+                        var hash = constellation["avatarConstellationBeforTextMapHash"]?.ToString();
+                        string constellationName = null;
+                        if (!string.IsNullOrWhiteSpace(hash) &&
+                            Mappings.TryGetValue(hash, out constellationName) &&
+                            !string.IsNullOrWhiteSpace(constellationName) &&
+                            constellationName != "???")
+                        {
+                            return constellationName;
+                        }
+
+                        if (knownConstellationNames.TryGetValue(goodName ?? string.Empty, out var knownName))
+                        {
+                            Logger.Info(
+                                "Using verified constellation-name override. character={0}, characterId={1}, upstream={2}, hash={3}, override={4}",
+                                goodName ?? "unknown",
+                                targetID,
+                                constellationName ?? "missing",
+                                hash ?? "missing",
+                                knownName);
+                            return knownName;
+                        }
+
+                        Logger.Warn(
+                            "Unresolved constellation name. character={0}, characterId={1}, upstream={2}, hash={3}",
+                            goodName ?? "unknown",
+                            targetID,
+                            constellationName ?? "missing",
+                            hash ?? "missing");
+                        return "";
                     }
 
+                    if (knownConstellationNames.TryGetValue(goodName ?? string.Empty, out var fallbackName))
+                    {
+                        Logger.Info(
+                            "Using verified constellation-name override without FetterInfo row. character={0}, characterId={1}, override={2}",
+                            goodName ?? "unknown",
+                            targetID,
+                            fallbackName);
+                        return fallbackName;
+                    }
+
+                    Logger.Warn(
+                        "No constellation metadata row found. character={0}, characterId={1}",
+                        goodName ?? "unknown",
+                        targetID);
                     return "";
                 }
 
@@ -529,7 +932,14 @@ namespace InventoryKamera
                                             where (((int)constellation["avatarId"]) == targetID)
                                             select constellation)
                     {
-                        return Mappings[element["avatarVisionBeforTextMapHash"].ToString()].ToString().ToLower();
+                        var hash = element["avatarVisionBeforTextMapHash"]?.ToString();
+                        if (!string.IsNullOrWhiteSpace(hash) &&
+                            Mappings.TryGetValue(hash, out var elementName))
+                            return elementName.ToLower();
+
+                        Logger.Warn("Missing element mapping. characterId={0}, hash={1}",
+                            targetID, hash ?? "missing");
+                        return "";
                     }
                     return "";
                 }
@@ -546,7 +956,11 @@ namespace InventoryKamera
                 if (ValidateCharacterData(newData))
                 {
                     Logger.Info("Character data validation passed. Saving {0} characters.", newData.Count);
-                    SaveJsonToFile(JsonConvert.SerializeObject(new SortedDictionary<string, JObject>(newData)), CharactersJson);
+                    if (!SaveJsonToFile(JsonConvert.SerializeObject(new SortedDictionary<string, JObject>(newData)), CharactersJson))
+                    {
+                        Logger.Error("Failed to atomically save character data.");
+                        status = UpdateStatus.Fail;
+                    }
                 }
                 else
                 {
@@ -560,21 +974,19 @@ namespace InventoryKamera
 
         private bool ValidateCharacterData(ConcurrentDictionary<string, JObject> data)
         {
-            // Sanity checks to prevent saving corrupt/empty data
             if (data == null || data.Count == 0)
             {
                 Logger.Error("Validation failed: Character data is null or empty");
                 return false;
             }
 
-            // Expect at least 50 characters (as of 6.5.0 there are 90+)
+            // Broad sanity floor only; completeness is checked structurally below.
             if (data.Count < 50)
             {
                 Logger.Error("Validation failed: Only {0} characters found (expected at least 50)", data.Count);
                 return false;
             }
 
-            // Check that critical characters exist (sanity check for complete data)
             string[] criticalCharacters = { "traveler", "amber", "kaeya", "lisa" };
             foreach (var charKey in criticalCharacters)
             {
@@ -585,28 +997,126 @@ namespace InventoryKamera
                 }
             }
 
-            // Validate structure of a sample character
-            foreach (var kvp in data.Take(5))
+            var validTalentTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
+                "auto", "skill", "burst"
+            };
+
+            // Validate EVERY generated character.  Sampling the first five allowed bad
+            // ConstellationOrder entries to be written silently.
+            foreach (var kvp in data)
+            {
+                var key = kvp.Key;
                 var charData = kvp.Value;
-                if (!charData.ContainsKey("GOOD") ||
+
+                if (charData == null ||
+                    !charData.ContainsKey("GOOD") ||
                     !charData.ContainsKey("Element") ||
-                    !charData.ContainsKey("WeaponType"))
+                    !charData.ContainsKey("WeaponType") ||
+                    !charData.ContainsKey("ConstellationOrder"))
                 {
-                    Logger.Error("Validation failed: Character '{0}' missing required fields", kvp.Key);
+                    Logger.Error("Validation failed: Character '{0}' missing required fields", key);
                     return false;
                 }
 
-                // Check ConstellationOrder exists (except for traveler which has element-specific)
-                if (kvp.Key != "traveler" && !charData.ContainsKey("ConstellationOrder"))
+                var goodName = charData["GOOD"]?.ToString();
+                if (string.IsNullOrWhiteSpace(goodName) ||
+                    !string.Equals(key, goodName.ToLowerInvariant(), StringComparison.Ordinal))
                 {
-                    Logger.Error("Validation failed: Character '{0}' missing ConstellationOrder", kvp.Key);
+                    Logger.Error(
+                        "Validation failed: Character key/GOOD mismatch. key='{0}', GOOD='{1}'",
+                        key,
+                        goodName ?? "missing");
                     return false;
+                }
+
+                if (!key.Equals("traveler", StringComparison.OrdinalIgnoreCase))
+                {
+                    var constellationNames = charData["ConstellationName"] as JArray;
+                    var constellationName = constellationNames?.FirstOrDefault()?.ToString();
+
+                    if (constellationNames == null ||
+                        constellationNames.Count == 0 ||
+                        string.IsNullOrWhiteSpace(constellationName) ||
+                        constellationName == "???")
+                    {
+                        Logger.Error(
+                            "Validation failed: Character '{0}' has unresolved ConstellationName '{1}'",
+                            key,
+                            constellationName ?? "missing");
+                        return false;
+                    }
+                }
+
+                var elements = charData["Element"] as JArray;
+                if (elements == null || elements.Count == 0 ||
+                    elements.Any(e => string.IsNullOrWhiteSpace(e?.ToString())))
+                {
+                    Logger.Error("Validation failed: Character '{0}' has invalid Element data", key);
+                    return false;
+                }
+
+                if (!int.TryParse(charData["WeaponType"]?.ToString(), out var weaponType) ||
+                    weaponType < (int)WeaponType.Sword || weaponType > (int)WeaponType.Catalyst)
+                {
+                    Logger.Error("Validation failed: Character '{0}' has invalid WeaponType '{1}'",
+                        key, charData["WeaponType"]?.ToString() ?? "missing");
+                    return false;
+                }
+
+                if (key.Equals("traveler", StringComparison.OrdinalIgnoreCase))
+                {
+                    var travelerOrder = charData["ConstellationOrder"] as JObject;
+                    if (travelerOrder == null)
+                    {
+                        Logger.Error("Validation failed: Traveler ConstellationOrder is not element-specific");
+                        return false;
+                    }
+
+                    foreach (var elementToken in elements)
+                    {
+                        var element = elementToken.ToString().ToLowerInvariant();
+                        var order = travelerOrder[element] as JArray;
+                        if (!ValidateTalentOrder(order, $"traveler/{element}")) return false;
+                    }
+                }
+                else
+                {
+                    var order = charData["ConstellationOrder"] as JArray;
+                    if (!ValidateTalentOrder(order, key)) return false;
                 }
             }
 
             Logger.Debug("Character data validation passed: {0} characters, all checks OK", data.Count);
             return true;
+
+            bool ValidateTalentOrder(JArray order, string label)
+            {
+                if (order == null || order.Count != 2)
+                {
+                    Logger.Error("Validation failed: Character '{0}' has malformed ConstellationOrder", label);
+                    return false;
+                }
+
+                var first = order[0]?.ToString();
+                var second = order[1]?.ToString();
+                if (!validTalentTypes.Contains(first ?? string.Empty) ||
+                    !validTalentTypes.Contains(second ?? string.Empty))
+                {
+                    Logger.Error("Validation failed: Character '{0}' has unknown talent type(s) in ConstellationOrder: [{1}, {2}]",
+                        label, first ?? "missing", second ?? "missing");
+                    return false;
+                }
+
+                if (string.Equals(first, second, StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Error("Validation failed: Character '{0}' has duplicate C3/C5 talent target '{1}'",
+                        label, first);
+                    return false;
+                }
+
+                return true;
+            }
         }
 
         private UpdateStatus UpdateArtifacts(bool force)
@@ -620,11 +1130,11 @@ namespace InventoryKamera
 
             var newData = new ConcurrentDictionary<string, JObject>(data);
 
-            var artifactDisplays = JArray.Parse(LoadJsonFromURLAsync(ArtifactsDisplayItemURL)).ToObject<List<JObject>>();
+            var artifactDisplays = JArray.Parse(LoadJsonFromURLAsync(BuildDataURL(ArtifactsDisplayItemPath))).ToObject<List<JObject>>();
             artifactDisplays.RemoveAll(a => a.TryGetValue("icon", out var icon) && !icon.ToString().Contains("RelicIcon"));
 
-            var codex = JArray.Parse(LoadJsonFromURLAsync(ArtifactsCodex)).ToObject<List<JObject>>();
-            var sets = JArray.Parse(LoadJsonFromURLAsync(ArtifactSetConfig)).ToObject<List<JObject>>();
+            var codex = JArray.Parse(LoadJsonFromURLAsync(BuildDataURL(ArtifactsCodexPath))).ToObject<List<JObject>>();
+            var sets = JArray.Parse(LoadJsonFromURLAsync(BuildDataURL(ArtifactSetConfigPath))).ToObject<List<JObject>>();
 
             artifactDisplays.AsParallel().ForAll(artifactDisplay =>
             {
@@ -659,7 +1169,15 @@ namespace InventoryKamera
                                     foreach (var artifact in sets.Where(s => artifactIDs.Values.Contains((int)s["id"])))
                                     {
                                         var slot = artifactIDs.First(x => x.Value != null && (int)x.Value == (int)artifact["id"]).Key;
-                                        var artifactName = Mappings[artifact["nameTextMapHash"].ToString()];                                  // Goblet of the Sojourner
+                                        var artifactHash = artifact["nameTextMapHash"]?.ToString();
+                                        if (string.IsNullOrWhiteSpace(artifactHash) ||
+                                            !Mappings.TryGetValue(artifactHash, out var artifactName))
+                                        {
+                                            Logger.Warn("Skipping artifact piece with unmapped name. id={0}, hash={1}",
+                                                artifact["id"]?.ToString() ?? "missing",
+                                                artifactHash ?? "missing");
+                                            continue;
+                                        }
                                         string artifactNamePascalCase = CultureInfo.GetCultureInfo("en").TextInfo.ToTitleCase(artifactName);  // Goblet Of The Sojourner
                                         string artifactNameGOOD = Regex.Replace(artifactNamePascalCase, @"[\W]", string.Empty);               // GobletOfTheSojourner
                                         string artifactNormalized = artifactNameGOOD.ToLower();                                               // gobletofthesojourner
@@ -700,7 +1218,11 @@ namespace InventoryKamera
                 if (ValidateArtifactData(newData))
                 {
                     Logger.Info("Artifact data validation passed. Saving {0} artifact sets.", newData.Count);
-                    SaveJsonToFile(JsonConvert.SerializeObject(new SortedDictionary<string, JObject>(newData)), ArtifactsJson);
+                    if (!SaveJsonToFile(JsonConvert.SerializeObject(new SortedDictionary<string, JObject>(newData)), ArtifactsJson))
+                    {
+                        Logger.Error("Failed to atomically save artifact data.");
+                        status = UpdateStatus.Fail;
+                    }
                 }
                 else
                 {
@@ -720,14 +1242,13 @@ namespace InventoryKamera
                 return false;
             }
 
-            // Expect at least 30 artifact sets (as of 6.5.0 there are 40+)
+            // Broad sanity floor only. Every generated set/piece is validated below.
             if (data.Count < 30)
             {
                 Logger.Error("Validation failed: Only {0} artifact sets found (expected at least 30)", data.Count);
                 return false;
             }
 
-            // Check that critical artifact sets exist
             string[] criticalSets = { "gladiatorsfinale", "wandererstroupe", "noblesseoblige" };
             foreach (var setKey in criticalSets)
             {
@@ -738,15 +1259,83 @@ namespace InventoryKamera
                 }
             }
 
-            // Validate structure of a sample set
-            foreach (var kvp in data.Take(3))
+            var validSlots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
+                "flower", "plume", "sands", "goblet", "circlet"
+            };
+
+            foreach (var kvp in data)
+            {
+                var setKey = kvp.Key;
                 var setData = kvp.Value;
-                if (!setData.ContainsKey("GOOD") ||
+
+                if (setData == null ||
+                    !setData.ContainsKey("setName") ||
+                    !setData.ContainsKey("GOOD") ||
+                    !setData.ContainsKey("normalizedName") ||
                     !setData.ContainsKey("artifacts"))
                 {
-                    Logger.Error("Validation failed: Artifact set '{0}' missing required fields", kvp.Key);
+                    Logger.Error("Validation failed: Artifact set '{0}' missing required fields", setKey);
                     return false;
+                }
+
+                var setGood = setData["GOOD"]?.ToString();
+                if (string.IsNullOrWhiteSpace(setGood) ||
+                    !string.Equals(setKey, setGood.ToLowerInvariant(), StringComparison.Ordinal))
+                {
+                    Logger.Error(
+                        "Validation failed: Artifact set key/GOOD mismatch. key='{0}', GOOD='{1}'",
+                        setKey,
+                        setGood ?? "missing");
+                    return false;
+                }
+
+                var artifacts = setData["artifacts"] as JObject;
+                if (artifacts == null || artifacts.Count < 1 || artifacts.Count > 5)
+                {
+                    Logger.Error(
+                        "Validation failed: Artifact set '{0}' has invalid piece count {1}",
+                        setKey,
+                        artifacts?.Count ?? 0);
+                    return false;
+                }
+
+                foreach (var piece in artifacts.Properties())
+                {
+                    if (!validSlots.Contains(piece.Name))
+                    {
+                        Logger.Error(
+                            "Validation failed: Artifact set '{0}' contains unknown slot '{1}'",
+                            setKey,
+                            piece.Name);
+                        return false;
+                    }
+
+                    var pieceData = piece.Value as JObject;
+                    if (pieceData == null ||
+                        string.IsNullOrWhiteSpace(pieceData["artifactName"]?.ToString()) ||
+                        string.IsNullOrWhiteSpace(pieceData["GOOD"]?.ToString()) ||
+                        string.IsNullOrWhiteSpace(pieceData["normalizedName"]?.ToString()))
+                    {
+                        Logger.Error(
+                            "Validation failed: Artifact set '{0}' slot '{1}' has malformed piece metadata",
+                            setKey,
+                            piece.Name);
+                        return false;
+                    }
+
+                    var pieceGood = pieceData["GOOD"].ToString();
+                    if (!string.Equals(
+                        pieceData["normalizedName"].ToString(),
+                        pieceGood.ToLowerInvariant(),
+                        StringComparison.Ordinal))
+                    {
+                        Logger.Error(
+                            "Validation failed: Artifact set '{0}' slot '{1}' normalizedName/GOOD mismatch",
+                            setKey,
+                            piece.Name);
+                        return false;
+                    }
                 }
             }
 
@@ -767,7 +1356,7 @@ namespace InventoryKamera
 
             try
             {
-                List<JObject> weapons = JArray.Parse(LoadJsonFromURLAsync(WeaponsURL)).ToObject<List<JObject>>();
+                List<JObject> weapons = JArray.Parse(LoadJsonFromURLAsync(BuildDataURL(WeaponsPath))).ToObject<List<JObject>>();
 
                 weapons.AsParallel().ForAll(weapon =>
                 {
@@ -799,7 +1388,11 @@ namespace InventoryKamera
                 if (ValidateWeaponData(newData))
                 {
                     Logger.Info("Weapon data validation passed. Saving {0} weapons.", newData.Count);
-                    SaveJsonToFile(JsonConvert.SerializeObject(new SortedDictionary<string, string>(newData)), WeaponsJson);
+                    if (!SaveJsonToFile(JsonConvert.SerializeObject(new SortedDictionary<string, string>(newData)), WeaponsJson))
+                    {
+                        Logger.Error("Failed to atomically save weapon data.");
+                        status = UpdateStatus.Fail;
+                    }
                 }
                 else
                 {
@@ -819,20 +1412,32 @@ namespace InventoryKamera
                 return false;
             }
 
-            // Expect at least 100 weapons (as of 6.5.0 there are 150+)
             if (data.Count < 100)
             {
                 Logger.Error("Validation failed: Only {0} weapons found (expected at least 100)", data.Count);
                 return false;
             }
 
-            // Check that critical weapons exist
             string[] criticalWeapons = { "dullblade", "silversword", "beginnersprotector" };
             foreach (var weaponKey in criticalWeapons)
             {
                 if (!data.ContainsKey(weaponKey))
                 {
                     Logger.Error("Validation failed: Missing critical weapon '{0}'", weaponKey);
+                    return false;
+                }
+            }
+
+            foreach (var kvp in data)
+            {
+                if (string.IsNullOrWhiteSpace(kvp.Key) ||
+                    string.IsNullOrWhiteSpace(kvp.Value) ||
+                    !string.Equals(kvp.Key, kvp.Value.ToLowerInvariant(), StringComparison.Ordinal))
+                {
+                    Logger.Error(
+                        "Validation failed: Weapon key/GOOD mismatch or blank value. key='{0}', GOOD='{1}'",
+                        kvp.Key ?? "missing",
+                        kvp.Value ?? "missing");
                     return false;
                 }
             }
@@ -862,7 +1467,7 @@ namespace InventoryKamera
 
             var newData = new ConcurrentDictionary<string, string>(data);
 
-            var materials = JArray.Parse(LoadJsonFromURLAsync(MaterialsURL)).ToObject<List<JObject>>();
+            var materials = JArray.Parse(LoadJsonFromURLAsync(BuildDataURL(MaterialsPath))).ToObject<List<JObject>>();
             materials.RemoveAll(material => !(material.TryGetValue("materialType", out var materialType) && materialCategories.Contains(materialType.ToString())));
 
             materials.AsParallel().ForAll(material =>
@@ -892,7 +1497,11 @@ namespace InventoryKamera
                 if (ValidateMaterialData(newData))
                 {
                     Logger.Info("Material data validation passed. Saving {0} materials.", newData.Count);
-                    SaveJsonToFile(JsonConvert.SerializeObject(new SortedDictionary<string, string>(newData)), MaterialsJson);
+                    if (!SaveJsonToFile(JsonConvert.SerializeObject(new SortedDictionary<string, string>(newData)), MaterialsJson))
+                    {
+                        Logger.Error("Failed to atomically save material data.");
+                        status = UpdateStatus.Fail;
+                    }
                 }
                 else
                 {
@@ -912,11 +1521,24 @@ namespace InventoryKamera
                 return false;
             }
 
-            // Expect at least 50 materials (as of 6.5.0 there are 100+)
             if (data.Count < 50)
             {
                 Logger.Error("Validation failed: Only {0} materials found (expected at least 50)", data.Count);
                 return false;
+            }
+
+            foreach (var kvp in data)
+            {
+                if (string.IsNullOrWhiteSpace(kvp.Key) ||
+                    string.IsNullOrWhiteSpace(kvp.Value) ||
+                    !string.Equals(kvp.Key, kvp.Value.ToLowerInvariant(), StringComparison.Ordinal))
+                {
+                    Logger.Error(
+                        "Validation failed: Material key/GOOD mismatch or blank value. key='{0}', GOOD='{1}'",
+                        kvp.Key ?? "missing",
+                        kvp.Value ?? "missing");
+                    return false;
+                }
             }
 
             Logger.Debug("Material data validation passed: {0} materials, all checks OK", data.Count);
@@ -957,21 +1579,261 @@ namespace InventoryKamera
             }
         }
 
+        private string[] ManagedLookupFileNames()
+        {
+            return new[]
+            {
+                WeaponsJson,
+                ArtifactsJson,
+                CharactersJson,
+                MaterialsJson,
+                NewVersion,
+                UpdateManifestJson
+            };
+        }
+
+        private string CreateUpdateBackup()
+        {
+            var backupDirectory = Path.Combine(
+                ListsDir,
+                ".update-backup-" + Guid.NewGuid().ToString("N"));
+
+            Directory.CreateDirectory(backupDirectory);
+
+            foreach (var fileName in ManagedLookupFileNames())
+            {
+                var sourcePath = Path.Combine(ListsDir, fileName);
+                var backupPath = Path.Combine(backupDirectory, fileName);
+
+                if (File.Exists(sourcePath))
+                    File.Copy(sourcePath, backupPath, true);
+            }
+
+            Logger.Debug("Created lookup update backup at {0}", backupDirectory);
+            return backupDirectory;
+        }
+
+        private void RestoreUpdateBackup(string backupDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(backupDirectory) ||
+                !Directory.Exists(backupDirectory))
+                return;
+
+            try
+            {
+                foreach (var fileName in ManagedLookupFileNames())
+                {
+                    var targetPath = Path.Combine(ListsDir, fileName);
+                    var backupPath = Path.Combine(backupDirectory, fileName);
+
+                    if (File.Exists(targetPath))
+                        File.Delete(targetPath);
+
+                    if (File.Exists(backupPath))
+                        File.Copy(backupPath, targetPath, true);
+                }
+
+                Logger.Warn("Restored previous lookup set after failed update.");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Failed to restore lookup update backup from {0}", backupDirectory);
+            }
+            finally
+            {
+                DeleteUpdateBackup(backupDirectory);
+            }
+        }
+
+        private void DeleteUpdateBackup(string backupDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(backupDirectory))
+                return;
+
+            try
+            {
+                if (Directory.Exists(backupDirectory))
+                    Directory.Delete(backupDirectory, true);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "Could not remove lookup update backup directory {0}", backupDirectory);
+            }
+        }
+
+        private bool SaveTextToFileAtomically(string content, string fileName)
+        {
+            lock (this)
+            {
+                string targetPath = Path.Combine(ListsDir, fileName);
+                string tempPath = targetPath + ".tmp";
+                string replaceBackupPath = targetPath + ".replacebak";
+
+                try
+                {
+                    Directory.CreateDirectory(ListsDir);
+
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                    if (File.Exists(replaceBackupPath))
+                        File.Delete(replaceBackupPath);
+
+                    File.WriteAllText(tempPath, content ?? string.Empty);
+
+                    if (File.Exists(targetPath))
+                    {
+                        File.Replace(tempPath, targetPath, replaceBackupPath);
+                        if (File.Exists(replaceBackupPath))
+                            File.Delete(replaceBackupPath);
+                    }
+                    else
+                    {
+                        File.Move(tempPath, targetPath);
+                    }
+
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn(ex, "Atomic text save failed for {0}", fileName);
+
+                    try
+                    {
+                        if (File.Exists(tempPath))
+                            File.Delete(tempPath);
+                    }
+                    catch { }
+
+                    return false;
+                }
+            }
+        }
+
         private bool SaveJsonToFile(string json, string fileName)
         {
             lock (this)
             {
+                string targetPath = Path.Combine(ListsDir, fileName);
+                string tempPath = targetPath + ".tmp";
+                string replaceBackupPath = targetPath + ".replacebak";
+
                 try
                 {
-                    using (StreamWriter file = new StreamWriter(ListsDir + fileName))
+                    Directory.CreateDirectory(ListsDir);
+
+                    // Parse before touching disk so malformed generated JSON can never
+                    // overwrite a previously working lookup file.
+                    var parsed = JToken.Parse(json);
+
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                    if (File.Exists(replaceBackupPath))
+                        File.Delete(replaceBackupPath);
+
+                    using (StreamWriter file = new StreamWriter(tempPath))
                     using (JsonTextWriter writer = new JsonTextWriter(file))
                     {
                         writer.Formatting = Formatting.Indented;
-                        JToken.Parse(json).WriteTo(writer);
+                        parsed.WriteTo(writer);
                     }
+
+                    // Verify the fully written temporary file before promotion.
+                    using (StreamReader file = File.OpenText(tempPath))
+                    using (JsonTextReader reader = new JsonTextReader(file))
+                    {
+                        JToken.ReadFrom(reader);
+                    }
+
+                    if (File.Exists(targetPath))
+                    {
+                        File.Replace(tempPath, targetPath, replaceBackupPath);
+                        if (File.Exists(replaceBackupPath))
+                            File.Delete(replaceBackupPath);
+                    }
+                    else
+                    {
+                        File.Move(tempPath, targetPath);
+                    }
+
                     return true;
                 }
-                catch (Exception ex) { Logger.Warn(ex); return false; }
+                catch (Exception ex)
+                {
+                    Logger.Warn(ex, "Atomic JSON save failed for {0}", fileName);
+
+                    try
+                    {
+                        if (File.Exists(tempPath))
+                            File.Delete(tempPath);
+                    }
+                    catch { }
+
+                    return false;
+                }
+            }
+        }
+
+        private bool WriteUpdateManifest()
+        {
+            try
+            {
+                var counts = new JObject
+                {
+                    { "characters", JObject.Parse(File.ReadAllText(Path.Combine(ListsDir, CharactersJson))).Count },
+                    { "weapons", JObject.Parse(File.ReadAllText(Path.Combine(ListsDir, WeaponsJson))).Count },
+                    { "artifacts", JObject.Parse(File.ReadAllText(Path.Combine(ListsDir, ArtifactsJson))).Count },
+                    { "materials", JObject.Parse(File.ReadAllText(Path.Combine(ListsDir, MaterialsJson))).Count }
+                };
+
+                var files = new JObject
+                {
+                    { CharactersJson, BuildFileMetadata(CharactersJson) },
+                    { WeaponsJson, BuildFileMetadata(WeaponsJson) },
+                    { ArtifactsJson, BuildFileMetadata(ArtifactsJson) },
+                    { MaterialsJson, BuildFileMetadata(MaterialsJson) }
+                };
+
+                var manifest = new JObject
+                {
+                    { "schemaVersion", 1 },
+                    { "generatedAtUtc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) },
+                    { "gameVersion", LocalVersion.ToString() },
+                    { "sourceRepository", "Dimbreath/AnimeGameData2" },
+                    { "sourceRevision", string.IsNullOrWhiteSpace(SourceHeadCommitSha) ? "main" : SourceHeadCommitSha },
+                    { "versionMarkerCommit", VersionMarkerCommitSha ?? string.Empty },
+                    { "counts", counts },
+                    { "files", files }
+                };
+
+                return SaveJsonToFile(manifest.ToString(Formatting.None), UpdateManifestJson);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "Unable to build lookup update manifest");
+                return false;
+            }
+        }
+
+        private JObject BuildFileMetadata(string fileName)
+        {
+            var path = Path.Combine(ListsDir, fileName);
+            var info = new FileInfo(path);
+
+            return new JObject
+            {
+                { "bytes", info.Length },
+                { "sha256", GetFileSha256(path) }
+            };
+        }
+
+        private string GetFileSha256(string path)
+        {
+            using (var sha256 = SHA256.Create())
+            using (var stream = File.OpenRead(path))
+            {
+                return BitConverter.ToString(sha256.ComputeHash(stream))
+                    .Replace("-", string.Empty)
+                    .ToLowerInvariant();
             }
         }
 

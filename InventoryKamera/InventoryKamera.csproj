@@ -215,6 +215,9 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Item_Special_Kamera.ico" />
+    <Content Include="templates\no_constellations_reference.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <BootstrapperPackage Include=".NETFramework,Version=v4.7.2">

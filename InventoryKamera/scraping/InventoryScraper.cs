@@ -63,6 +63,15 @@ namespace InventoryKamera
         private int prevColumn = 0;
         private int prevRow = 0;
 
+        // Material-grid geometry is calibrated once per scan session.
+        // Card dimensions and spacing stay fixed; only the current grid origin
+        // is allowed to translate as the inventory scroll reaches its limits.
+        private bool materialGridCalibrated = false;
+        private int materialGridCardWidth = 0;
+        private int materialGridCardHeight = 0;
+        private int materialGridColumnSpacing = 0;
+        private int materialGridRowSpacing = 0;
+
         public InventoryScraper() 
         {
             materialPages = new List<InventoryPage>();
@@ -73,6 +82,82 @@ namespace InventoryKamera
         }
 
         internal bool StopScanning { get; set; }
+
+        protected void ResetMaterialGridCalibration()
+        {
+            materialGridCalibrated = false;
+            materialGridCardWidth = 0;
+            materialGridCardHeight = 0;
+            materialGridColumnSpacing = 0;
+            materialGridRowSpacing = 0;
+        }
+
+        private bool UsesMaterialSessionGrid()
+        {
+            return materialPages.Contains(inventoryPage);
+        }
+
+        private static int MedianInt(IEnumerable<int> values)
+        {
+            var ordered = values.OrderBy(value => value).ToList();
+            if (ordered.Count == 0)
+                return 0;
+
+            int middle = ordered.Count / 2;
+            if ((ordered.Count % 2) == 1)
+                return ordered[middle];
+
+            return (int)Math.Round((ordered[middle - 1] + ordered[middle]) / 2.0);
+        }
+
+        private static int RobustMedian(IEnumerable<int> values)
+        {
+            var candidates = values.Where(value => value > 0).ToList();
+            if (candidates.Count == 0)
+                return 0;
+
+            int initialMedian = MedianInt(candidates);
+            int tolerance = Math.Max(2, (int)Math.Round(initialMedian * 0.15));
+
+            var filtered = candidates
+                .Where(value => Math.Abs(value - initialMedian) <= tolerance)
+                .ToList();
+
+            return MedianInt(filtered.Count > 0 ? filtered : candidates);
+        }
+
+        private static int MedianSpacing(IReadOnlyList<int> coordinates)
+        {
+            if (coordinates.Count < 2)
+                return 0;
+
+            var spacings = new List<int>();
+            for (int i = 1; i < coordinates.Count; i++)
+                spacings.Add(coordinates[i] - coordinates[i - 1]);
+
+            return RobustMedian(spacings);
+        }
+
+        private static void NormalizeCoordinatesToSpacing(
+            List<int> coordinates,
+            int spacing,
+            int stableCoordinateCount)
+        {
+            if (coordinates.Count == 0 || spacing <= 0)
+                return;
+
+            int countForOrigin = Math.Min(
+                Math.Max(1, stableCoordinateCount),
+                coordinates.Count);
+
+            var originCandidates = new List<int>();
+            for (int i = 0; i < countForOrigin; i++)
+                originCandidates.Add(coordinates[i] - (i * spacing));
+
+            int origin = MedianInt(originCandidates);
+            for (int i = 0; i < coordinates.Count; i++)
+                coordinates[i] = origin + (i * spacing);
+        }
 
         /// <summary>
         /// Gets the item card on the right side of the in-game screen
@@ -176,10 +261,18 @@ namespace InventoryKamera
                     text = text.Replace(pageCapacity, string.Empty);
                     count = int.Parse(text);
                 }
-                else // Extreme worst case
+                else
                 {
-                    count = 2000;
-                    Logger.Debug("Defaulted to 2000 for inventory page capacity");
+                    SaveInventoryBitmap(countBitmap, "ItemCount.png");
+                    SaveInventoryBitmap(Navigation.CaptureWindow(), $"InventoryWindow_{Navigation.GetWidth()}x{Navigation.GetHeight()}.png");
+                    throw new FormatException(
+                        $"Unable to parse {inventoryPage} item count safely. OCR returned '{text}'. " +
+                        "Kamera will not assume the inventory capacity because that can cause invalid grid navigation.");
+                }
+
+                if (count < 0 || count > 2000)
+                {
+                    throw new FormatException($"Parsed implausible {inventoryPage} item count '{count}'.");
                 }
 
                 return count;
@@ -220,6 +313,56 @@ namespace InventoryKamera
                 var g = GenshinProcesor.ConvertToGrayscale(bm);
                 var mode = GenshinProcesor.AnalyzeText(g).Trim().ToLower();
                 return mode.Contains("level") ? "level" : mode.Contains("quality") ? "quality" : null;
+            }
+        }
+
+        private void RecoverMissingInternalGridCoordinates(List<int> coordinates, string axis)
+        {
+            if (coordinates == null || coordinates.Count < 3) return;
+
+            coordinates.Sort();
+            var gaps = new List<int>();
+            for (int i = 1; i < coordinates.Count; i++)
+            {
+                int gap = coordinates[i] - coordinates[i - 1];
+                if (gap > 0) gaps.Add(gap);
+            }
+
+            if (gaps.Count < 2) return;
+
+            gaps.Sort();
+            double medianSpacing = gaps[gaps.Count / 2];
+            if (medianSpacing <= 0) return;
+
+            var additions = new List<int>();
+            for (int i = 1; i < coordinates.Count; i++)
+            {
+                int left = coordinates[i - 1];
+                int right = coordinates[i];
+                int gap = right - left;
+
+                int segments = (int)Math.Round(gap / medianSpacing);
+                if (segments < 2 || segments > 3) continue;
+
+                double reconstructedSpacing = gap / (double)segments;
+                if (Math.Abs(reconstructedSpacing - medianSpacing) > medianSpacing * 0.20)
+                    continue;
+
+                for (int segment = 1; segment < segments; segment++)
+                {
+                    int candidate = (int)Math.Round(left + reconstructedSpacing * segment);
+                    if (!coordinates.Any(existing => Math.Abs(existing - candidate) <= medianSpacing * 0.25))
+                        additions.Add(candidate);
+                }
+            }
+
+            if (additions.Count > 0)
+            {
+                coordinates.AddRange(additions);
+                coordinates.Sort();
+                Logger.Info(
+                    "Recovered {0} missing internal inventory {1} coordinate(s) from grid spacing: {2}",
+                    additions.Count, axis, string.Join(", ", additions));
             }
         }
 
@@ -265,6 +408,12 @@ namespace InventoryKamera
                 // Don't save overlapping blobs
                 List<Rectangle> rectangles = new List<Rectangle>();
                 List<Rectangle> blobRects = blobCounter.GetObjectsRectangles().ToList();
+
+                if (blobRects.Count == 0)
+                {
+                    Logger.Warn("No inventory item rectangles detected on the current screen.");
+                    return (new List<Rectangle>(), 0, 0);
+                }
 
                 int minWidth = blobRects[0].Width;
                 int minHeight = blobRects[0].Height;
@@ -326,6 +475,11 @@ namespace InventoryKamera
                     }
                 }
 
+                // Preserve the actual detected blobs for first-page material calibration.
+                // The reconstructed green rectangles are intentionally created only after
+                // reliable full-row dimensions have been established.
+                var detectedRectangles = rectangles.ToList();
+
                 // Going to use X,Y coordinate pairings to build rectangles around. Items that might have been missed
                 // This is quite accurate and algorithmically puts rectangles over all items on the screen that were missed.
                 // The center of each of these rectangles should be a good enough spot to click.
@@ -333,16 +487,121 @@ namespace InventoryKamera
                 colCoords.Sort();
                 rowCoords.Sort();
 
-                colCoords.RemoveAll(col => col > screenshot.Width * 0.65);
+                // The detail pane is already masked beginning at 70% width. The older
+                // 65% cutoff could discard a legitimate right-side inventory column at
+                // some 16:9 resolutions (reported at 1600x900).
+                colCoords.RemoveAll(col => col > screenshot.Width * 0.695);
+
+                // If edge detection misses an entire internal column/row, reconstruct it
+                // from neighboring grid spacing instead of silently scanning around it.
+                RecoverMissingInternalGridCoordinates(colCoords, "column");
+                RecoverMissingInternalGridCoordinates(rowCoords, "row");
+
+                int gridWidth = minWidth;
+                int gridHeight = minHeight;
+
+                if (UsesMaterialSessionGrid())
+                {
+                    if (!materialGridCalibrated && rowCoords.Count > 1 && colCoords.Count > 1)
+                    {
+                        // MaterialScraper intentionally does not scan the lowest visible
+                        // row because it can be a partial overlap row. Exclude that same
+                        // row from geometry calibration so it cannot shrink every box.
+                        var fullRowCoords = rowCoords.Take(rowCoords.Count - 1).ToList();
+                        double rowTolerance = 50.0 / base_aspect_height * screenshot.Height;
+
+                        var geometryRects = detectedRectangles
+                            .Where(rectangle =>
+                                rectangle.Center().X <= screenshot.Width * 0.695 &&
+                                fullRowCoords.Any(row =>
+                                    Math.Abs(rectangle.Center().Y - row) <= rowTolerance))
+                            .ToList();
+
+                        int calibratedWidth = RobustMedian(
+                            geometryRects.Select(rectangle => rectangle.Width));
+                        int calibratedHeight = RobustMedian(
+                            geometryRects.Select(rectangle => rectangle.Height));
+                        int calibratedColumnSpacing = MedianSpacing(colCoords);
+                        int calibratedRowSpacing = MedianSpacing(fullRowCoords);
+
+                        if (calibratedWidth > 0 &&
+                            calibratedHeight > 0 &&
+                            calibratedColumnSpacing > 0 &&
+                            calibratedRowSpacing > 0)
+                        {
+                            materialGridCardWidth = calibratedWidth;
+                            materialGridCardHeight = calibratedHeight;
+                            materialGridColumnSpacing = calibratedColumnSpacing;
+                            materialGridRowSpacing = calibratedRowSpacing;
+                            materialGridCalibrated = true;
+
+                            Logger.Info(
+                                "Material grid session calibration locked: " +
+                                "fullRows={0}/{1}, blobsUsed={2}, card={3}x{4}, " +
+                                "columnSpacing={5}, rowSpacing={6}",
+                                fullRowCoords.Count,
+                                rowCoords.Count,
+                                geometryRects.Count,
+                                materialGridCardWidth,
+                                materialGridCardHeight,
+                                materialGridColumnSpacing,
+                                materialGridRowSpacing);
+                        }
+                        else
+                        {
+                            Logger.Warn(
+                                "Material grid calibration did not produce complete geometry. " +
+                                "Falling back to current detected dimensions {0}x{1}.",
+                                minWidth,
+                                minHeight);
+                        }
+                    }
+
+                    if (materialGridCalibrated)
+                    {
+                        gridWidth = materialGridCardWidth;
+                        gridHeight = materialGridCardHeight;
+
+                        // Keep the calibrated spacing constant. Re-detect only the current
+                        // grid translation/origin because Genshin can shift the visible
+                        // rows when scrolling reaches the bottom of the inventory.
+                        NormalizeCoordinatesToSpacing(
+                            colCoords,
+                            materialGridColumnSpacing,
+                            colCoords.Count);
+
+                        // The last row can be partial, so use only the rows above it to
+                        // establish the current vertical origin, then extrapolate the
+                        // partial row using the fixed session spacing.
+                        int stableRowsForOrigin = rowCoords.Count > 1
+                            ? rowCoords.Count - 1
+                            : rowCoords.Count;
+
+                        NormalizeCoordinatesToSpacing(
+                            rowCoords,
+                            materialGridRowSpacing,
+                            stableRowsForOrigin);
+
+                        Logger.Debug(
+                            "Reusing calibrated material geometry: card={0}x{1}, " +
+                            "columnSpacing={2}, rowSpacing={3}, currentOrigin=({4},{5})",
+                            gridWidth,
+                            gridHeight,
+                            materialGridColumnSpacing,
+                            materialGridRowSpacing,
+                            colCoords.Count > 0 ? colCoords[0] : 0,
+                            rowCoords.Count > 0 ? rowCoords[0] : 0);
+                    }
+                }
 
                 foreach (var row in rowCoords)
                 {
                     foreach (var col in colCoords)
                     {
-                        int x = (int)(col - (minWidth * .5));
-                        int y = (int)(row - (minHeight * .5));
+                        int x = (int)(col - (gridWidth * .5));
+                        int y = (int)(row - (gridHeight * .5));
 
-                        rectangles.Add(new Rectangle(x, y, minWidth, minHeight));
+                        rectangles.Add(new Rectangle(x, y, gridWidth, gridHeight));
                     }
                 }
 
@@ -447,12 +706,14 @@ namespace InventoryKamera
                     }
                     processedScreenshot.Dispose();
 
-                    if (rectangles == null)
+                    if (rectangles == null || rectangles.Count == 0 || cols == 0 || rows == 0)
                     {
-                        Logger.Warn("Could not find {0} items in inventory. Re-using previous item page.", itemPerPage);
+                        Logger.Warn("Could not find {0} items in inventory. Re-using previous item page when available.", itemPerPage);
 
                         return prevRect == null ?
-                            throw new ArgumentNullException("Could not find first page of items!") 
+                            throw new FormatException(
+                                $"Unable to locate the first {inventoryPage} inventory grid. " +
+                                "Verify that Genshin is on the expected inventory screen.")
                             :
                             (prevRect, prevColumn, prevRow);
                     }
@@ -527,6 +788,65 @@ namespace InventoryKamera
                     y: (int)(card.Height * (baseY + yShift)),
                     width: (int)(card.Width * 0.0955),
                     height: (int)(card.Height * (Navigation.IsNormal ? 0.055 : 0.0495))));
+        }
+
+        /// <summary>
+        /// Extracts a deliberately wider lock-status region for the current weapon card UI.
+        /// The previous crop was too far left for the 7.0 weapon detail panel and could miss
+        /// the lock badge entirely.
+        /// </summary>
+        internal static Bitmap GetWeaponLockedBitmap(Bitmap card)
+        {
+            double y = Navigation.IsNormal ? 0.345 : 0.295;
+            double height = Navigation.IsNormal ? 0.090 : 0.105;
+
+            return GenshinProcesor.CopyBitmap(card,
+                new Rectangle(
+                    x: (int)(card.Width * 0.80),
+                    y: (int)(card.Height * y),
+                    width: (int)(card.Width * 0.18),
+                    height: (int)(card.Height * height)));
+        }
+
+        /// <summary>
+        /// Detects the coral/red lock glyph across a region instead of relying on one
+        /// hard-coded background pixel. This tolerates small UI shifts, antialiasing,
+        /// resolution scaling, and modest color changes.
+        /// </summary>
+        internal static bool IsLockedWeapon(Bitmap lockBitmap)
+        {
+            if (lockBitmap == null || lockBitmap.Width == 0 || lockBitmap.Height == 0)
+                return false;
+
+            int matchingPixels = 0;
+            int totalPixels = lockBitmap.Width * lockBitmap.Height;
+            int requiredPixels = Math.Max(12, (int)Math.Ceiling(totalPixels * 0.005));
+
+            for (int y = 0; y < lockBitmap.Height; y++)
+            {
+                for (int x = 0; x < lockBitmap.Width; x++)
+                {
+                    Color pixel = lockBitmap.GetPixel(x, y);
+                    float hue = pixel.GetHue();
+                    float saturation = pixel.GetSaturation();
+                    float brightness = pixel.GetBrightness();
+
+                    bool redHue = hue <= 25.0f || hue >= 335.0f;
+                    bool redDominant =
+                        pixel.R >= 170 &&
+                        pixel.R >= pixel.G + 35 &&
+                        pixel.R >= pixel.B + 30;
+
+                    if (redHue && saturation >= 0.30f && brightness >= 0.45f && redDominant)
+                    {
+                        matchingPixels++;
+                        if (matchingPixels >= requiredPixels)
+                            return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

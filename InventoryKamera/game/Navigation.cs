@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
 using WindowsInput;
@@ -240,22 +241,167 @@ namespace InventoryKamera
 			SystemWait(Speed.SelectNextCharacter);
 		}
 
+		private static double ScreenDifferenceScore(Bitmap before, Bitmap after)
+		{
+			if (before == null || after == null ||
+				before.Width != after.Width || before.Height != after.Height)
+				return double.MaxValue;
+
+			// Sample the left ~70% of the game window. That area is mostly static while
+			// Paimon is open, but changes dramatically when C opens the Character UI.
+			// Sampling keeps this probe cheap and avoids another OCR dependency.
+			int maxX = (int)(before.Width * 0.70);
+			int maxY = (int)(before.Height * 0.90);
+			int stepX = Math.Max(8, before.Width / 120);
+			int stepY = Math.Max(8, before.Height / 80);
+
+			long totalDifference = 0;
+			long samples = 0;
+
+			for (int y = 0; y < maxY; y += stepY)
+			{
+				for (int x = 0; x < maxX; x += stepX)
+				{
+					Color a = before.GetPixel(x, y);
+					Color b = after.GetPixel(x, y);
+
+					totalDifference +=
+						Math.Abs(a.R - b.R) +
+						Math.Abs(a.G - b.G) +
+						Math.Abs(a.B - b.B);
+
+					samples += 3;
+				}
+			}
+
+			return samples == 0 ? 0 : totalDifference / (double)samples;
+		}
+
 		public static void CharacterScreen()
 		{
+			Logger.Debug("Opening Character screen with state-aware C navigation");
+
+			// First try the normal-gameplay shortcut. If C actually opens Characters,
+			// the game window changes substantially. If C is ignored by the Paimon
+			// menu, the screen remains almost unchanged and we use the ESC -> C
+			// fallback.
+			using (Bitmap before = CaptureWindow())
+			{
+				sim.Keyboard.KeyPress(characterKey);
+				SystemWait(Speed.UI);
+
+				using (Bitmap after = CaptureWindow())
+				{
+					double difference = ScreenDifferenceScore(before, after);
+					Logger.Debug(
+						"Character navigation C screen-difference score: {0:0.00}",
+						difference);
+
+					// A full gameplay -> Character transition changes a large fraction
+					// of sampled pixels. Idle animation while Paimon is open should stay
+					// far below this threshold.
+					if (difference >= 18.0)
+					{
+						Logger.Debug("Character screen opened directly with C");
+						return;
+					}
+				}
+			}
+
+			Logger.Debug(
+				"C produced no major screen transition; attempting Paimon fallback ESC -> C");
+
 			sim.Keyboard.KeyPress(escapeKey);
-			SystemWait(Speed.UI);
-			sim.Keyboard.KeyPress(slotOneKey);
 			SystemWait(Speed.UI);
 			sim.Keyboard.KeyPress(characterKey);
 			SystemWait(Speed.UI);
+
+			// Do not send another ESC/C cycle here. If the fallback did not work,
+			// CharacterScraper will fail with its normal OCR/navigation diagnostics
+			// instead of toggling the screen repeatedly.
+			Logger.Debug("Character Paimon fallback completed");
+		}
+
+		private static bool IsInventoryScreen()
+		{
+			// The inventory count/capacity is rendered in this region for all inventory
+			// tabs. Reuse the same region the inventory scraper uses, but only as a
+			// lightweight state probe.
+			Rectangle region = new Rectangle(
+				x: (int)(1030 / 1280.0 * GetWidth()),
+				y: (int)(20 / 720.0 * GetHeight()),
+				width: (int)(175 / 1280.0 * GetWidth()),
+				height: (int)(25 / 720.0 * GetHeight()));
+
+			using (Bitmap countBitmap = CaptureRegion(region))
+			{
+				Bitmap processed = GenshinProcesor.ConvertToGrayscale(countBitmap);
+				try
+				{
+					GenshinProcesor.SetContrast(60.0, ref processed);
+					GenshinProcesor.SetInvert(ref processed);
+
+					string raw = GenshinProcesor.AnalyzeText(processed).Trim();
+					string normalized = Regex.Replace(raw, @"[^0-9/]", string.Empty);
+
+					// Normal form: 193/2000 or 742/1800.
+					bool slashForm = Regex.IsMatch(normalized, @"^\d{1,4}/\d{3,4}$");
+
+					// Tesseract occasionally drops the slash and returns the concatenated
+					// count/capacity. Restrict this fallback to known inventory capacities.
+					bool concatenatedForm =
+						Regex.IsMatch(normalized, @"^\d{1,4}(1800|2000)$");
+
+					bool detected = slashForm || concatenatedForm;
+					Logger.Debug(
+						"Inventory state probe: raw='{0}', normalized='{1}', detected={2}",
+						raw, normalized, detected);
+
+					return detected;
+				}
+				finally
+				{
+					processed?.Dispose();
+				}
+			}
 		}
 
 		public static void InventoryScreen()
 		{
+			Logger.Debug("Opening inventory with state-aware navigation");
+
+			// If the caller is already in Inventory, do not disturb the screen.
+			if (IsInventoryScreen())
+			{
+				Logger.Debug("Inventory already open; no navigation key required");
+				return;
+			}
+
+			// Normal gameplay path: B directly opens Inventory.
+			sim.Keyboard.KeyPress(inventoryKey);
+			SystemWait(Speed.UI);
+			if (IsInventoryScreen())
+			{
+				Logger.Debug("Inventory opened directly with B");
+				return;
+			}
+
+			// Paimon-menu path: B is ignored. ESC returns to gameplay, then B opens
+			// Inventory.
+			Logger.Debug("B did not reach Inventory; attempting Paimon fallback ESC -> B");
 			sim.Keyboard.KeyPress(escapeKey);
 			SystemWait(Speed.UI);
 			sim.Keyboard.KeyPress(inventoryKey);
 			SystemWait(Speed.UI);
+
+			if (IsInventoryScreen())
+			{
+				Logger.Debug("Inventory opened through Paimon fallback");
+				return;
+			}
+
+			throw new InvalidOperationException(
+				"Unable to navigate to the Genshin inventory from the current screen.");
 		}
 
 		public static void MainMenuScreen()

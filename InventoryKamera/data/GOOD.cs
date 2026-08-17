@@ -10,6 +10,13 @@ namespace InventoryKamera
 {
     public class GOOD
     {
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
+        private static bool IsScannerOnlyLocation(string location)
+        {
+            return GenshinProcesor.IsScannerOnlyCharacter(location);
+        }
+
         [JsonProperty("format")]
         public string Format { get; private set; }
 
@@ -67,9 +74,20 @@ namespace InventoryKamera
             {
                 Weapons = new List<Weapon>(genshinData.Inventory.Weapons);
 
-                if (!Properties.Settings.Default.EquipWeapons)
+                foreach (Weapon weapon in Weapons)
                 {
-                    foreach (Weapon weapon in Weapons) weapon.EquippedCharacter = "";
+                    if (!Properties.Settings.Default.EquipWeapons)
+                    {
+                        weapon.EquippedCharacter = "";
+                    }
+                    else if (IsScannerOnlyLocation(weapon.EquippedCharacter))
+                    {
+                        Logger.Warn(
+                            "Clearing scanner-only equipped location '{0}' from weapon {1}; " +
+                            "standard GOOD character/location schemas do not represent Manekin/Manekina.",
+                            weapon.EquippedCharacter, weapon.Name);
+                        weapon.EquippedCharacter = "";
+                    }
                 }
             }
 
@@ -78,9 +96,20 @@ namespace InventoryKamera
             {
                 Artifacts = new List<Artifact>(genshinData.Inventory.Artifacts);
 
-                if (!Properties.Settings.Default.EquipArtifacts)
+                foreach (Artifact artifact in Artifacts)
                 {
-                    foreach (Artifact artifact in Artifacts) artifact.EquippedCharacter = "";
+                    if (!Properties.Settings.Default.EquipArtifacts)
+                    {
+                        artifact.EquippedCharacter = "";
+                    }
+                    else if (IsScannerOnlyLocation(artifact.EquippedCharacter))
+                    {
+                        Logger.Warn(
+                            "Clearing scanner-only equipped location '{0}' from artifact {1}/{2}; " +
+                            "standard GOOD character/location schemas do not represent Manekin/Manekina.",
+                            artifact.EquippedCharacter, artifact.SetName, artifact.GearSlot);
+                        artifact.EquippedCharacter = "";
+                    }
                 }
             }
 
