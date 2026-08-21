@@ -1,4 +1,4 @@
-﻿using Accord.Imaging;
+using Accord.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -20,52 +20,238 @@ namespace InventoryKamera
 			NumOfCharToScan = Properties.Settings.Default.NumOfCharToScan;
 		}
 
+		// ---------------------------------------------------------------------------
+		// Roster identity vs. Export identity
+		// ---------------------------------------------------------------------------
+		// GetRosterKey() returns a STABLE string used ONLY for wrap-around detection.
+		// For Traveler / Wanderer / Manekin the element is intentionally excluded so
+		// that OCR element noise (null, wrong value) does not cause a missed wrap.
+		//
+		// The GOOD export key (Character.NameGOOD) is computed separately by the
+		// Character object itself (e.g. "TravelerPyro") and is never affected here.
+		//
+		// Test cases (verified as comments, not runtime assertions):
+		//   GetRosterKey("Traveler", "pyro",   ...)  => "traveler"   // Case 1
+		//   GetRosterKey("Traveler", null,     ...)  => "traveler"   // Case 2
+		//   GetRosterKey("Traveler", "hydro",  ...)  => "traveler"   // Case 2 alt
+		//   GetRosterKey("Wanderer",  "anemo", ...)  => "wanderer"   // Case 3 (differs from Traveler key)
+		//   GetRosterKey("manequin1", null,    ...)  => "manequin1"  // Case 4a
+		//   GetRosterKey("manequin2", null,    ...)  => "manequin2"  // Case 4b
+		//   GetRosterKey("Amber",     "pyro",  ...)  => "amber|pyro" // Case 5
+		//   GetRosterKey("Fischl",    "electro",...)  => "fischl|electro" // Case 6 (differs from Amber)
+		/// <summary>
+		/// Returns an element-agnostic roster key for special characters
+		/// (Traveler, Wanderer, Manekin) so that OCR element failures do not
+		/// prevent correct wrap-around detection.  Ordinary characters include
+		/// their canonical key and element so two characters of the same element
+		/// are never confused.
+		/// </summary>
+		/// <param name="nameGood">The resolved name / canonical key (case-insensitive).</param>
+		/// <param name="element">The OCR-detected element; may be null.</param>
+		/// <param name="travelerAlias">Lower-cased configured TravelerName.</param>
+		/// <param name="wandererAlias">Lower-cased configured WandererName.</param>
+		/// <param name="maleManekinAlias">Lower-cased Manequin1Name.</param>
+		/// <param name="femaleManekinAlias">Lower-cased Manequin2Name.</param>
+		internal static string GetRosterKey(
+			string nameGood,
+			string element,
+			string travelerAlias,
+			string wandererAlias,
+			string maleManekinAlias,
+			string femaleManekinAlias)
+		{
+			if (string.IsNullOrWhiteSpace(nameGood)) return string.Empty;
+
+			string nameLower = nameGood.Trim().ToLowerInvariant();
+			string travelerLower = travelerAlias?.Trim().ToLowerInvariant() ?? "";
+			string wandererLower = wandererAlias?.Trim().ToLowerInvariant() ?? "";
+			string maleManekinLower = maleManekinAlias?.Trim().ToLowerInvariant() ?? "";
+			string femaleManekinLower = femaleManekinAlias?.Trim().ToLowerInvariant() ?? "";
+
+			// Traveler: any element suffix → same roster slot
+			if (nameLower == "traveler"
+				|| nameLower.StartsWith("traveler")
+				|| (!string.IsNullOrWhiteSpace(travelerLower) && nameLower == travelerLower))
+				return "traveler";
+
+			// Wanderer: element-agnostic (always Anemo but guard against OCR noise)
+			if (nameLower == "wanderer"
+				|| (!string.IsNullOrWhiteSpace(wandererLower) && nameLower == wandererLower))
+				return "wanderer";
+
+			// Manekin: two distinct roster slots, no element required
+			if (nameLower == "manequin1"
+				|| (!string.IsNullOrWhiteSpace(maleManekinLower) && nameLower == maleManekinLower))
+				return "manequin1";
+
+			if (nameLower == "manequin2"
+				|| (!string.IsNullOrWhiteSpace(femaleManekinLower) && nameLower == femaleManekinLower))
+				return "manequin2";
+
+			// Ordinary character: just canonical name
+			return nameLower;
+		}
+
 		public void ScanCharacters(ref List<Character> Characters)
 		{
-			int viewed = 0;
-			int counter = 0;
-			string first = null;
+			int viewed    = 0;
+			int counter   = 0;
 			HashSet<string> scanned = new HashSet<string>();
+
+			// Resolve all configured aliases once
+			string travelerAlias      = Properties.Settings.Default.TravelerName;
+			string wandererAlias      = Properties.Settings.Default.WandererName;
+			string maleManekinAlias   = Properties.Settings.Default.Manequin1Name;
+			string femaleManekinAlias = Properties.Settings.Default.Manequin2Name;
 
 			UserInterface.ResetCharacterDisplay();
 
+			// ---------------------------------------------------------------
+			// STEP 1a: Initialize first roster key with 2-out-of-3 consensus
+			// ---------------------------------------------------------------
+			string firstRosterKey = null;
+			List<string> probedKeys = new List<string>();
+
+			for (int i = 0; i < 3; i++)
+			{
+				string pName = null, pElement = null;
+				ScanNameAndElement(ref pName, ref pElement, travelerAlias, wandererAlias, maleManekinAlias, femaleManekinAlias);
+				string key = GetRosterKey(pName, pElement, travelerAlias, wandererAlias, maleManekinAlias, femaleManekinAlias);
+
+				probedKeys.Add(string.IsNullOrEmpty(key) ? "empty" : key);
+
+				if (!string.IsNullOrEmpty(key) && probedKeys.Count(k => k == key) >= 2)
+				{
+					firstRosterKey = key;
+					break;
+				}
+				Logger.Warn("[ScanLoop] First slot consensus not yet reached (Attempt {0}/3).", i + 1);
+			}
+
+			Logger.Info("[ScanLoop] First slot probes: [{0}] -> consensus key: {1}",
+				string.Join(", ", probedKeys), firstRosterKey ?? "none");
+
+			if (string.IsNullOrEmpty(firstRosterKey))
+			{
+				Logger.Error("[ScanLoop] Aborting character scan: could not establish a 2-out-of-3 consensus for the first character.");
+				UserInterface.AddError("Character scan aborted: could not identify the first character.");
+				return;
+			}
+
 			while (true)
 			{
-				var character = ScanCharacter(first);
-				if(character.NameGOOD != "manequin")
-				{
-                    if (Characters.Count > 0 && character.NameGOOD == Characters.ElementAt(0).NameGOOD) break;
-                    if (character.IsValid())
-                    {
-                        if (!scanned.Contains(character.NameGOOD))
-                        {
-                            Characters.Add(character);
-                            UserInterface.IncrementCharacterCount();
-                            counter++;
-                            Logger.Info("Scanned {0} successfully", character.NameGOOD);
-                            if (Characters.Count == 1) first = character.NameGOOD;
-                        }
-                        else
-                        {
-                            Logger.Info("Prevented {0} duplicate scan", character.NameGOOD);
-                        }
-                    }
-                    else
-                    {
-                        string error = "";
-                        if (!character.HasValidName()) error += "Invalid character name\n";
-                        if (!character.HasValidLevel()) error += "Invalid level\n";
-                        if (!character.HasValidElement()) error += "Invalid element\n";
-                        if (!character.HasValidConstellation()) error += "Invalid constellation\n";
-                        if (!character.HasValidTalents()) error += "Invalid talents\n";
-                        Logger.Error("Failed to scan character\n" + error + character);
-                    }
-                }
+				Logger.Debug("[ScanLoop] scan_index={0} first_roster_key={1}",
+					counter, firstRosterKey);
 
-                Navigation.SelectNextCharacter();
+				// ---------------------------------------------------------------
+				// STEP 1b: Fast name probe for current slot
+				// ---------------------------------------------------------------
+				string probeName    = null;
+				string probeElement = null;
+				ScanNameAndElement(ref probeName, ref probeElement,
+					travelerAlias, wandererAlias, maleManekinAlias, femaleManekinAlias);
+
+				Logger.Debug("[ScanLoop] Probe: name='{0}' element='{1}'",
+					probeName ?? "<null>", probeElement ?? "<null>");
+
+				string currentRosterKey = GetRosterKey(
+					probeName, probeElement,
+					travelerAlias, wandererAlias,
+					maleManekinAlias, femaleManekinAlias);
+
+				// Record the very first roster slot before any detail scan (already done, but keeping currentRosterKey check robust)
+
+				// ---------------------------------------------------------------
+				// STEP 2: Wrap-around check
+				// ---------------------------------------------------------------
+				if (NumOfCharToScan == 0
+					&& counter > 0
+					&& firstRosterKey != null
+					&& string.Equals(currentRosterKey, firstRosterKey, StringComparison.OrdinalIgnoreCase))
+				{
+					Logger.Info("[ScanLoop] Wrap-around detected: current roster key '{0}' matches first '{1}'. " +
+						"Stopping before detail scan, export, or Next.",
+						currentRosterKey, firstRosterKey);
+					break;
+				}
+
+				// ---------------------------------------------------------------
+				// STEP 3: Full detail scan for this character slot.
+				// We already know name/element from the probe; pass them in so
+				// ScanCharacter does not need to re-OCR the name region.
+				// ---------------------------------------------------------------
+				var character = ScanCharacterDetails(
+					probeName, probeElement,
+					maleManekinAlias, femaleManekinAlias);
+
+				Logger.Debug("[ScanLoop] Detail result: key='{0}' element='{1}'",
+					character.NameGOOD ?? "<null>", character.Element ?? "<null>");
+
+				bool isManekin = (character.NameGOOD == "manequin1" || character.NameGOOD == "manequin2");
+
+				if (isManekin)
+				{
+					// Manekin: counted and logged, but never exported to GOOD JSON.
+					if (!scanned.Contains(character.NameGOOD))
+					{
+						scanned.Add(character.NameGOOD);
+						counter++;
+						Logger.Info("[ScanLoop] Manekin '{0}' logged but omitted from GOOD export (scan_index={1}). " +
+							"GOOD format has no canonical key for Manekin characters.",
+							character.NameGOOD, counter);
+					}
+					else
+					{
+						Logger.Info("[ScanLoop] Prevented duplicate Manekin scan of '{0}'", character.NameGOOD);
+					}
+				}
+				else if (character.IsValid())
+				{
+					if (!scanned.Contains(character.NameGOOD))
+					{
+						Characters.Add(character);
+						scanned.Add(character.NameGOOD);
+						UserInterface.IncrementCharacterCount();
+						counter++;
+						Logger.Info("[ScanLoop] Scanned '{0}' successfully (scan_index={1})",
+							character.NameGOOD, counter);
+					}
+					else
+					{
+						Logger.Info("[ScanLoop] Prevented duplicate scan of '{0}'", character.NameGOOD);
+					}
+				}
+				else
+				{
+					string error = "";
+					if (!character.HasValidName())         error += "Invalid character name\n";
+					if (!character.HasValidLevel())        error += "Invalid level\n";
+					if (!character.HasValidElement())      error += "Invalid element\n";
+					if (!character.HasValidConstellation()) error += "Invalid constellation\n";
+					if (!character.HasValidTalents())      error += "Invalid talents\n";
+					Logger.Error("[ScanLoop] Failed to scan character\n" + error + character);
+				}
+
+				// Safety exit for exact count met.
+				if (NumOfCharToScan != 0 && counter >= NumOfCharToScan)
+				{
+					Logger.Info("[ScanLoop] Ending scan: exact count reached ({0})", NumOfCharToScan);
+					break;
+				}
+
+				// ---------------------------------------------------------------
+				// STEP 4: Advance to the next roster slot.
+				// ---------------------------------------------------------------
+				Navigation.SelectNextCharacter();
 				UserInterface.ResetCharacterDisplay();
 
-				if ((++viewed > 3 && Characters.Count < 1) || (NumOfCharToScan !=0 && counter >= NumOfCharToScan)) break;
+				// Safety exit: if nothing resolved after several views.
+				if (++viewed > 3 && Characters.Count < 1 && counter < 1)
+				{
+					Logger.Info("[ScanLoop] Ending scan: viewed={0} resolved={1} exported={2}",
+						viewed, counter, Characters.Count);
+					break;
+				}
 			}
 
 			// Childe passive buff fix
@@ -79,7 +265,8 @@ namespace InventoryKamera
 						for (int j = 0; j < 4; j++)
 						{
 							Characters[j].Talents["auto"] -= 1;
-							Logger.Info("Applied Tartaglia auto attack fix to {0} at position {1}.", Characters[j].NameGOOD, j);
+							Logger.Info("Applied Tartaglia auto attack fix to {0} at position {1}.",
+								Characters[j].NameGOOD, j);
 						}
 						break;
 					}
@@ -91,102 +278,148 @@ namespace InventoryKamera
 					}
 				}
 				else if (Characters[i].NameGOOD.ToLower() == "tartaglia") break;
-            }
+			}
 		}
 
-		private static Character ScanCharacter(string firstCharacter)
+		/// <summary>
+		/// Performs the full detail scan (level, constellation, talents) for the
+		/// character whose name and element have already been resolved by the
+		/// fast probe in ScanCharacters.  Accepts pre-resolved name/element so the
+		/// OCR name region is not re-read.
+		/// </summary>
+		private static Character ScanCharacterDetails(
+			string probeName, string probeElement,
+			string maleManekinAlias, string femaleManekinAlias)
 		{
 			var character = new Character();
-			Navigation.SelectCharacterAttributes();
-			string name = null;
-			string element = null;
 
-			// Scan the Name and element of Character. Attempt 75 times max.
-			ScanNameAndElement(ref name, ref element);
+			// Use probe results directly — do not re-scan the name region.
+			string name    = probeName;
+			string element = probeElement;
 
-			if(name == "Manequin1" || name == "Manequin2")
+			Logger.Debug("[ScanCharacterDetails] name='{0}' element='{1}'",
+				name ?? "<null>", element ?? "<null>");
+
+			// Manekin: return a stub; GOOD export is skipped by the caller.
+			if (name == "Manequin1" || name == "Manequin2")
 			{
-                character.NameGOOD = name;
-				return character;
-            }
-
-            if (string.IsNullOrWhiteSpace(name))
-			{
-				if (string.IsNullOrWhiteSpace(name)) UserInterface.AddError("Could not determine character's name");
-				if (string.IsNullOrWhiteSpace(element)) UserInterface.AddError("Could not determine character's element");
+				character.NameGOOD = name.ToLower();
+				character.Element  = element ?? "";
 				return character;
 			}
+
+			if (string.IsNullOrWhiteSpace(name))
+			{
+				UserInterface.AddError("Could not determine character's name");
+				if (string.IsNullOrWhiteSpace(element))
+					UserInterface.AddError("Could not determine character's element");
+				return character;
+			}
+
+			Navigation.SelectCharacterAttributes();
 
 			character.NameGOOD = name;
-			character.Element = element;
+			character.Element  = element;
 
-			// Check if character was first scanned
-			if (character.NameGOOD != firstCharacter)
+			// Scan Level and ascension
+			bool ascended = false;
+			int level = ScanLevel(ref ascended);
+			if (level == -1)
 			{
-				bool ascended = false;
-				// Scan Level and ascension
-				int level = ScanLevel(ref ascended);
-				if (level == -1)
+				UserInterface.AddError($"Could not determine {character.NameGOOD}'s level. Setting to 1.");
+				level    = 1;
+				ascended = false;
+			}
+			character.Level    = level;
+			character.Ascended = ascended;
+
+			Logger.Info("{0} Level: {1}",   character.NameGOOD, character.Level);
+			Logger.Info("{0} Ascended: {1}", character.NameGOOD, character.Ascended);
+
+			// Scan Constellation
+			Navigation.SelectCharacterConstellation();
+			character.Constellation = ScanConstellations(character);
+			Logger.Info("{0} Constellation: {1}", character.NameGOOD, character.Constellation);
+			Navigation.SystemWait(Navigation.Speed.Normal);
+
+			// Scan Talents
+			Navigation.SelectCharacterTalents();
+			character.Talents = ScanTalents(character);
+			Logger.Info("{0} Talents: {1}", character.NameGOOD,
+				"{" + string.Join(", ", character.Talents.Select(kv => kv.Key + "=" + kv.Value).ToArray()) + "}");
+			Navigation.SystemWait(Navigation.Speed.Normal);
+
+			// Scale down talents due to constellations
+			// Traveler has per-element ConstellationOrder; ordinary chars have a flat array.
+			if (character.Constellation >= 3)
+			{
+				string nameLower = name.ToLower();
+				if (GenshinProcesor.Characters.ContainsKey(nameLower))
 				{
-					UserInterface.AddError($"Could not determine {character.NameGOOD}'s level. Setting to 1.");
-					level = 1;
-					ascended = false;
-				}
-				character.Level = level;
-				character.Ascended = ascended;
+					bool isTraveler = character.NameGOOD.StartsWith("Traveler",
+						StringComparison.OrdinalIgnoreCase);
 
-				Logger.Info("{0} Level: {1}", character.NameGOOD, character.Level);
-				Logger.Info("{0} Ascended: {1}", character.NameGOOD, character.Ascended);
+					string jsonPath = System.IO.Path.GetFullPath(@".\inventorylists\characters.json");
+					var charData = GenshinProcesor.Characters[nameLower];
+					var orderToken = charData != null ? charData["ConstellationOrder"] : null;
+					bool orderExists = orderToken != null;
 
-				// Scan Experience
-				//experience = ScanExperience();
-				//Navigation.SystemRandomWait(Navigation.Speed.Normal);
-
-				// Scan Constellation
-				Navigation.SelectCharacterConstellation();
-				character.Constellation = ScanConstellations(character);
-				Logger.Info("{0} Constellation: {1}", character.NameGOOD, character.Constellation);
-				Navigation.SystemWait(Navigation.Speed.Normal);
-
-				// Scan Talents
-				Navigation.SelectCharacterTalents();
-				character.Talents = ScanTalents(character);
-				Logger.Info("{0} Talents: {1}", character.NameGOOD, "{" + string.Join(", ", character.Talents.Select(kv => kv.Key + "=" + kv.Value).ToArray()) + "}");
-				Navigation.SystemWait(Navigation.Speed.Normal);
-
-				// Scale down talents due to constellations
-				if (character.Constellation >= 3)
-				{
-					if (GenshinProcesor.Characters.ContainsKey(name.ToLower()))
+					Newtonsoft.Json.Linq.JObject orderObj = orderToken as Newtonsoft.Json.Linq.JObject;
+					string availProps = "(none)";
+					if (orderObj != null)
 					{
-						string talentLeveledAtConst3 = character.NameGOOD.Contains("Traveler")
-                            ? (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][character.Element.ToLower()][0]
-                            : (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][0];
-                        string talentLeveledAtConst5 = character.NameGOOD.Contains("Traveler")
-							? (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][character.Element.ToLower()][1]
-							: (string)GenshinProcesor.Characters[name.ToLower()]["ConstellationOrder"][1];
+						var props = orderObj.Properties().Select(p => p.Name).ToArray();
+						availProps = props.Length > 0 ? string.Join(", ", props) : "(empty)";
+					}
 
-						// Scale down talents
-						if (character.Constellation >= 3)
-						{
-							Logger.Info("{0} constellation 3+, adjusting scanned {1} level", character.NameGOOD, talentLeveledAtConst3);
-							character.Talents[talentLeveledAtConst3] -= 3;
-						}
+					Newtonsoft.Json.Linq.JToken elementToken = null;
+					if (isTraveler && !string.IsNullOrEmpty(character.Element) && orderExists)
+					{
+						elementToken = orderToken[character.Element.ToLower()];
+					}
+					else if (!isTraveler)
+					{
+						elementToken = orderToken;
+					}
 
-						if (character.Constellation >= 5)
-						{
-                            Logger.Info("{0} constellation 5+, adjusting scanned {1} level", character.NameGOOD, talentLeveledAtConst5);
-                            character.Talents[talentLeveledAtConst5] -= 3;
-						}
+					bool tokenExists = elementToken != null;
+					string tokenType = tokenExists ? elementToken.Type.ToString() : "Null";
+					Newtonsoft.Json.Linq.JArray arrToken = elementToken as Newtonsoft.Json.Linq.JArray;
+					int itemCount = (tokenExists && arrToken != null) ? arrToken.Count : 0;
+
+					Logger.Info("[ScanCharacterDetails] Talent scaling diagnostics: key='{0}', NameGOOD='{1}', Element='{2}', JSONPath='{3}', OrderExists={4}, AvailableProps='{5}', ElementTokenExists={6}, TokenType='{7}', ItemCount={8}",
+						nameLower, character.NameGOOD, character.Element ?? "", jsonPath, orderExists, availProps, tokenExists, tokenType, itemCount);
+
+					string talentAtC3 = null;
+					string talentAtC5 = null;
+
+					if (tokenExists && elementToken.Type == Newtonsoft.Json.Linq.JTokenType.Array && itemCount >= 2)
+					{
+						talentAtC3 = (string)elementToken[0];
+						talentAtC5 = (string)elementToken[1];
 					}
 					else
-						return character;
+					{
+						Logger.Warn("[ScanCharacterDetails] Missing or invalid ConstellationOrder array for {0} (element: {1}). Scanned talent levels left unchanged.",
+							character.NameGOOD, character.Element ?? "N/A");
+					}
+
+					if (!string.IsNullOrEmpty(talentAtC3) && character.Talents.ContainsKey(talentAtC3))
+					{
+						Logger.Info("{0} constellation 3+, adjusting scanned '{1}' level by -3",
+							character.NameGOOD, talentAtC3);
+						character.Talents[talentAtC3] -= 3;
+					}
+
+					if (character.Constellation >= 5 && !string.IsNullOrEmpty(talentAtC5) && character.Talents.ContainsKey(talentAtC5))
+					{
+						Logger.Info("{0} constellation 5+, adjusting scanned '{1}' level by -3",
+							character.NameGOOD, talentAtC5);
+						character.Talents[talentAtC5] -= 3;
+					}
 				}
-
-
-				return character;
 			}
-			Logger.Info("Repeat character {0} detected. Finishing character scan...", name);
+
 			return character;
 		}
 
@@ -233,7 +466,16 @@ namespace InventoryKamera
 			return text;
 		}
 
-		private static void ScanNameAndElement(ref string name, ref string element)
+		/// <summary>
+		/// Scans the character name and element from the screen.
+		/// Resolves Traveler/Wanderer/Manekin aliases before element validation.
+		/// Used both as the fast probe in ScanCharacters (for roster identity)
+		/// and directly when name/element are needed.
+		/// </summary>
+		private static void ScanNameAndElement(
+			ref string name, ref string element,
+			string travelerAlias, string wandererAlias,
+			string maleManekinAlias, string femaleManekinAlias)
 		{
 			int attempts = 0;
 			int maxAttempts = 75;
@@ -248,47 +490,112 @@ namespace InventoryKamera
 				Navigation.SystemWait(Navigation.Speed.Fast);
 				using (Bitmap bm = Navigation.CaptureRegion(region))
 				{
-					Bitmap n = GenshinProcesor.ConvertToGrayscale(bm);
-					GenshinProcesor.SetThreshold(110, ref n);
-					GenshinProcesor.SetInvert(ref n);
-
-					n = GenshinProcesor.ResizeImage(n, n.Width * 2, n.Height * 2);
-					string block = GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.Auto).ToLower().Trim();
-					string line = GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.SingleLine).ToLower().Trim();
-
-					// Characters with wrapped names will not have a slash
-					string nameAndElement = line.Contains("/") ? line : block;
-
-					if (nameAndElement.Contains("/"))
+					using (Bitmap n0 = GenshinProcesor.ConvertToGrayscale(bm))
 					{
-						var split = nameAndElement.Split('/');
+						Bitmap n = n0;
+						GenshinProcesor.SetThreshold(110, ref n);
+						GenshinProcesor.SetInvert(ref n);
 
-						// Search for element and character name in block
+						n = GenshinProcesor.ResizeImage(n, n.Width * 2, n.Height * 2);
+						string block = GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.Auto).ToLower().Trim();
+						string line = GenshinProcesor.AnalyzeText(n, Tesseract.PageSegMode.SingleLine).ToLower().Trim();
+						n.Dispose();
 
-						// Long name characters might look like
-						// <Element>   <First Name>
-						// /           <Last Name>
-						element = !split[0].Contains(" ") ? GenshinProcesor.FindElementByName(split[0].Trim()) : GenshinProcesor.FindElementByName(split[0].Split(' ')[0].Trim());
+						// Characters with wrapped names will not have a slash
+						string nameAndElement = line.Contains("/") ? line : block;
 
-						// Find character based on string after /
-						// Long name characters might search by their last name only but it'll still work.
-						name = GenshinProcesor.FindClosestCharacterName(Regex.Replace(split[1], @"[\W]", string.Empty));
+						if (nameAndElement.Contains("/"))
+						{
+							var split = nameAndElement.Split('/');
 
-						if (!GenshinProcesor.CharacterMatchesElement(name, element)) { name = ""; element = ""; }
-                    }
-					n.Dispose();
+							// Search for element and character name in block
 
-					if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(element))
-					{
-						Logger.Debug("Scanned character name as {0} with element {1}", name, element);
-                        UserInterface.SetCharacter_NameAndElement(bm, name, element);
-						return;
+							// Long name characters might look like
+							// <Element>   <First Name>
+							// /           <Last Name>
+							string scannedElement = !split[0].Contains(" ")
+								? GenshinProcesor.FindElementByName(split[0].Trim())
+								: GenshinProcesor.FindElementByName(split[0].Split(' ')[0].Trim());
+							string rawOcrName = Regex.Replace(split[1], @"[\W]", string.Empty);
+							string rawOcrNameLower = rawOcrName.ToLower();
+
+							// --- Alias resolution: check special characters BEFORE fuzzy lookup ---
+
+							// Traveler custom name → canonical "Traveler" key (element preserved for GOOD export)
+							if (!string.IsNullOrWhiteSpace(travelerAlias) &&
+								string.Equals(rawOcrNameLower, travelerAlias, StringComparison.OrdinalIgnoreCase))
+							{
+								name    = "Traveler";
+								element = scannedElement; // may be null; that is fine for roster key
+								Logger.Debug("[ScanNameAndElement] OCR name '{0}' matched Traveler alias '{1}'",
+									rawOcrName, travelerAlias);
+								UserInterface.SetCharacter_NameAndElement(bm, name, element ?? "");
+								return;
+							}
+
+							// Wanderer custom name → canonical "Wanderer"
+							if (!string.IsNullOrWhiteSpace(wandererAlias) &&
+								string.Equals(rawOcrNameLower, wandererAlias, StringComparison.OrdinalIgnoreCase))
+							{
+								name    = "Wanderer";
+								element = scannedElement;
+								Logger.Debug("[ScanNameAndElement] OCR name '{0}' matched Wanderer alias '{1}'",
+									rawOcrName, wandererAlias);
+								UserInterface.SetCharacter_NameAndElement(bm, name, element ?? "");
+								return;
+							}
+
+							// Male Manekin custom name
+							if (!string.IsNullOrWhiteSpace(maleManekinAlias) &&
+								string.Equals(rawOcrNameLower, maleManekinAlias, StringComparison.OrdinalIgnoreCase))
+							{
+								name    = "Manequin1";
+								element = scannedElement; // element not required for Manekin roster key
+								Logger.Debug("[ScanNameAndElement] OCR name '{0}' matched male Manekin alias '{1}'",
+									rawOcrName, maleManekinAlias);
+								UserInterface.SetCharacter_NameAndElement(bm, name, element ?? "");
+								return;
+							}
+
+							// Female Manekin custom name
+							if (!string.IsNullOrWhiteSpace(femaleManekinAlias) &&
+								string.Equals(rawOcrNameLower, femaleManekinAlias, StringComparison.OrdinalIgnoreCase))
+							{
+								name    = "Manequin2";
+								element = scannedElement;
+								Logger.Debug("[ScanNameAndElement] OCR name '{0}' matched female Manekin alias '{1}'",
+									rawOcrName, femaleManekinAlias);
+								UserInterface.SetCharacter_NameAndElement(bm, name, element ?? "");
+								return;
+							}
+
+							// Ordinary character: fuzzy lookup + element validation
+							{
+								string resolvedName = GenshinProcesor.FindClosestCharacterName(rawOcrName);
+								if (!GenshinProcesor.CharacterMatchesElement(resolvedName, scannedElement))
+								{
+									Logger.Debug("[ScanNameAndElement] resolved='{0}' does not match element='{1}', clearing.",
+										resolvedName, scannedElement);
+									resolvedName   = "";
+									scannedElement = "";
+								}
+								name    = resolvedName;
+								element = scannedElement;
+							}
+						}
+
+						if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(element))
+						{
+							Logger.Debug("Scanned character name as {0} with element {1}", name, element);
+							UserInterface.SetCharacter_NameAndElement(bm, name, element);
+							return;
+						}
+						else
+						{
+							Logger.Debug("Could not parse character name/element (Atempt {0}/{1}). Retrying...", attempts+1, maxAttempts);
+							bm.Save($"./logging/characters/{bm.GetHashCode()}.png");
+						}
 					}
-					else
-                    {
-                        Logger.Debug("Could not parse character name/element (Atempt {0}/{1}). Retrying...", attempts+1, maxAttempts);
-                        bm.Save($"./logging/characters/{bm.GetHashCode()}.png");
-                    }
 				}
 				attempts++;
 				Navigation.SystemWait(Navigation.Speed.Fast);
@@ -435,9 +742,9 @@ namespace InventoryKamera
 					// Check a small region next to the text "Activate"
 					// for a mostly white backround
 					ImageStatistics statistics = new ImageStatistics(region);
-					if (statistics.Red.Mean >= 190 && statistics.Green.Mean >= 190 && statistics.Blue.Mean >= 190) 
+					if (statistics.Red.Mean >= 190 && statistics.Green.Mean >= 190 && statistics.Blue.Mean >= 190)
 						break;
-					
+
 				}
 			}
 

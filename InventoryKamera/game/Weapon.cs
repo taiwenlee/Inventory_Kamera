@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using Newtonsoft.Json;
 
@@ -18,7 +18,7 @@ namespace InventoryKamera
 		[JsonProperty("refinement")]
 		public int RefinementLevel { get; private set; }
 
-		[JsonProperty("location")]
+		[JsonProperty("location", NullValueHandling = NullValueHandling.Ignore)]
 		[DefaultValue("")]
 		public string EquippedCharacter { get; internal set; }
 

@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -67,9 +67,16 @@ namespace InventoryKamera
             {
                 Weapons = new List<Weapon>(genshinData.Inventory.Weapons);
 
-                if (!Properties.Settings.Default.EquipWeapons)
+                foreach (Weapon weapon in Weapons)
                 {
-                    foreach (Weapon weapon in Weapons) weapon.EquippedCharacter = "";
+                    string equippedCharacter = weapon.EquippedCharacter;
+                    bool isManequin = !string.IsNullOrWhiteSpace(equippedCharacter) &&
+                        equippedCharacter.StartsWith("manequin", StringComparison.OrdinalIgnoreCase);
+
+                    if (!Properties.Settings.Default.EquipWeapons || isManequin)
+                    {
+                        weapon.EquippedCharacter = null;
+                    }
                 }
             }
 
@@ -78,9 +85,16 @@ namespace InventoryKamera
             {
                 Artifacts = new List<Artifact>(genshinData.Inventory.Artifacts);
 
-                if (!Properties.Settings.Default.EquipArtifacts)
+                foreach (Artifact artifact in Artifacts)
                 {
-                    foreach (Artifact artifact in Artifacts) artifact.EquippedCharacter = "";
+                    string equippedCharacter = artifact.EquippedCharacter;
+                    bool isManequin = !string.IsNullOrWhiteSpace(equippedCharacter) &&
+                        equippedCharacter.StartsWith("manequin", StringComparison.OrdinalIgnoreCase);
+
+                    if (!Properties.Settings.Default.EquipArtifacts || isManequin)
+                    {
+                        artifact.EquippedCharacter = null;
+                    }
                 }
             }
 

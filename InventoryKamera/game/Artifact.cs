@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -30,7 +30,7 @@ namespace InventoryKamera
 		[JsonProperty("unactivatedSubstats")]
 		public List<SubStat> unactivatedSubstats { get; private set; }
 
-		[JsonProperty("location")]
+		[JsonProperty("location", NullValueHandling = NullValueHandling.Ignore)]
 		public string EquippedCharacter { get; internal set; }	
 
 		[JsonProperty("lock")]
